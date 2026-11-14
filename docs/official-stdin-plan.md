@@ -35,7 +35,7 @@
 - [x] 2. RED worker业务输入/源码替换/捕获脱敏/无落盘/自有Credential环境/只执行invoke测试；实现stdin driver；GREEN。
 - [x] 3. RED Operations任务fingerprint与提交前版本变化；实现plan_execution绑定；GREEN。
 - [x] 4. 真实SHA源仅内存，通过真实独立Python子进程+拦截全部业务网络+合成凭据跑大载荷smoke，检查官方签名请求解析/无重复写；不是真实merchantAPI。
-- [ ] 5.（代码review/修复及170项全套、40文件审核、安装后smoke已完成；私有推送/回测待收口） 一次有界评审，重要问题RED→GREEN；完整clean suite、包审核、安装、记录、私有分支推送和实际GitHubclone回测。
+- [x] 5.（单次review修正、170项全套、40文件审核、安装后smoke、私有代码推送与实际GitHubclone回测完成；不是正式发行或真实商家API验证） 一次有界评审，重要问题RED→GREEN；完整clean suite、包审核、安装、记录、私有分支推送和实际GitHubclone回测。
 
 ## Ruling
 
@@ -55,3 +55,6 @@
 review：无Critical，3 Important、1 Minor。旧prepared真实任务缺officialExecution、预检期间换店、成功输出含原载荷/已知秘密JSON键，均先RED后修复；33项定向回归GREEN。修正包括缺契约旧批准拒绝、预检后核身份和底层expectedShop传递、worker同一冻结auth上下文签名查询seller-info后才写、共享redact处理秘密键及publish_response去请求回显。源的实际HTTP仍只使用官方实现。没有另开第二轮review；最终修正由本地回归/完整套件/实际SHA源拦截网络smoke验收。
 
 minor (deferred)：worker未二次断言JDO_ENV=prod；parent强制prod，正常路径未观察到错环境提交，暂保留为纵深防御项。代价是绕过正常parent启动driver时缺少该断言，不能把driver独立启动列为支持的商家流程。
+
+
+检查点代码commit 387e66fded031b2c0921f8603cb9395112939c8a；实际GitHubclone重建SHA一致、fresh HOME安装/onboarding、安装后stdin source/signing拦截网络smoke、价格file-fake与170项全套通过。证据见transport-verification-2026-11-15及github-transport-roundtrip-2026-11-15。仅本计划已完成开发闭环，整体目标未完成。

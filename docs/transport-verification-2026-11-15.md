@@ -35,3 +35,8 @@ worker没有第二次断言JDO_ENV=prod；正常parent已强制，未复现正�
 ## 未验收与下一步
 
 没有真实商家授权/OAuth刷新、图片上传、全SKU上新或实际店铺写入、正式Release、远端CI、付费生成。继续媒体空间/分类发现、图片上传/主图详情绑定与原生上新；模型来源继续待负责人补充。本检查点不会将mock工具箱称整体上线。
+
+
+## 实际私有GitHub回测
+
+代码commit `387e66fded031b2c0921f8603cb9395112939c8a`推送后，实际重新克隆私有GitHub单分支（非本地复制），HEAD匹配，重建包SHA与上面一致；40文件审核、fresh HOME/Python -I安装、onboarding、安装副本的真实公开SHA源拦截网络大载荷smoke、原价格跨进程file-fake以及从clone运行170项全套均通过。见github-transport-roundtrip-2026-11-15.json。仍需要已有仓库读取授权，没有正式Release/远端CI或真实商家API写入。

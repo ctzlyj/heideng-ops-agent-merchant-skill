@@ -58,3 +58,6 @@ Ruling：页面预算和回查字段限制是本地安全载荷，不是能力�
 Ruling：source由官方策略声明deprecated，仅采用已审核同版/SHA且不落盘/不分发；失败/撤回/新版本暂停该transport，不能静默换成不支持的来源。成本是大载荷可能等待新审计，第三方许可未重授。
 
 minor (deferred)：worker没有第二次断言JDO_ENV=prod，正常parent已强制；绕过parent独立启动不是支持的商家流程。
+
+
+检查点6回测：私有GitHub source commit 387e66fded031b2c0921f8603cb9395112939c8a实际重新克隆；重建SHA一致、40文件审核、fresh HOME安装/onboarding、安装后签名/身份GET大载荷mock和价格mock、170项全套通过。继续原生媒体上传/绑定/上新，不把transport smoke当上传成功。
