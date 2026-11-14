@@ -33,3 +33,16 @@
 ## 检查点3：OAuth接管实现与隔离验证
 
 已增加auth_flow/browser/runtime/manager/broker/worker及统一入口，独立PyPI运行时真实安装，真实SDK全部页面拦截的同context smoke、真实loopback/跨进程mock worker通过。未知回执、路径、错店并发、所持进程清理、前台gate和原任务恢复均有回归测试。详见auth-verification-2026-11-15.md。真实商家授权未执行；macOS官方凭据实现有secret argv风险，新授权已禁该平台。剩余原生业务适配、许可及正式发行继续，目标保持active。
+
+## 检查点4：原生 POP 商品与价格适配
+
+新增ProductService与字段证据解析；product/sku/health分页、原生详情、SkuJdprice平铺PATCH、批准前绑定旧价/类目及待审/线上读取、跨Profile同店未知写阻断、TTL前检后再检查、磁盘版本变化阻止旧模块写。CLI已有可执行入口；不以准备JSON替代执行/回查。所有开发测试用假店/假凭据，不运行真实店铺写入。
+
+Ruling：同一products路径两份官方文档scopeSet描述不同；采用status文档实测的字段级枚举，不拿price文档分组造成的空壳当全字段。实际账户schema仍需商家授权后核验。风险是账户/版本字段差异；缺字段必须明示，不猜补，不反复提交。
+
+Ruling：页面预算和回查字段限制是本地安全载荷，不是能力白名单或平台SKU上限。保留完整用户范围，按范围拆分/续读并核对来源；任何unknown阻断后续同店写。startPage>1不能单独证明完整店铺清单。修改当前独立项目，不改内部版本。
+
+
+## 检查点5：价格评审闭环与凭据刷新边界
+
+原4项重要评审缺口及敏感JSON文本残留已先RED再修复，完整干净套件150项通过，37文件包审核和ZIP安装跨进程业务mock闭环通过；详见product-verification-2026-11-15。macOS既有授权查询也可能经官方自动刷新走secret argv，统一禁用带凭据CLI而保留安装/离线能力。当前未正式发行，不把开发候选称上线完成。下一项继续合法大载荷/素材/上新原生适配；真实写入及模型来源仍分别受授权与待确认约束。

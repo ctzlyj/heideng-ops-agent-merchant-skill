@@ -6,6 +6,8 @@ from . import VERSION
 from .safety import SafetyError,atomic_json,read_json,redact,safe_join
 from .state import FileLock
 from .official import validate_profile,validate_route
+from .verification import business_payload,matches_fields,validate_expected
+from .price_contract import price_contract,validate_native_price_response
 
 def digest(value):return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
 
@@ -25,6 +27,20 @@ def _operation(value):
  if not re.fullmatch('[a-z0-9-]+',str(result['skillId'])):raise SafetyError('invalid-skill-id')
  digest(result)
  return result
+
+def _verification(value):
+ if not isinstance(value,dict) or set(value)!={'query','expected'}:raise SafetyError('complete-readback-scope-required')
+ query=_operation(value['query']);validate_expected(value['expected'])
+ if query['method']!='GET' or redact(value)!=value:raise SafetyError('readonly-nonsecret-readback-required')
+ if len(json.dumps(value,ensure_ascii=False,allow_nan=False))>65536:raise SafetyError('verification-scope-too-large')
+ return {'query':query,'expected':value['expected']}
+
+def _same_identity(actual,expected):
+ return actual.get('shopType')=='POP' and all(str(actual.get(k))==str(expected[k]) for k in ('venderId','shopId','shopName'))
+
+def _match_count(result,expected):
+ data=business_payload(result);rows=data if isinstance(data,list) else [data]
+ return sum(isinstance(row,dict) and matches_fields(row,expected) for row in rows)
 
 class Operations:
  def __init__(self,state,client):self.state=Path(state).resolve();self.client=client
@@ -51,25 +67,34 @@ class Operations:
   if not value:raise SafetyError('task-not-found')
   if digest(value['scope'])!=value['fingerprint']:raise SafetyError('task-scope-modified')
   return value
- def prepare(self,profile,operation,verification=None):
+ def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None):
   shop=self.shop(profile);operation=_operation(operation)
   scope={'shop':{k:shop[k] for k in ('profile','venderId','shopName','shopId')},'operation':operation,'runtimeVersion':VERSION}
-  if verification is not None:
-   if not isinstance(verification,dict) or set(verification)!={'query','expected'} or not isinstance(verification['expected'],dict) or not verification['expected']:raise SafetyError('complete-readback-scope-required')
-   query=_operation(verification['query'])
-   if query['method']!='GET' or redact(verification)!=verification:raise SafetyError('readonly-nonsecret-readback-required')
-   scope['verification']={'query':query,'expected':verification['expected']}
+  for key,value in (('verification',verification),('precondition',precondition),('onlineVerification',online_verification)):
+   if value is not None:scope[key]=_verification(value)
+  contract=price_contract(scope)
   fingerprint=digest(scope);ident=fingerprint[:24];path=self._path(ident)
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     existing=read_json(path)
     if existing:return self.task(ident)
     if operation['method']!='GET':
-     for p in (self.state/'tasks').glob('*.json'):
-      old=read_json(p,{})
-      if old.get('status') in ('unknown','submitting','submitted') and old.get('scope',{}).get('shop',{}).get('profile')==profile:raise SafetyError('shop-has-unresolved-write-check-before-new-write')
+     self._assert_resolved(shop)
+    planning=None
+    if contract:
+     if not _same_identity(self.client.identity(profile),shop):raise SafetyError('native-price-planning-shop-mismatch')
+     check=scope['precondition'];query=check['query'];response=self.client.invoke(profile,query['url'],method='GET',params=query['params'],skill_id=query['skillId'])
+     validate_native_price_response(contract,response,stage='before')
+     if _match_count(response,check['expected'])!=1:raise SafetyError('native-price-planning-values-not-current')
+     planning={'query':query,'responseSha256':digest(response),'checkedAt':time.time()}
     task={'taskId':ident,'fingerprint':fingerprint,'scope':scope,'status':'prepared','createdAt':time.time(),'requiresWriteApproval':operation['method']!='GET'}
+    if planning is not None:task['planningEvidence']=planning
     atomic_json(path,task);return task
+ def _assert_resolved(self,shop,exclude=None):
+  for entry in (self.state/'tasks').glob('*.json'):
+   old=read_json(safe_join(self.state,'tasks/'+entry.name),{});subject=old.get('scope',{}).get('shop',{})
+   same=subject.get('profile')==shop['profile'] or all(str(subject.get(k,''))==str(shop[k]) for k in ('venderId','shopId'))
+   if old.get('taskId')!=exclude and old.get('status') in ('unknown','submitting','submitted') and same:raise SafetyError('shop-has-unresolved-write-check-before-new-write')
  def approve(self,task_id,fingerprint,*,confirmed=False,ttl_seconds=900):
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
@@ -82,17 +107,29 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
-    if task['scope']['runtimeVersion']!=VERSION:raise SafetyError('runtime-changed-prepare-new-scope-and-approval')
+    try:live_version=(Path(__file__).resolve().parents[1]/'VERSION').read_text(encoding='utf-8-sig').strip()
+    except OSError:raise SafetyError('live-runtime-version-unavailable') from None
+    if task['scope']['runtimeVersion']!=VERSION or live_version!=VERSION:raise SafetyError('runtime-changed-prepare-new-scope-and-approval')
     if task['status']!='prepared':raise SafetyError('task-already-started-query-outcome-do-not-replay')
     if task['requiresWriteApproval']:
      approval=task.get('approval',{})
-     if not approval.get('confirmed') or approval.get('fingerprint')!=task['fingerprint'] or approval.get('expiresAt',0)<time.time():raise SafetyError('current-exact-write-approval-required')
+     if not approval.get('confirmed') or approval.get('fingerprint')!=task['fingerprint'] or approval.get('expiresAt',0)<=time.time():raise SafetyError('current-exact-write-approval-required')
     expected=task['scope']['shop'];actual=self.client.identity(expected['profile'])
     if any(str(actual.get(k))!=str(expected[k]) for k in ('shopName','venderId','shopId')) or actual.get('shopType')!='POP':raise SafetyError('shop-changed-stop-before-write')
+    if task['requiresWriteApproval']:self._assert_resolved(expected,exclude=task_id)
+    contract=price_contract(task['scope'])
+    precondition=task['scope'].get('precondition')
+    if precondition:
+     query=precondition['query'];current=self.client.invoke(expected['profile'],query['url'],method='GET',params=query['params'],skill_id=query['skillId'])
+     if contract:validate_native_price_response(contract,current,stage='before')
+     if _match_count(current,precondition['expected'])!=1:raise SafetyError('precondition-current-value-changed-prepare-new-approval')
+     task['preconditionEvidence']={'checkedAt':time.time(),'matched':True,'result':redact(current)}
+    if task['requiresWriteApproval'] and task['approval']['expiresAt']<=time.time():raise SafetyError('approval-expired-during-preflight')
     op=task['scope']['operation'];task.update(status='submitting',startedAt=time.time());atomic_json(self._path(task_id),task)
     try:
      result=self.client.invoke(expected['profile'],op['url'],method=op['method'],params=op['params'],body=op.get('body'),skill_id=op['skillId'],write_authorized=task['requiresWriteApproval'])
-     if isinstance(result,dict) and (result.get('success') is False or result.get('status') in ('error','FAILED')):raise SafetyError('business-outcome-not-confirmed')
+     payload=business_payload(result)
+     if task['requiresWriteApproval'] and (not isinstance(payload,(dict,list)) or not payload):raise SafetyError('business-acknowledgement-missing')
     except Exception as error:
      task.update(status='unknown',error={'kind':type(error).__name__,'message':'提交结果待核对；不会自动重提，也不会因换工具重新提交'})
     else:task.update(status='submitted' if task['requiresWriteApproval'] else 'completed',result=redact(result),finishedAt=time.time())
@@ -103,18 +140,37 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
-    if task['status'] not in ('submitted','unknown'):raise SafetyError('readback-only-for-unresolved-write')
+    if task['status'] not in ('submitted','unknown','verified'):raise SafetyError('readback-only-for-unresolved-write')
     verification=task['scope'].get('verification')
     if not verification or digest(verification)!=digest({'query':query,'expected':expected}):raise SafetyError('readback-must-match-original-approved-verification-scope')
     shop=task['scope']['shop'];actual=self.client.identity(shop['profile'])
-    if any(str(actual.get(k))!=str(shop[k]) for k in ('venderId','shopId','shopName')):raise SafetyError('readback-shop-mismatch')
+    if not _same_identity(actual,shop):raise SafetyError('readback-shop-mismatch')
     result=self.client.invoke(shop['profile'],query['url'],params=query['params'],skill_id=query['skillId'])
-    data=result.get('data',{}) if isinstance(result,dict) else {};rows=data if isinstance(data,list) else [data]
-    matched=[row for row in rows if isinstance(row,dict) and all(str(row.get(k))==str(v) for k,v in expected.items())]
-    task['readback']={'query':query,'expected':expected,'matchCount':len(matched),'at':time.time(),'result':redact(result)}
+    contract=price_contract(task['scope'])
+    if contract:validate_native_price_response(contract,result,stage='pending')
+    match_count=_match_count(result,expected)
+    task['readback']={'query':query,'expected':expected,'matchCount':match_count,'at':time.time(),'result':redact(result)}
     # Exact API evidence of the desired state, not an assertion about authorship of an unknown submission.
-    if len(matched)==1:
-     task['targetStateVerified']=True
+    task['targetStateVerified']=match_count==1
+    if match_count==1:
      if task['status']!='unknown':task['status']='verified'
      task['verificationMeaning']='目标状态由本店官方读取证明；unknown原提交仍未证明终态，继续阻断重提/新写入'
+    atomic_json(self._path(task_id),task);return task
+
+ def verify_online(self,task_id):
+  with FileLock(self.state/'install.lock'):
+   with FileLock(self.state/'tasks.lock'):
+    task=self.task(task_id)
+    if task['status'] not in ('submitted','unknown','verified'):raise SafetyError('online-readback-only-after-submission')
+    verification=task['scope'].get('onlineVerification')
+    if not verification:raise SafetyError('online-verification-must-be-bound-before-approval')
+    shop=task['scope']['shop'];actual=self.client.identity(shop['profile'])
+    if not _same_identity(actual,shop):raise SafetyError('readback-shop-mismatch')
+    query=verification['query'];result=self.client.invoke(shop['profile'],query['url'],method='GET',params=query['params'],skill_id=query['skillId'])
+    contract=price_contract(task['scope'])
+    if contract:validate_native_price_response(contract,result,stage='online')
+    count=_match_count(result,verification['expected'])
+    task['onlineReadback']={'query':query,'expected':verification['expected'],'matchCount':count,'at':time.time(),'result':redact(result)}
+    task['onlineStateVerified']=count==1
+    # A current online value cannot certify authorship or clear an unknown request.
     atomic_json(self._path(task_id),task);return task

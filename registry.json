@@ -33,7 +33,12 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "awaiting-provider"
+      "mediaGeneration": "awaiting-provider",
+      "readCommands": [
+        "health-list",
+        "sku-list",
+        "product-detail"
+      ]
     },
     {
       "id": "listing",
@@ -79,7 +84,12 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "not-required"
+      "mediaGeneration": "not-required",
+      "readCommands": [
+        "diagnose",
+        "health-list",
+        "product-list"
+      ]
     },
     {
       "id": "collection",
@@ -108,7 +118,16 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "not-required"
+      "mediaGeneration": "not-required",
+      "builtInCommands": [
+        "compare",
+        "product-list",
+        "product-detail",
+        "price-plan",
+        "price-status"
+      ],
+      "reference": "references/native-products.md",
+      "nativeAdapter": "available-doc-contract-and-offline-tested-not-live-shop-verified"
     },
     {
       "id": "video",

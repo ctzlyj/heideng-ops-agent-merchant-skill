@@ -56,3 +56,16 @@ class OfficialTests(unittest.TestCase):
    self.assertEqual(c.identity('merchant-demo')['shopName'],'测试店')
 
 if __name__=='__main__':unittest.main()
+
+class OfficialReferenceTests(unittest.TestCase):
+ def test_reference_documents_are_sha_checked_and_not_limited_to_entrypoint(self):
+  raw,policy=OfficialTests.fixture(self);body=b'# public test reference';name='cli/skills/jdo-product-update/references/update-api.md';policy['artifacts']['skills']['files']=[{'path':name,'sha256':hashlib.sha256(body).hexdigest()}];calls=[]
+  def download(url):calls.append(url);return json.dumps(policy).encode() if url.endswith('version-policy.json') else body
+  with tempfile.TemporaryDirectory() as d:
+   c=OfficialClient(Path(d),download=download);path=c.document('jdo-product-update','references/update-api.md');self.assertEqual(path.read_bytes(),body);self.assertTrue(calls[-1].endswith(name))
+   for relative in ('../../secret.env','references/unknown.md','references/a.py'):
+    with self.assertRaises(SafetyError):c.document('jdo-product-update',relative)
+ def test_business_credentials_are_rejected_before_native_argument_construction(self):
+  with tempfile.TemporaryDirectory() as d:
+   client=OfficialClient(Path(d));client._run=lambda *a,**k:self.fail('credential reached native invocation')
+   with self.assertRaises(SafetyError):client.invoke('merchant-test','/rest/sp-product/v0/products',params={'apiKey':'synthetic-private'})

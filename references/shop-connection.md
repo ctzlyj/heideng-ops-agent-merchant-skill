@@ -27,7 +27,7 @@
 
 配置在商家独立cli-home，显式JDO_CLI_HOME；每店merchant-Profile。Windows强制原生Credential Manager，不退file明文。不读取员工Key/default Profile，不用O2或内部SkillHub安装。
 
-已审计官方0.3.7：Windows凭据通过CredWriteW写入；macOS上游用security -w secret，违反无凭据argv约束。因此当前macOS**新授权禁用**，不能绕为明文或secret命令参数；macOS安装/离线流程与已有合法授权查询另行区分。缺Chrome/Edge时明确需要系统浏览器，不操作工作浏览器、不静默下载替代浏览器。
+已审计官方0.3.7：Windows凭据通过CredWriteW写入；macOS上游用security -w secret，违反无凭据argv约束。且invoke/status等已有授权查询也可能自动刷新token并写Keychain，因此当前macOS**所有带凭据CLI执行禁用（含新授权和已有授权查询）**，不能绕为明文或secret命令参数；公开工具下载、文档校验、商家版安装及离线准备仍可使用，等待上游提供无secret argv凭据实现后再开放。缺Chrome/Edge时明确需要系统浏览器，不操作工作浏览器、不静默下载替代浏览器。
 
 ## 当前验收等级
 

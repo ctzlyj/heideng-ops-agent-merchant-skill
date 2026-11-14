@@ -33,14 +33,28 @@ def clean_environment(home:Path, inherited:dict|None=None) -> dict:
  result.update(HOME=str(home),USERPROFILE=str(home),APPDATA=str(home/'AppData'/'Roaming'),LOCALAPPDATA=str(home/'AppData'/'Local'),PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1')
  return result
 
+_SENSITIVE_GENERAL = r'authorization|cookie|token|secret|password|api[_-]?key|credential|pt[_-]?(?:key|pin)'
+_SENSITIVE_ALIASES = r'thor|eid|fp|sso_ticket|tgt|device_id|deviceId|signature'
+_SENSITIVE = _SENSITIVE_GENERAL+r'|(?:^|_)(?:'+_SENSITIVE_ALIASES+r')(?:_|$)'
+_STRING_SENSITIVE = _SENSITIVE_GENERAL+r'|(?<![A-Za-z0-9])(?:'+_SENSITIVE_ALIASES+r')(?:_[A-Za-z0-9_]*)?'
+
 def redact(value,secrets=()):
- if isinstance(value,dict):return {k:('[REDACTED]' if re.search(r'authorization|cookie|token|secret|password|api[_-]?key|credential',str(k),re.I) else redact(v,secrets)) for k,v in value.items()}
+ if isinstance(value,dict):return {k:('[REDACTED]' if re.search(_SENSITIVE,str(k),re.I) else redact(v,secrets)) for k,v in value.items()}
  if isinstance(value,(list,tuple)):return [redact(v,secrets) for v in value]
  if not isinstance(value,str):return value
+ # JSON in scalar business fields must use the same key rules as dictionaries,
+ # including escaped keys and nested JSON. Preserve ordinary text byte-for-byte.
+ if value.lstrip().startswith(('{','[')):
+  try:
+   decoded=json.loads(value)
+   cleaned=redact(decoded,secrets)
+   if cleaned!=decoded:return json.dumps(cleaned,ensure_ascii=False,separators=(',',':'))
+  except (ValueError,TypeError):pass
+  except RecursionError:return '[REDACTED]'
  for secret in secrets:
   if secret:value=value.replace(secret,'[REDACTED]')
  value=re.sub(r'(?i)Bearer\s+[^\s,;\"\x27]+','Bearer [REDACTED]',value)
- value=re.sub(r'(?i)(authorization|cookie|token|api[_-]?key|secret|password)\s*[:=]\s*[^\n;]+',lambda m:m.group(1)+'=[REDACTED]',value)
+ value=re.sub(r'(?i)('+_STRING_SENSITIVE+r')[\"\']?\s*[:=]\s*[^\n;]+',lambda m:m.group(1)+'=[REDACTED]',value)
  return value
 
 def atomic_json(destination:Path,value):

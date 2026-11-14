@@ -56,3 +56,13 @@ class AuthCleanupTests(unittest.TestCase):
    with patch('subprocess.Popen') as launch:
     with self.assertRaisesRegex(SafetyError,'secret-argv'):c.login_process('merchant-native-a1','测试店','1')
     launch.assert_not_called()
+
+class CredentialRefreshBoundaryTests(unittest.TestCase):
+ def test_macos_existing_auth_queries_cannot_refresh_secret_into_argv(self):
+  with tempfile.TemporaryDirectory() as d:
+   c=AuthNativeTests.client(self,d);c.platform_name='macos-arm64'
+   with patch.object(c,'runner',return_value=type('Result',(),{'returncode':0,'stdout':b'{}','stderr':b''})()) as launch:
+    for action in (lambda:c.identity('merchant-native-a1'),lambda:c.initialize('merchant-native-a1'),lambda:c._run(['status','--profile','merchant-native-a1'])):
+     with self.assertRaisesRegex(SafetyError,'secret-argv'):action()
+    launch.assert_not_called()
+   self.assertFalse((Path(d)/'cli-home').exists())

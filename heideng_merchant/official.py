@@ -106,13 +106,14 @@ class OfficialClient:
    atomic_json(self.receipt_path,{'version':version,'root':rel,'executable':artifact['executable'],'executableSha256':file_sha(exe),'archiveSha256':artifact['sha256'],'source':BASE})
    atomic_json(self.state/'tools'/'version-policy.json',p)
    return {'status':'installed','version':version,'binaryVerified':True}
- def document(self,skill_id):
-  if skill_id not in SKILLS:raise SafetyError('official-document-not-in-merchant-bootstrap')
-  p=read_json(self.state/'tools'/'version-policy.json') or self.policy();wanted='cli/skills/'+skill_id+'/SKILL.md'
+ def document(self,skill_id,relative='SKILL.md',*,refresh=False):
+  if not isinstance(skill_id,str) or not re.fullmatch(r'jdo-[a-z0-9-]{1,100}',skill_id):raise SafetyError('official-document-name-required')
+  if relative!='SKILL.md' and not re.fullmatch(r'references/[A-Za-z0-9_-]+\.md',relative):raise SafetyError('official-markdown-reference-required')
+  p=self.policy() if refresh else read_json(self.state/'tools'/'version-policy.json') or self.policy();wanted='cli/skills/'+skill_id+'/'+relative
   entry=next((e for e in p['artifacts']['skills']['files'] if e['path']==wanted),None)
   if not entry:raise SafetyError('official-document-unavailable')
   sha=entry['sha256'];safe_join(self.state,wanted)
-  dest=safe_join(self.state,'official-docs/'+skill_id+'/SKILL.md')
+  dest=safe_join(self.state,'official-docs/'+skill_id+'/'+relative)
   if dest.is_file() and file_sha(dest)==sha:return dest
   raw=self.download(BASE+wanted)
   if len(raw)>2*1024*1024 or hashlib.sha256(raw).hexdigest()!=sha:raise SafetyError('official-document-sha256-mismatch')
@@ -121,6 +122,9 @@ class OfficialClient:
   if not self.ready():raise SafetyError('official-cli-not-installed-or-modified')
   receipt=read_json(self.receipt_path);return safe_join(safe_join(self.state,receipt['root']),receipt['executable'])
  def _environment(self):
+  # Even GET/status can refresh a token and invoke upstream security -w secret.
+  # Installation/document inspection stay available; credential-bearing CLI does not.
+  if self.platform_name=='macos-arm64':raise SafetyError('official-credential-refresh-secret-argv-backend-not-admitted')
   home=self.state/'cli-home';home.mkdir(parents=True,exist_ok=True);env=clean_environment(home);env['JDO_ENV']='prod';env['JDO_CLI_HOME']=str(home/'.jdo-cli')
   backend={'windows-x64':'windows-credential-manager','macos-arm64':'macos-keychain'}.get(self.platform_name)
   if not backend:raise SafetyError('supported-native-credential-backend-required-no-plaintext-fallback')
@@ -151,6 +155,7 @@ class OfficialClient:
   if method!='GET' and not write_authorized:raise SafetyError('explicit-shop-write-approval-required')
   params={} if params is None else params
   if not isinstance(params,dict) or (body is not None and not isinstance(body,(dict,list))):raise SafetyError('invalid-business-payload')
+  if redact(params)!=params or (body is not None and redact(body)!=body):raise SafetyError('credentials-not-allowed-in-business-payload')
   payload=json.dumps(params,ensure_ascii=False,separators=(',',':'),allow_nan=False)
   body_json=json.dumps(body,ensure_ascii=False,separators=(',',':'),allow_nan=False) if body is not None else None
   if len(payload)+(len(body_json) if body_json else 0)>18000:raise SafetyError('large-payload-use-authorized-browser-upload')

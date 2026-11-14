@@ -33,3 +33,14 @@ XLSX可选openpyxl：由Agent在独立商家运行时从公开来源安装；多
 写入计划应在批准前附verification JSON：query（真实官方GET）和expected（原目标商品/SKU、申请/操作关联字段、终态及最终值）。它进入任务fingerprint；task-readback传入的query/expected必须完全匹配原批准范围，不能事后换无关商品来关闭任务。无verification的写入不能被通用回查标记完成，需先核对原回执并补业务原生适配，不能伪造。
 
 反例：调价提交超时后，无关商品正常或目标商品当前价格相同，均不能证明原提交已终止。目标匹配会记录targetStateVerified，但原unknown仍保留，继续阻断重提与新写入；只有能关联原请求的正式平台终态证据才能进一步解除，不提供删除状态/换工具重提的捷径。
+
+## 原生商品与两阶段改价入口
+
+商品/SKU/健康分、price-plan/price-status以及待审/线上两阶段验收详见 references/native-products.md。优先使用该高层入口，不手拼旧PUT价格接口。
+
+- product-list / sku-list / health-list / product-detail：实时同店读取，不拿旧GET任务缓存当新数据。
+- price-plan --profile --product-id --changes：读取真实详情后生成精确京东价计划（不写店）；changes是本地JSON数组。
+- price-status --task-id --refresh none|pending|online：本地证据/原申请单/线上分别查询，不重提。
+- task-plan额外支持--precondition、--online-verification：两个文件也进入fingerprint，不能批准后换字段。
+- task-online-readback --task-id：只读取原批准前绑定的线上验证范围。
+- official-doc额外支持--reference references/<file>.md与--refresh：从当前官方策略SHA取得完整参考文档，不只入口。
