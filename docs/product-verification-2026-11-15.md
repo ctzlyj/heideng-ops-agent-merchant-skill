@@ -34,3 +34,10 @@
 ## 继续项与未实测
 
 尚无真实商家OAuth/商品API/改价、素材上传上新、付费生成、正式Release或远端CI。18KB argv限制仍阻碍真实图片base64和大上新JSON；deprecated公开源不是已获准生产备用。继续审计合法大载荷通道、媒体空间与分类/素材绑定、原生上新、采集和商家经营诊断、发行下载安装。完整目标保持active。
+
+
+## 私有GitHub实际回测
+
+代码提交`b39c25463c7bf1de09408f5dd6197c18db965d29`推送后，重新从实际私有GitHub单分支克隆（非本地复制），HEAD匹配，重建ZIP SHA与上面一致；包审核、fresh HOME/Python -I安装、onboarding、安装后跨进程原生业务mock以及从克隆源码运行150项完整离线测试均通过。见`github-product-roundtrip-2026-11-15.json`。需要已有读取权限，未建立正式Release、未触发远端CI，也不是匿名外部安装或真实店铺验证。
+
+大载荷后续审计确认：同策略0.3.7的公开源声明deprecated，parser仅发现body/params/extra-headers等载荷参数，stdin选项为app-secret-stdin而非业务载荷。不能把秘密stdin选项误用为图片上传，也不能把deprecated源直接悄悄作为生产升级。合法大载荷transport仍未实现，下一轮须完成输入解析/日志/自动重试/凭据链路审计后再决定薄适配，不复制上游源码或内置敏感值。
