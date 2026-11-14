@@ -15,6 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - run: python -I -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: --no-cache-dir -r tests/requirements.txt
       - run: python tests/run_offline.py
       - run: python scripts/build_release.py
       - run: python scripts/audit_release.py dist/heideng-ops-agent-merchant-0.1.0.zip

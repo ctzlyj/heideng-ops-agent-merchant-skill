@@ -25,3 +25,11 @@
 ## 检查点1（继续执行，不是完成）
 
 已实现独立安全/安装/官方CLI/任务/非模型工作流/统一入口/GitHub更新；60项自有测试和发行内容审核通过。官方0.3.7匿名下载和独立HOME init已实测。源码推送私有开发分支，尚无正式发行。下一轮继续OAuth安全worker、官方原生业务适配和完整远端发行回测，目标保持全部非模型功能上线。
+
+## 检查点2：OAuth具体设计
+
+决定使用任务自有后台worker、仅公开状态的本地bridge，以及同一Playwright上下文承接京麦扫码和官方OAuth；不触碰工作浏览器。身份来自该页面实际响应的精确shopName/venderId及原生API最终核验，不猜身份接口。OAuth URL和原始CLI流只在内存，日志/状态不存；只取消持有的process/browser句柄。运行时依赖在商家独立venv由Agent自动从公开PyPI安装。官方源码SHA核对发现JDO_CLI_HOME可显式指定，CredentialAccount包含profile/appKeyHash/venderId；采用merchant独立profile，强制OS原生后端不退明文。真实商家授权仍需本人扫码，开发不启动真实店铺任务。
+
+## 检查点3：OAuth接管实现与隔离验证
+
+已增加auth_flow/browser/runtime/manager/broker/worker及统一入口，独立PyPI运行时真实安装，真实SDK全部页面拦截的同context smoke、真实loopback/跨进程mock worker通过。未知回执、路径、错店并发、所持进程清理、前台gate和原任务恢复均有回归测试。详见auth-verification-2026-11-15.md。真实商家授权未执行；macOS官方凭据实现有secret argv风险，新授权已禁该平台。剩余原生业务适配、许可及正式发行继续，目标保持active。

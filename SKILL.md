@@ -23,6 +23,7 @@ version: 0.1.0
 
 ## 可执行入口
 
+- ensure-shop / auth-start / auth-status / auth-observe / auth-cancel / auth-recover / auth-restart：独立店铺连接和同会话扫码OAuth。严格先读 references/shop-connection.md；只保存公开taskId，不导出私有授权页面；失联不重启，原unknown只读恢复。当前Windows新授权已实现但真实商家链路尚未实测，macOS新授权因官方secret argv风险禁用。
 - diagnose：用户CSV/JSON/XLSX经营广告资料的定量诊断，缺指标标记partial/unavailable，不造黄金眼/EasyBI数据。
 - compare：有逐SKU原生上下文价格证据和结构化规格的同规格TOP10。不能把京东价与到手价混用，不依照片就猜规格。
 - material-audit：保留所有SKU，按199个SPU拆批，列缺口；优先复用用户已有合规素材，新增图片生成等待来源。

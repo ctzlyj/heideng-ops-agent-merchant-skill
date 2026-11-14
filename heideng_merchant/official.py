@@ -120,9 +120,15 @@ class OfficialClient:
  def executable(self):
   if not self.ready():raise SafetyError('official-cli-not-installed-or-modified')
   receipt=read_json(self.receipt_path);return safe_join(safe_join(self.state,receipt['root']),receipt['executable'])
- def _run(self,args,timeout=45):
-  home=self.state/'cli-home';home.mkdir(parents=True,exist_ok=True);env=clean_environment(home);env['JDO_ENV']='prod'
+ def _environment(self):
+  home=self.state/'cli-home';home.mkdir(parents=True,exist_ok=True);env=clean_environment(home);env['JDO_ENV']='prod';env['JDO_CLI_HOME']=str(home/'.jdo-cli')
+  backend={'windows-x64':'windows-credential-manager','macos-arm64':'macos-keychain'}.get(self.platform_name)
+  if not backend:raise SafetyError('supported-native-credential-backend-required-no-plaintext-fallback')
+  env['JDO_CREDENTIAL_BACKEND']=backend
   if os.name=='nt':env['PATH']=str(Path(env.get('SystemRoot','C:/Windows'))/'System32')
+  return env
+ def _run(self,args,timeout=45):
+  env=self._environment();home=Path(env['HOME'])
   options={'env':env,'capture_output':True,'timeout':timeout,'cwd':str(home)}
   if os.name=='nt':options['creationflags']=0x08000000
   try:p=self.runner([str(self.executable()),'--endpoint',BASE.rstrip('/'),*args],**options)
@@ -138,7 +144,9 @@ class OfficialClient:
   if p.returncode!=0 or (isinstance(data,dict) and data.get('ok') is False):raise SafetyError('official-call-failed-check-permissions-or-outcome')
   return redact(data)
  def invoke(self,profile,url,*,method='GET',params=None,body=None,skill_id='jdo-seller-info',write_authorized=False):
-  validate_profile(profile);validate_route(url);method=method.upper()
+  validate_profile(profile)
+  if not profile.startswith('merchant-'):raise SafetyError('merchant-owned-profile-namespace-required')
+  validate_route(url);method=method.upper()
   if method not in ('GET','POST','PUT','PATCH','DELETE'):raise SafetyError('invalid-http-method')
   if method!='GET' and not write_authorized:raise SafetyError('explicit-shop-write-approval-required')
   params={} if params is None else params
@@ -153,7 +161,59 @@ class OfficialClient:
   return self._run(args)
  def identity(self,profile):
   return identity_from_response(self.invoke(profile,'/rest/sp-seller/v0/venderinfo',params={'scopeSet':'baseInfo'},skill_id='jdo-seller-info'))
- def initialize(self,profile):return self._run(['init','--profile',validate_profile(profile),'--skip-network'])
+ def initialize(self,profile,*,vender_id=None,shop_name=None):
+  validate_profile(profile)
+  if not profile.startswith('merchant-'):raise SafetyError('merchant-owned-profile-namespace-required')
+  args=['init','--profile',profile,'--skip-network']
+  if vender_id is not None:
+   if not str(vender_id).isdigit():raise SafetyError('actual-vender-id-required')
+   args+=['--vender-id',str(vender_id)]
+  if shop_name:args+=['--shop-name',shop_name]
+  return self._run(args)
+ def login_process(self,profile,shop_name,vender_id):
+  if self.platform_name!='windows-x64':raise SafetyError('official-auth-secret-argv-backend-not-admitted')
+  validate_profile(profile)
+  if not profile.startswith('merchant-') or not shop_name or not str(vender_id).isdigit():raise SafetyError('merchant-owned-auth-target-required')
+  env=self._environment();args=[str(self.executable()),'--endpoint',BASE.rstrip('/'),'login','--profile',profile,'--no-browser','--vender-id',str(vender_id),'--shop-name',shop_name,'--timeout','900']
+  options={'env':env,'cwd':env['HOME'],'stdin':subprocess.DEVNULL,'stdout':subprocess.PIPE,'stderr':subprocess.PIPE}
+  if os.name=='nt':options['creationflags']=0x08000000
+  return subprocess.Popen(args,**options)
+ def _login_owners(self,process):
+  # Retain proven psutil handles before a wrapper parent exits. Never rediscover
+  # children by a reused PID or walk unrelated processes after losing ownership.
+  import psutil
+  parent=getattr(process,'_merchant_owner',None)
+  cache=getattr(process,'_merchant_descendants',{})
+  if process.poll() is None:
+   if parent is None:parent=psutil.Process(process.pid);process._merchant_owner=parent
+   if parent.is_running():
+    for child in parent.children(recursive=True):cache[child.pid]=child
+    process._merchant_descendants=cache
+  return ([parent] if parent is not None else [])+list(cache.values())
+ def callback_owned(self,process):
+  try:
+   for owner in self._login_owners(process):
+    for connection in owner.net_connections(kind='tcp'):
+     if connection.status=='LISTEN' and connection.laddr.ip in ('127.0.0.1','::1') and connection.laddr.port==9001:return True
+  except Exception:return False
+  return False
+ def stop_login(self,process):
+  import psutil
+  try:owners=self._login_owners(process)
+  except (psutil.NoSuchProcess,psutil.AccessDenied):owners=[]
+  descendants=owners[1:]
+  for owner in reversed(descendants):
+   try:owner.terminate()
+   except psutil.NoSuchProcess:pass
+  if process.poll() is None:process.terminate()
+  _,alive=psutil.wait_procs(descendants,timeout=3)
+  for owner in alive:
+   try:owner.kill()
+   except psutil.NoSuchProcess:pass
+  if process.poll() is None:
+   try:process.wait(timeout=3)
+   except subprocess.TimeoutExpired:process.kill();process.wait(timeout=3)
+  if psutil.wait_procs(alive,timeout=3)[1]:raise SafetyError('owned-auth-process-cleanup-incomplete')
  def login_plan(self,profile,shop_name,vender_id=None):
   validate_profile(profile)
   return {'status':'awaiting_auth','profile':profile,'shopName':shop_name,'venderId':str(vender_id or ''),'browser':'task-owned-jingmai-session','steps':['先让商家用京麦App扫码任务专属京麦网页','在同一浏览器上下文衔接官方OAuth；授权URL只通过受控工具内存传递','成功后执行实时venderinfo核验店名/venderId/Profile，不以本地状态或扫码成功当作授权签发成功'],'officialCommand':['login','--profile',profile,'--no-browser'],'unsafeFlagsForbidden':['--mock-token-on-service-market-block','--print-code','--code','--force']}

@@ -67,3 +67,13 @@ class DistributionTests(unittest.TestCase):
   second=self.bundle();self.assertEqual(file_sha(second),before)
 
 if __name__=='__main__':unittest.main()
+
+class IsolatedInstallerTests(unittest.TestCase):
+ def test_install_works_in_python_isolated_mode_with_clean_home(self):
+  import subprocess,sys
+  from heideng_merchant.safety import clean_environment
+  root=Path(__file__).resolve().parents[1]
+  with tempfile.TemporaryDirectory() as d:
+   process=subprocess.run([sys.executable,'-I',str(root/'install.py'),'--offline','--home',d],env=clean_environment(Path(d)),capture_output=True,timeout=60)
+   self.assertEqual(process.returncode,0,process.stderr.decode('utf-8','replace'))
+   result=json.loads(process.stdout);self.assertFalse(result['employeeDependencies']);self.assertTrue((Path(d)/'.codex'/'skills'/'heideng-ops-agent-merchant'/'SKILL.md').is_file())

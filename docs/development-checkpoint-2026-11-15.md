@@ -31,3 +31,9 @@
 三场景基线已经遵守不滥用凭据、不造SKU、不盲目重提，不能伪称基线失败。读后增量是商家明确禁用11190、状态/包格式/命令链/证据边界。已补“代码仓库来源≠模型服务来源”与绑定原批准计划的readback；新增回归证明unknown目标值匹配仍不解除原请求未知。该测试不是实际店铺/生成验收。
 
 - 增补实际RED→GREEN的Git换行一致性回归：发行文本规范化LF，避免Windows源码安装和发行ZIP同版SHA不同；仅当前repo设置.gitattributes，不更改全局Git/内部项目。
+
+## 后续授权增量状态（2026-11-15）
+
+OAuth worker/同context浏览器/loopback broker/单店独立Profile/恢复命令现已实现，并经过111项完整离线回归、真实SDK全部页面拦截测试与真实子进程/loopback mock smoke。独立只读评审原4Important与1Minor均由回归先复现后修正，复核仅该范围通过。正式商家扫码/签发、官方高层商品适配和正式发行仍未验收。生图/视频继续awaiting-provider；内部版未动；目标仍active。
+
+最小CI环境实测先因缺psutil出现2项ModuleNotFoundError；新增公开源测试依赖requirements及手动CI准备步骤后，干净Windows Python3.12 venv完整111项通过。未运行GitHub远端CI，不将本地模拟等同于Ubuntu或其它版本已过。

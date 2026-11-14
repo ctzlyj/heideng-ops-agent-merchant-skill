@@ -1,0 +1,2 @@
+# Offline process-ownership tests only; production installs this on demand in its own venv.
+psutil==7.2.2

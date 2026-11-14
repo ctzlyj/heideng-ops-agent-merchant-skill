@@ -28,7 +28,7 @@ def safe_join(root: Path, relative: str) -> Path:
 
 def clean_environment(home:Path, inherited:dict|None=None) -> dict:
  source=os.environ if inherited is None else inherited
- result={key:source[key] for key in ('SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP','LANG') if key in source}
+ result={key:source[key] for key in ('SystemRoot','WINDIR','ProgramFiles','ProgramFiles(x86)','PATH','PATHEXT','TEMP','TMP','LANG') if key in source}
  home=Path(home).resolve()
  result.update(HOME=str(home),USERPROFILE=str(home),APPDATA=str(home/'AppData'/'Roaming'),LOCALAPPDATA=str(home/'AppData'/'Local'),PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1')
  return result

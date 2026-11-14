@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse,json,os,sys,tempfile
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
 from heideng_merchant import VERSION,SKILL_NAME
 from heideng_merchant.distribution import build_bundle,install_archive,rollback
 from heideng_merchant.safety import SafetyError,file_sha,redact
