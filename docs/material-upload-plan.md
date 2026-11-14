@@ -24,7 +24,7 @@
 - [x] 3. tests/test_material_contract.py RED；新material_contract.py，所有媒体图片POST必须完整原生契约、真实解码证据/zone/category；prepare和execute各读本店zone/category并重新核验；execute校验已知imgId/JFS回执；verify_result校验同一ID/URL/属性。未知只读保留，缺imgId不猜名称/重提。
 - [x] 4. tests/test_materials.py/test_material_cli.py RED；新materials.py及CLI spaces/categories/images/detail/upload-plan/upload-status，保留分页partial；文件bytes进入请求body，元数据进入批准scope；关键过滤只按官方schema可用字段，不是总体能力白名单。
 - [x] 5. 真实Pillow/真实ZIP安装+Python -I命令+file-fake API闭环：无批准不POST、错店/错分类/异常图/重复ID拦截、known1次/unknown1次且不解锁；素材保存不声明商品绑定。
-- [ ] 6. 单轮review重要问题RED/GREEN、全套离线、包审核、证据、私有push、实际GitHubclone重建/安装回测。整个目标仍active；真实店铺写入/模型另授权。
+- [x] 6. 单轮review重要问题RED/GREEN、全套离线、包审核、证据、私有push、实际GitHubclone重建/安装回测。整个目标仍active；真实店铺写入/模型另授权。
 
 ## Review focus
 
@@ -46,3 +46,6 @@ minor (deferred)：文件stat后无界read_bytes存在增长/替换时的分配�
 
 
 最终本地验收193项套件、47文件审核、真实ZIP+Pillow/file-fake跨进程、旧价格回归通过；详见material-verification-2026-11-15。私有推送/实际GitHubclone尚待收口，真实账号上传/商品绑定/整体发行仍未完成。
+
+
+本计划开发验收收口：代码commit 1545c6a9bb6ec21d64de849d9f1685b2cc1307c4私有推送后实际GitHubclone、重建SHA/审核、fresh HOME安装与onboarding、Pillow/file-fake素材闭环及价格回归、193项全套通过。详见github-material-roundtrip-2026-11-15。此为本计划代码/离线交付完成，不是整体目标或真实店铺上线完成。

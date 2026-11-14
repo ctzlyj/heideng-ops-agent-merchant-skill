@@ -35,3 +35,8 @@ resultVerification只从原已知回执解析安全顶层ID，绑定原批准GET
 ## 未验收与下一步
 
 未读真实merchant凭据/刷新，未执行真实店铺上传/OAuth、JFS下载像素身份、商品图片绑定、全SKU上新、付费生成或正式Release/远端CI。下一步继续以原生商品申请协议接素材到主图/详情/各SKU及完整上新，保留完整范围、旧新值批准、待审/线上分开。模型来源继续awaiting-provider，完整目标active。
+
+
+## 实际私有GitHub回测
+
+代码commit `1545c6a9bb6ec21d64de849d9f1685b2cc1307c4`推送后，实际重新克隆私有单分支（不是本地复制），HEAD匹配；重建SHA与本轮一致，47文件审核、fresh HOME/Python -I安装与onboarding、安装后真实Pillow/file-fake素材闭环、旧价格回归以及从clone运行193项全套均通过。见github-material-roundtrip-2026-11-15.json。仍需已有读取权限，不是匿名外部下载/正式Release或真实商家上传。
