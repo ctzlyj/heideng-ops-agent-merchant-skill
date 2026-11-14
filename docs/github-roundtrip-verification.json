@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-15",
+  "repository": "ctzlyj/heideng-ops-agent-merchant-skill",
+  "visibility": "private",
+  "branch": "codex/merchant-foundation",
+  "testedCommit": "fbe51adf29679c8a6a384c2710c225c68133467b",
+  "verification": {
+    "method": "fresh authenticated GitHub clone followed by standalone offline install into clean HOME",
+    "install": "installed",
+    "onboarding": "passed",
+    "version": "0.1.0",
+    "employeeDependencies": false,
+    "media": "awaiting-provider",
+    "localAndClonedSourceArchiveSha256": "ae91bece913991e8c4ea741950440fef24aaaf2e08f5626dc49ffbc39410496d",
+    "archiveByteHashesMatch": true
+  },
+  "unitTests": 61,
+  "formalRelease": "not-published",
+  "merchantOAuth": "not-run",
+  "shopMutation": "not-run",
+  "paidGeneration": "not-run",
+  "goalCompletion": false
+}
