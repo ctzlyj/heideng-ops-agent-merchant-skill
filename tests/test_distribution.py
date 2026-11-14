@@ -58,4 +58,12 @@ class DistributionTests(unittest.TestCase):
    for name,raw in files.items():z.writestr(name,raw)
   with self.assertRaises(SafetyError):self.install(archive)
 
+ def test_source_line_endings_have_identical_release(self):
+  for p in self.src.rglob('*'):
+   if p.is_file():p.write_bytes(p.read_bytes().replace(b'\r\n',b'\n'))
+  first=self.bundle();before=file_sha(first)
+  for p in self.src.rglob('*'):
+   if p.is_file():p.write_bytes(p.read_bytes().replace(b'\n',b'\r\n'))
+  second=self.bundle();self.assertEqual(file_sha(second),before)
+
 if __name__=='__main__':unittest.main()

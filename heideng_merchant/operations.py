@@ -116,5 +116,5 @@ class Operations:
     if len(matched)==1:
      task['targetStateVerified']=True
      if task['status']!='unknown':task['status']='verified'
-     task['verificationMeaning']='目标状态由本店官方读取证明；unknown原提交仍未证明终态，继续阻断重提/新写入' 
+     task['verificationMeaning']='目标状态由本店官方读取证明；unknown原提交仍未证明终态，继续阻断重提/新写入'
     atomic_json(self._path(task_id),task);return task

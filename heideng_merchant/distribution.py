@@ -26,7 +26,7 @@ def source_files(source):
   if parent.is_dir():candidates.extend(p.relative_to(source).as_posix() for p in parent.rglob('*') if p.suffix in ('.py','.md','.json') and '__pycache__' not in p.parts)
  for name in sorted(set(candidates)):
   p=safe_join(source,name)
-  if p.is_file() and admissible_file(name):files[name]=p.read_bytes()
+  if p.is_file() and admissible_file(name):files[name]=p.read_bytes().replace(b'\r\n',b'\n')
  if not {'SKILL.md','VERSION'}<=files.keys():raise SafetyError('missing-package-entry')
  if not re.search(r'^name:\s*'+re.escape(SKILL_NAME)+r'\s*$',files['SKILL.md'].decode('utf-8-sig'),re.M):raise SafetyError('wrong-skill-identity')
  return files
