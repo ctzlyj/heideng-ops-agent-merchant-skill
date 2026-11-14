@@ -39,7 +39,8 @@ _SENSITIVE = _SENSITIVE_GENERAL+r'|(?:^|_)(?:'+_SENSITIVE_ALIASES+r')(?:_|$)'
 _STRING_SENSITIVE = _SENSITIVE_GENERAL+r'|(?<![A-Za-z0-9])(?:'+_SENSITIVE_ALIASES+r')(?:_[A-Za-z0-9_]*)?'
 
 def redact(value,secrets=()):
- if isinstance(value,dict):return {k:('[REDACTED]' if re.search(_SENSITIVE,str(k),re.I) else redact(v,secrets)) for k,v in value.items()}
+ if isinstance(value,dict):
+  return {(redact(k,secrets) if isinstance(k,str) else k):('[REDACTED]' if re.search(_SENSITIVE,str(k),re.I) else redact(v,secrets)) for k,v in value.items()}
  if isinstance(value,(list,tuple)):return [redact(v,secrets) for v in value]
  if not isinstance(value,str):return value
  # JSON in scalar business fields must use the same key rules as dictionaries,

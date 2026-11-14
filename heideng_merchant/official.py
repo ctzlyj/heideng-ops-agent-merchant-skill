@@ -1,6 +1,6 @@
 """Official Jingmai protocol; no company installer or credential exporting."""
 from __future__ import annotations
-import hashlib,io,json,os,platform,re,stat,subprocess,tarfile,urllib.request,uuid,zipfile
+import hashlib,io,json,os,platform,re,stat,subprocess,tarfile,urllib.request,uuid,zipfile,sys,time,math
 from pathlib import Path
 from .safety import SafetyError,safe_join,file_sha,atomic_json,read_json,clean_environment,redact
 from .state import FileLock
@@ -147,23 +147,44 @@ class OfficialClient:
   except ValueError:raise SafetyError('official-response-invalid-or-unknown') from None
   if p.returncode!=0 or (isinstance(data,dict) and data.get('ok') is False):raise SafetyError('official-call-failed-check-permissions-or-outcome')
   return redact(data)
- def invoke(self,profile,url,*,method='GET',params=None,body=None,skill_id='jdo-seller-info',write_authorized=False):
-  validate_profile(profile)
-  if not profile.startswith('merchant-'):raise SafetyError('merchant-owned-profile-namespace-required')
-  validate_route(url);method=method.upper()
-  if method not in ('GET','POST','PUT','PATCH','DELETE'):raise SafetyError('invalid-http-method')
-  if method!='GET' and not write_authorized:raise SafetyError('explicit-shop-write-approval-required')
-  params={} if params is None else params
-  if not isinstance(params,dict) or (body is not None and not isinstance(body,(dict,list))):raise SafetyError('invalid-business-payload')
-  if redact(params)!=params or (body is not None and redact(body)!=body):raise SafetyError('credentials-not-allowed-in-business-payload')
-  payload=json.dumps(params,ensure_ascii=False,separators=(',',':'),allow_nan=False)
-  body_json=json.dumps(body,ensure_ascii=False,separators=(',',':'),allow_nan=False) if body is not None else None
-  if len(payload)+(len(body_json) if body_json else 0)>18000:raise SafetyError('large-payload-use-authorized-browser-upload')
-  if not re.fullmatch('[a-z0-9-]+',skill_id):raise SafetyError('invalid-official-skill-id')
-  args=['invoke','--profile',profile,'--skill-id',skill_id,'--url',url,'--method',method,'--params',payload,'--request-identity','vender','--timeout','30']
-  if body_json is not None:args+=['--body',body_json]
-  if method!='GET':args+=['--yes']
-  return self._run(args)
+ def plan_execution(self,operation,*,profile='merchant-contract'):
+  from .official_transport import normalize_operation,transport_for,binary_execution,source_manifest,validate_source
+  if self.platform_name=='macos-arm64':raise SafetyError('official-credential-refresh-secret-argv-backend-not-admitted')
+  op=normalize_operation(profile,operation,write_authorized=True);transport=transport_for(self.executable(),profile,op);execution=binary_execution(self.state,self.platform_name,transport)
+  if transport=='official-source-stdin':
+   if self.platform_name!='windows-x64':raise SafetyError('official-stdin-native-credential-platform-not-admitted')
+   from .official_transport import MAX_SOURCE_BYTES
+   execution=source_manifest(self.policy(),execution)
+   cached=getattr(self,'_verified_source',None)
+   if not cached or cached[0]!=execution['sourceSha256']:
+    raw=self.download(BASE+execution['sourcePath']);validate_source(raw,execution);self._verified_source=(execution['sourceSha256'],raw)
+  return execution
+ def _run_stdin(self,profile,operation,execution,authorization_expires_at=None,expected_shop=None):
+  from .official_transport import MAX_ENVELOPE_BYTES,publish_response
+  env=self._environment();envelope={'schemaVersion':1,'profile':profile,'operation':operation,'execution':execution,'source':self._verified_source[1].decode('utf-8-sig'),'writeAuthorized':operation['method']!='GET','approvalExpiresAt':authorization_expires_at,'expectedShop':expected_shop}
+  raw=json.dumps(envelope,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode('utf-8')
+  if len(raw)>MAX_ENVELOPE_BYTES:raise SafetyError('official-stdin-envelope-too-large')
+  options={'env':env,'input':raw,'capture_output':True,'timeout':90,'cwd':env['HOME']}
+  if os.name=='nt':options['creationflags']=0x08000000
+  try:process=self.runner([sys.executable,'-I','-B',str(Path(__file__).with_name('official_stdin.py'))],**options)
+  except (subprocess.TimeoutExpired,ConnectionError,OSError):raise SafetyError('official-stdin-outcome-unknown') from None
+  try:result=json.loads(process.stdout or b'{}')
+  except (ValueError,TypeError,UnicodeError):raise SafetyError('official-stdin-response-invalid-or-unknown') from None
+  if process.returncode!=0 or not isinstance(result,dict) or result.get('ok') is not True or result.get('execution')!=execution:raise SafetyError('official-stdin-outcome-unknown-check-original-task')
+  response=publish_response(result.get('response'),operation)
+  return {**response,'_merchantExecution':execution} if isinstance(response,dict) else {'data':response,'_merchantExecution':execution}
+ def invoke(self,profile,url,*,method='GET',params=None,body=None,skill_id='jdo-seller-info',write_authorized=False,expected_execution=None,authorization_expires_at=None,expected_shop=None):
+  from .official_transport import normalize_operation,invoke_args,validate_expected_shop,matches_shop,publish_response
+  op=normalize_operation(profile,{'url':url,'method':method,'params':{} if params is None else params,'body':body,'skillId':skill_id},write_authorized=write_authorized)
+  execution=self.plan_execution(op,profile=profile)
+  if expected_execution is not None and execution!=expected_execution:raise SafetyError('official-execution-contract-changed-prepare-new-approval')
+  if op['method']!='GET':
+   expected_shop=validate_expected_shop(expected_shop,profile)
+   if not matches_shop(self.identity(profile),expected_shop):raise SafetyError('shop-changed-before-official-dispatch')
+  if authorization_expires_at is not None and (isinstance(authorization_expires_at,bool) or not isinstance(authorization_expires_at,(int,float)) or not math.isfinite(authorization_expires_at) or authorization_expires_at<=time.time()):raise SafetyError('approval-expired-before-official-transport')
+  if execution['transport']=='official-source-stdin':return self._run_stdin(profile,op,execution,authorization_expires_at,expected_shop)
+  result=publish_response(self._run(invoke_args(profile,op)),op)
+  return {**result,'_merchantExecution':execution} if isinstance(result,dict) else result
  def identity(self,profile):
   return identity_from_response(self.invoke(profile,'/rest/sp-seller/v0/venderinfo',params={'scopeSet':'baseInfo'},skill_id='jdo-seller-info'))
  def initialize(self,profile,*,vender_id=None,shop_name=None):

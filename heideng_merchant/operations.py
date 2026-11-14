@@ -70,6 +70,9 @@ class Operations:
  def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None):
   shop=self.shop(profile);operation=_operation(operation)
   scope={'shop':{k:shop[k] for k in ('profile','venderId','shopName','shopId')},'operation':operation,'runtimeVersion':VERSION}
+  if callable(getattr(self.client,'plan_execution',None)):
+   scope['officialExecution']=self.client.plan_execution(operation,profile=profile)
+   if redact(scope['officialExecution'])!=scope['officialExecution']:raise SafetyError('credentials-not-allowed-in-execution-contract')
   for key,value in (('verification',verification),('precondition',precondition),('onlineVerification',online_verification)):
    if value is not None:scope[key]=_verification(value)
   contract=price_contract(scope)
@@ -125,9 +128,16 @@ class Operations:
      if _match_count(current,precondition['expected'])!=1:raise SafetyError('precondition-current-value-changed-prepare-new-approval')
      task['preconditionEvidence']={'checkedAt':time.time(),'matched':True,'result':redact(current)}
     if task['requiresWriteApproval'] and task['approval']['expiresAt']<=time.time():raise SafetyError('approval-expired-during-preflight')
-    op=task['scope']['operation'];task.update(status='submitting',startedAt=time.time());atomic_json(self._path(task_id),task)
+    op=task['scope']['operation'];execution=task['scope'].get('officialExecution');transport_options={}
+    if execution is None and callable(getattr(self.client,'plan_execution',None)):raise SafetyError('legacy-task-missing-official-execution-contract-prepare-new-approval')
+    if execution is not None:
+     if not callable(getattr(self.client,'plan_execution',None)) or self.client.plan_execution(op,profile=expected['profile'])!=execution:raise SafetyError('official-execution-contract-changed-prepare-new-approval')
+     transport_options={'expected_execution':execution,'expected_shop':expected,'authorization_expires_at':task.get('approval',{}).get('expiresAt') if task['requiresWriteApproval'] else None}
+    if execution is not None and task['requiresWriteApproval'] and not _same_identity(self.client.identity(expected['profile']),expected):raise SafetyError('shop-changed-during-transport-preflight')
+    if task['requiresWriteApproval'] and task['approval']['expiresAt']<=time.time():raise SafetyError('approval-expired-during-transport-preflight')
+    task.update(status='submitting',startedAt=time.time());atomic_json(self._path(task_id),task)
     try:
-     result=self.client.invoke(expected['profile'],op['url'],method=op['method'],params=op['params'],body=op.get('body'),skill_id=op['skillId'],write_authorized=task['requiresWriteApproval'])
+     result=self.client.invoke(expected['profile'],op['url'],method=op['method'],params=op['params'],body=op.get('body'),skill_id=op['skillId'],write_authorized=task['requiresWriteApproval'],**transport_options)
      payload=business_payload(result)
      if task['requiresWriteApproval'] and (not isinstance(payload,(dict,list)) or not payload):raise SafetyError('business-acknowledgement-missing')
     except Exception as error:

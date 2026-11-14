@@ -44,3 +44,8 @@ XLSX可选openpyxl：由Agent在独立商家运行时从公开来源安装；多
 - task-plan额外支持--precondition、--online-verification：两个文件也进入fingerprint，不能批准后换字段。
 - task-online-readback --task-id：只读取原批准前绑定的线上验证范围。
 - official-doc额外支持--reference references/<file>.md与--refresh：从当前官方策略SHA取得完整参考文档，不只入口。
+
+
+## 大载荷（无需新的商家命令）
+
+原task-plan→task-approve→task-execute自动按实际commandline长度在提交前确定官方binary/stdin。必须查看scope.officialExecution（版本/SHA/sourceStatus）并绑定原fingerprint；不把源声明deprecated隐藏。stdin规则和验证边界见official-transport.md。所有status/readback只查询原任务；未知结果不得换transport重放。

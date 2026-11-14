@@ -53,3 +53,6 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 入口 install.py；官方依赖由Agent按需要自动补齐，商家不用另找仓库。启动时或显式做更新发现，候选下载/SHA/兼容检查通过且无进行中/unknown任务、无用户修改才切换；失败恢复，禁止静默降级。后台不扫码、不弹窗、不建未经请求的定时任务。
 
 每轮简报已完成、真实证据、未验证部分、输出绝对路径；媒体生成、官方授权、店铺线上生效分别描述，不能编造。
+
+
+大图片/大上新JSON使用本仓库官方版本绑定stdin薄适配，见references/official-transport.md。task-plan的officialExecution必须展示与绑定；0.3.7公开源为deprecated，不能隐藏或当成正式新SDK。只在提交前选择transport，不因未知结果换方式重提；源码和载荷不得放OS argv或落源码日志。

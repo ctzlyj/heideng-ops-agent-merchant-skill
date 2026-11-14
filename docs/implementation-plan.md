@@ -49,3 +49,12 @@ Ruling：页面预算和回查字段限制是本地安全载荷，不是能力�
 
 
 检查点5远端回测：实际私有GitHub代码commit b39c25463c7bf1de09408f5dd6197c18db965d29重新克隆、重建hash一致、fresh HOME安装/onboarding/安装后业务mock和150项套件通过。仍无正式Release；大载荷下一步：先审计官方同版公开源输入/日志/自动重试/凭据链路及deprecated风险，不能通过app-secret-stdin误传图片，不把未实施方案记成能力。
+
+
+## 检查点6：官方大载荷传输
+
+已经实现版本/SHA/批准绑定的官方同版源码stdin薄适配：源码和载荷仅内存/管道，不复制源或重新实现签名，sourceStatus deprecated透明；小载荷仍binary，unknown不fallback。独立评审3项重要问题先RED再修复，worker完整店铺身份与同一冻结auth上下文签名seller GET、成功回显与秘密JSON键过滤。实际公开source/binary校验+真实隔离子进程合成900KB请求smoke已跑；真实商家Credential读取/刷新或图片上传仍未跑。完整验收和GitHub回测见transport-verification-2026-11-15。下一项媒体空间/分类和原生上传绑定、完整SKU上新，尚未整体上线。
+
+Ruling：source由官方策略声明deprecated，仅采用已审核同版/SHA且不落盘/不分发；失败/撤回/新版本暂停该transport，不能静默换成不支持的来源。成本是大载荷可能等待新审计，第三方许可未重授。
+
+minor (deferred)：worker没有第二次断言JDO_ENV=prod，正常parent已强制；绕过parent独立启动不是支持的商家流程。
