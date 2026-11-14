@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-11-15",
+  "timezone": "Asia/Shanghai",
+  "stage": "design-audit-only",
+  "internalReference": {
+    "version": "1.5.4",
+    "commit": "13692b759bd52e35c3670cf8fad5330e1bf2b576",
+    "modified": false,
+    "historicalAcceptanceIsCurrentTest": false
+  },
+  "proposedMerchantRepository": {
+    "repository": "ctzlyj/heideng-ops-agent-merchant-skill",
+    "exists": false,
+    "plannedVisibility": "private"
+  },
+  "videoUpstream": {
+    "repository": "ctzlyj/jd-pop-main-video-skill",
+    "version": "0.3.0",
+    "commit": "29548089f7b71ac77ddb584caac0966a98df24ab",
+    "visibility": "private",
+    "declaredLicense": null,
+    "distributionApproval": "unconfirmed",
+    "fileSha256": {
+      "SKILL.md": "2b0f2af3aba413d2aadf415c336aea943d1e99851fb5e6378f4568086141469b",
+      "VERSION": "c3e6947edad6581d229209ce319ce4498a03f3ed0846b74bb647247a749c1e46",
+      "requirements.txt": "03d25be8c8ab73eaabe39183f9d6cc8ab5a15d0282ed18ba4abbab82d34146ba",
+      "scripts/ai_ad.py": "527a6067aac70b9173fe0efde6fdd517833b3f3adb900abdfcb1dc162cd795be",
+      "scripts/align_subs.py": "e5585a6cde438c9b2a7d93801470ec9fbecb4c9dce1b5885cc8e894dac5a1a14",
+      "scripts/audio_track.py": "f1570a8ab205c9793cbab3f0cb6d23ad972f71f0b1b1cccdf73b5380cf0be316",
+      "scripts/beat_post.py": "7a2035c7bdbebfecd0cb23121b2dc22e032382bcab8863dcc18952e0e56949da",
+      "scripts/check_main_video.py": "d07abae31c37e2a0d4c56a5a667326152aa3e3b9599812bc55514a30688fea58",
+      "scripts/config.py": "d3b3e5285ca7d60f13d01b6b6846853118c500a43326032f35b1dbd7ea8d5d43",
+      "scripts/costs.py": "3d580f856ceb0ad7ee3a33cf288089e3c56971477b22c35c89f5a504123bf7b9",
+      "scripts/front_page.py": "143b4417060699fdc7511b8da1f0347f59f2ab73571a75d17f4bd725e889ef8f",
+      "scripts/h3_prompt.py": "603705505ec2c0338dfe44309b79eb6aebe1d967b18899be6ed50322d3649540",
+      "scripts/identity.py": "7cd93534d8ea12dc40dce2f40cda3160e0c9977b845206b1915b8cb0182dc24c",
+      "scripts/item_page.py": "48bd78414887c37bc3e33f6c9bdff75d3bfdc224900d9c93aa870d88c33b1de2",
+      "scripts/item_video.py": "c7e825ba371513c902bbb3480c1748515892aa59531494152b9da36c385c6bda",
+      "scripts/libtv_mcp.py": "7d6ea322a35b2da50c11c12df0fb96f038529730e177c2a6ff05c23e927c5296",
+      "scripts/oxygen_h3.py": "51412ca2b4875d077e03d710b34c24296c460ec974c3172e49fee31964b247b4",
+      "scripts/pricing.py": "f565eba331ddb45312c11819b9eb3347adb9f8a964faab1d8958a62b570b5501",
+      "scripts/providers.py": "072c3da6b4844cc2617f4d8451478ca2881dd545c5e3907c67b047253b9c6feb",
+      "scripts/qc_video.py": "bd48485acea1ae7417805b0b9bb4930ffbd5b9d38835bd8d708808e565074390",
+      "scripts/report.py": "a2b15340b57eef992ec7b326bf6fb56cc5cb0703ecc0eb7e2831409f43cee29a",
+      "scripts/video_job.py": "868a08e1d7df049ed56561746f349a6cc312d34d5ff568d85cce3503b651d75c",
+      "scripts/voiceover.py": "c58e499d8e4019ebea2f7eb4d2f4761b56850cd6b23aa5593cfbabf544650c75",
+      "scripts/webcli_ev.py": "28ed6aaf92adc2c7e6e115e8eba15fca77f31b42eaa7ec612fea5f7166390d39"
+    }
+  },
+  "sources": [
+    {
+      "repository": "ctzlyj/jingmai-cli-linker",
+      "commit": "1c438fc5419cd86f709cc4a501325782fd4a1e36",
+      "branch": "master",
+      "commitDate": "2026-11-12T16:24:47Z",
+      "visibility": "private",
+      "declaredLicense": null,
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/jd-material-pop-skill",
+      "commit": "b56b22376db88182352d3f64ea3e9752d4ae5677",
+      "branch": "main",
+      "commitDate": "2026-11-11T05:38:19Z",
+      "visibility": "private",
+      "declaredLicense": null,
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/jd-material-merchant-skill",
+      "commit": "bf3568e4d04819b74c6a2e59c20dca9a2f1e2913",
+      "branch": "main",
+      "commitDate": "2026-09-01T14:22:33Z",
+      "visibility": "public",
+      "declaredLicense": "MIT",
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+      "commit": "3ee08af2f3970f88d39756f1906040efe75117dc",
+      "branch": "main",
+      "commitDate": "2026-11-11T04:07:58Z",
+      "visibility": "public",
+      "declaredLicense": "MIT",
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/jingmai-batch-image-refresh-skill",
+      "commit": "8a2f3df185562b1f2f27859a90080d19b2f259cf",
+      "branch": "main",
+      "commitDate": "2026-11-10T10:17:57Z",
+      "visibility": "private",
+      "declaredLicense": null,
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/jd-store-diagnosis",
+      "commit": "bc5a0fb5f01f0867a269388e076539a526cf330f",
+      "branch": "main",
+      "commitDate": "2026-11-12T14:49:38Z",
+      "visibility": "private",
+      "declaredLicense": null,
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/jd-store-diagnosis-skill",
+      "commit": "42971c041248bab27f4d627357dcc475f848eb75",
+      "branch": "master",
+      "commitDate": "2026-11-09T05:21:24Z",
+      "visibility": "public",
+      "declaredLicense": null,
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/jd-competitor-price-adjustment-skill",
+      "commit": "43bdf6790fe3c8a5b89c217edcaefabf670cbc2c",
+      "branch": "main",
+      "commitDate": "2026-11-05T11:26:05Z",
+      "visibility": "private",
+      "declaredLicense": "MIT",
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/jd-hot-link-collector",
+      "commit": "90ef8dfd8455848d539d22560ae26ba8bac52e2a",
+      "branch": "main",
+      "commitDate": "2026-11-05T09:25:21Z",
+      "visibility": "public",
+      "declaredLicense": "MIT",
+      "distributionApproval": "unconfirmed"
+    },
+    {
+      "repository": "ctzlyj/sufy-image2",
+      "commit": "b2b5724d77787b49469f43308f9e1de57438ee08",
+      "branch": "main",
+      "commitDate": "2026-10-11T23:00:57Z",
+      "visibility": "public",
+      "declaredLicense": "MIT",
+      "distributionApproval": "unconfirmed"
+    }
+  ],
+  "verification": {
+    "upstreamTests": {
+      "passed": 120,
+      "seconds": 1.14,
+      "exitCode": 0,
+      "network": "blocked",
+      "credentials": "none",
+      "merchantAcceptance": false
+    },
+    "mockProbes": {
+      "nonAtomicBudget": {
+        "cap": 1,
+        "acceptedReservations": 2,
+        "totalReserved": 1.2
+      },
+      "textUnknownReplay": {
+        "submissions": 2,
+        "unresolved": 2
+      },
+      "unredactedSyntheticCredentialEcho": true,
+      "localTtsFallbackMissingConfig": true
+    },
+    "externalPaidGeneration": "not-run",
+    "merchantOAuth": "not-run",
+    "shopWrite": "not-run",
+    "cleanExternalMachineInstall": "not-run"
+  }
+}

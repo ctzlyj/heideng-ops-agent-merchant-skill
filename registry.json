@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "skill": "heideng-ops-agent-merchant",
+  "displayName": "黑灯运营智能体商家版",
+  "version": "0.1.0",
+  "toolboxIsNotWhitelist": true,
+  "capabilities": [
+    {
+      "id": "shop-connection",
+      "name": "店铺连接",
+      "triggers": [
+        "连接",
+        "授权",
+        "店铺资料",
+        "venderId"
+      ],
+      "officialSkill": "jdo-seller-info",
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "available",
+      "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
+      "mediaGeneration": "not-required"
+    },
+    {
+      "id": "materials",
+      "name": "POP信息分与素材维护",
+      "triggers": [
+        "信息分",
+        "透明图",
+        "白底图",
+        "素材"
+      ],
+      "officialSkill": "jdo-product-material",
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "available",
+      "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
+      "mediaGeneration": "awaiting-provider"
+    },
+    {
+      "id": "listing",
+      "name": "一键上架／复刻／实拍上新",
+      "triggers": [
+        "上架",
+        "复刻",
+        "实拍",
+        "上新",
+        "矩阵"
+      ],
+      "officialSkill": "jdo-product-publish",
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "available",
+      "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
+      "mediaGeneration": "awaiting-provider"
+    },
+    {
+      "id": "image-refresh",
+      "name": "主图／详情优化",
+      "triggers": [
+        "主图",
+        "详情",
+        "优化图片"
+      ],
+      "officialSkill": "jdo-product-update",
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "available",
+      "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
+      "mediaGeneration": "awaiting-provider"
+    },
+    {
+      "id": "diagnosis",
+      "name": "经营与广告诊断",
+      "triggers": [
+        "诊断",
+        "经营",
+        "广告",
+        "商智",
+        "京准通"
+      ],
+      "officialSkill": "jdo-product-price",
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "available",
+      "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
+      "mediaGeneration": "not-required"
+    },
+    {
+      "id": "collection",
+      "name": "商品素材与到手价采集",
+      "triggers": [
+        "采集",
+        "到手价",
+        "素材包"
+      ],
+      "officialSkill": "jdo-product-price",
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "available",
+      "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
+      "mediaGeneration": "not-required"
+    },
+    {
+      "id": "comparison",
+      "name": "同规格比价与改价",
+      "triggers": [
+        "比价",
+        "改价",
+        "同款",
+        "TOP10"
+      ],
+      "officialSkill": "jdo-product-update",
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "available",
+      "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
+      "mediaGeneration": "not-required"
+    },
+    {
+      "id": "video",
+      "name": "电商视频与本地交接",
+      "triggers": [
+        "视频",
+        "配音",
+        "封面"
+      ],
+      "officialSkill": "jdo-product-material",
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "available",
+      "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
+      "mediaGeneration": "awaiting-provider"
+    }
+  ],
+  "videoUpstream": {
+    "repository": "ctzlyj/jd-pop-main-video-skill",
+    "auditedVersion": "0.3.0",
+    "auditedCommit": "29548089f7b71ac77ddb584caac0966a98df24ab",
+    "activation": "generation-provider-pending"
+  },
+  "update": {
+    "repository": "ctzlyj/heideng-ops-agent-merchant-skill",
+    "channel": "github-releases",
+    "when": "idle-only",
+    "allowDowngrade": false
+  },
+  "credentialPolicy": "independent-merchant-namespace-no-employee-model-keys"
+}
