@@ -43,3 +43,5 @@
 安装还新增了Python -I隔离模式回归：原installer因脚本路径被隔离而ModuleNotFoundError，现显式加入自身模块根路径；干净HOME从校验ZIP安装、onboarding、未前台auth-start在依赖安装前拦截已验证。浏览器测试临时HOME及测试生成缓存留在忽略的agent-work内，不进入提交或安装包。
 
 Skill压力测试基线没有违反不重复授权原则，但缺命令参数导致无法自主继续。更新连接参考后的有界测试能准确查询/取消原任务、保留unknown、区分目标当前身份与原签发、对明确未开始授权的取消使用幂等restart。不是实际店铺或权限测试。
+
+增量代码提交0cec3259f75a23afd9d2c741da0b58a138ec5d88后，重新从私有GitHub实际克隆该开发分支（不是复制本地工作区），重建ZIP SHA与本地7440c2ca48232348f1a368cd4393c5a610f2ae275c6ae4177a2f33c6a28ebf9b一致；干净HOME、Python -I安装、onboarding及前台授权gate通过。见github-auth-roundtrip-2026-11-15.json。该回测需要已有仓库读取权限，不是匿名商家下载；仍未创建正式release或运行真实店铺授权。
