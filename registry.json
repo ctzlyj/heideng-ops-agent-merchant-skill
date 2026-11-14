@@ -37,8 +37,19 @@
       "readCommands": [
         "health-list",
         "sku-list",
-        "product-detail"
-      ]
+        "product-detail",
+        "material-zones",
+        "material-categories",
+        "material-images",
+        "material-detail"
+      ],
+      "builtInCommands": [
+        "material-upload-plan",
+        "material-upload-status"
+      ],
+      "reference": "references/native-materials.md",
+      "nativeUpload": "available-doc-contract-and-offline-tested-not-live-shop-verified",
+      "productBinding": "separate-write-not-part-of-image-upload"
     },
     {
       "id": "listing",

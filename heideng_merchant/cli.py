@@ -8,6 +8,8 @@ from .state import merchant_home
 from .official import OfficialClient
 from .operations import Operations
 from .products import ProductService
+from .materials import MaterialService
+from .public_output import public_result
 from .auth_manager import AuthManager
 from .providers import MediaConfiguration
 from .video_source import VideoSource
@@ -24,6 +26,13 @@ def _json_file(value):
 def parser():
  p=argparse.ArgumentParser(description='黑灯运营智能体商家版：由Agent操作，商家只描述目标')
  p.add_argument('--home');p.add_argument('--json',action='store_true');sub=p.add_subparsers(dest='command',required=True)
+ mz=sub.add_parser('material-zones');mz.add_argument('--profile',required=True);mz.add_argument('--zone-type',type=int,choices=(1,2))
+ for name in ('material-categories','material-images'):
+  mp=sub.add_parser(name);mp.add_argument('--profile',required=True);mp.add_argument('--zone-id',required=True);mp.add_argument('--filters');mp.add_argument('--page-size',type=int,default=50);mp.add_argument('--max-pages',type=int,default=100);mp.add_argument('--start-page',type=int,default=1)
+ md=sub.add_parser('material-detail');md.add_argument('--profile',required=True);md.add_argument('--zone-id',required=True);md.add_argument('--image-id',required=True)
+ mu=sub.add_parser('material-upload-plan');mu.add_argument('--profile',required=True);mu.add_argument('--image',required=True);mu.add_argument('--zone-id',required=True);mu.add_argument('--category-id',required=True);mu.add_argument('--name')
+ ms=sub.add_parser('material-upload-status');ms.add_argument('--task-id',required=True);ms.add_argument('--refresh',action='store_true')
+ rv=sub.add_parser('task-result-readback');rv.add_argument('--task-id',required=True)
  for name in ('onboarding','catalog','media-status','video-source-status','update-check','update-apply','video-source-check'):sub.add_parser(name)
  r=sub.add_parser('route');r.add_argument('request')
  d=sub.add_parser('doctor');d.add_argument('--install-cli',action='store_true')
@@ -35,7 +44,7 @@ def parser():
  for name in ('auth-status','auth-observe','auth-cancel','auth-recover'):
   c=sub.add_parser(name);c.add_argument('--task-id',required=True)
  retry=sub.add_parser('auth-restart');retry.add_argument('--task-id',required=True);retry.add_argument('--foreground',action='store_true')
- plan=sub.add_parser('task-plan');plan.add_argument('--profile',required=True);plan.add_argument('--operation',required=True);plan.add_argument('--verification');plan.add_argument('--precondition');plan.add_argument('--online-verification')
+ plan=sub.add_parser('task-plan');plan.add_argument('--profile',required=True);plan.add_argument('--operation',required=True);plan.add_argument('--verification');plan.add_argument('--precondition');plan.add_argument('--online-verification');plan.add_argument('--result-verification')
  approval=sub.add_parser('task-approve');approval.add_argument('--task-id',required=True);approval.add_argument('--fingerprint',required=True);approval.add_argument('--confirm',action='store_true')
  for name in ('task-execute','task-status'):
   c=sub.add_parser(name);c.add_argument('--task-id',required=True)
@@ -81,9 +90,17 @@ def run(args):
  if command=='auth-restart':return AuthManager(state,client=client).restart(args.task_id,foreground=args.foreground)
  if command in ('auth-status','auth-observe','auth-cancel','auth-recover'):
   return getattr(AuthManager(state,client=client),command.removeprefix('auth-'))(args.task_id)
- if command=='task-plan':return ops.prepare(args.profile,_json_file(args.operation),_json_file(args.verification),precondition=_json_file(args.precondition),online_verification=_json_file(args.online_verification))
+ if command=='task-plan':return ops.prepare(args.profile,_json_file(args.operation),_json_file(args.verification),precondition=_json_file(args.precondition),online_verification=_json_file(args.online_verification),result_verification=_json_file(args.result_verification))
  if command=='task-approve':return ops.approve(args.task_id,args.fingerprint,confirmed=args.confirm)
  if command=='task-execute':return ops.execute(args.task_id)
+ if command=='material-zones':return MaterialService(state,client).zones(args.profile,zone_type=args.zone_type)
+ if command in ('material-categories','material-images'):
+  service=MaterialService(state,client);options={'filters':_json_file(args.filters),'page_size':args.page_size,'max_pages':args.max_pages,'start_page':args.start_page}
+  return service.categories(args.profile,args.zone_id,**options) if command=='material-categories' else service.images(args.profile,args.zone_id,**options)
+ if command=='material-detail':return MaterialService(state,client).detail(args.profile,args.zone_id,args.image_id)
+ if command=='material-upload-plan':return MaterialService(state,client).prepare_upload(args.profile,args.image,args.zone_id,args.category_id,name=args.name)
+ if command=='material-upload-status':return MaterialService(state,client).upload_status(args.task_id,refresh=args.refresh)
+ if command=='task-result-readback':return ops.verify_result(args.task_id)
  if command=='task-status':return ops.task(args.task_id)
  if command=='task-readback':return ops.readback(args.task_id,_json_file(args.query),_json_file(args.expected))
  if command=='task-online-readback':return ops.verify_online(args.task_id)
@@ -112,7 +129,7 @@ def main(argv=None):
  for stream in (sys.stdout,sys.stderr):
   if hasattr(stream,"reconfigure"):stream.reconfigure(encoding="utf-8",errors="backslashreplace")
  try:
-  result=run(parser().parse_args(argv));print(json.dumps(redact(result),ensure_ascii=False,allow_nan=False));return 0
+  result=run(parser().parse_args(argv));print(json.dumps(public_result(redact(result)),ensure_ascii=False,allow_nan=False));return 0
  except (SafetyError,ValueError,OSError) as error:
   print(json.dumps({'status':'blocked','error':redact(str(error)),'paidCalls':0,'employeeFallback':False},ensure_ascii=False));return 2
 

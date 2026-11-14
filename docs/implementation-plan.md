@@ -61,3 +61,10 @@ minor (deferred)：worker没有第二次断言JDO_ENV=prod，正常parent已强�
 
 
 检查点6回测：私有GitHub source commit 387e66fded031b2c0921f8603cb9395112939c8a实际重新克隆；重建SHA一致、40文件审核、fresh HOME安装/onboarding、安装后签名/身份GET大载荷mock和价格mock、170项全套通过。继续原生媒体上传/绑定/上新，不把transport smoke当上传成功。
+
+
+## 检查点7：原生图片素材规划、上传与原回执ID回查
+
+新增独立公开PyPI Pillow解码运行时（真实13.0.0安装/坏图拒绝）、原生空间/分类/分页/详情、原图SHA与同店活动分类契约、resultVerification原imgId绑定、原JFS/属性回查及CLI base64省略。图片空间保存与商品绑定/远端像素质检分开。首次190项完整套件、47文件包审核、安装后真实Pillow与file-fake跨进程known/unknown各一次POST通过，修正后最终验收待收口。
+
+独立review3项重要问题已先RED再修复：JSON文本媒体回显、分页元数据缺失误报完整、无协议正数分类限制。Ruling：source返回的categoryId=0/-1且status有效可用，不猜默认，不拒真实int64值。minor (deferred)：本地图在stat与read_bytes间增长时有超限分配窗口，最终大小检查阻止上传但不保护该次分配。

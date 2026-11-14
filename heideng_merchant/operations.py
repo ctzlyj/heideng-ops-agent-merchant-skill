@@ -8,6 +8,9 @@ from .state import FileLock
 from .official import validate_profile,validate_route
 from .verification import business_payload,matches_fields,validate_expected
 from .price_contract import price_contract,validate_native_price_response
+from .result_verification import validate_result_verification,resolve_result_verification
+from .image_probe import probe_image
+from .material_contract import describe_upload,check_image_evidence,verify_upload_context,validate_image_receipt
 
 def digest(value):return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
 
@@ -67,7 +70,7 @@ class Operations:
   if not value:raise SafetyError('task-not-found')
   if digest(value['scope'])!=value['fingerprint']:raise SafetyError('task-scope-modified')
   return value
- def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None):
+ def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None):
   shop=self.shop(profile);operation=_operation(operation)
   scope={'shop':{k:shop[k] for k in ('profile','venderId','shopName','shopId')},'operation':operation,'runtimeVersion':VERSION}
   if callable(getattr(self.client,'plan_execution',None)):
@@ -75,6 +78,10 @@ class Operations:
    if redact(scope['officialExecution'])!=scope['officialExecution']:raise SafetyError('credentials-not-allowed-in-execution-contract')
   for key,value in (('verification',verification),('precondition',precondition),('onlineVerification',online_verification)):
    if value is not None:scope[key]=_verification(value)
+  if result_verification is not None:scope['resultVerification']=validate_result_verification(result_verification,_operation)
+  upload=describe_upload(scope)
+  if upload:
+   descriptor,raw=upload;image=probe_image(self.state,raw);check_image_evidence(descriptor,image);scope['materialUpload']={'image':image}
   contract=price_contract(scope)
   fingerprint=digest(scope);ident=fingerprint[:24];path=self._path(ident)
   with FileLock(self.state/'install.lock'):
@@ -90,8 +97,12 @@ class Operations:
      validate_native_price_response(contract,response,stage='before')
      if _match_count(response,check['expected'])!=1:raise SafetyError('native-price-planning-values-not-current')
      planning={'query':query,'responseSha256':digest(response),'checkedAt':time.time()}
+    material_planning=None
+    if upload:
+     proof=verify_upload_context(self.client,shop,descriptor);material_planning={'zoneChecked':True,'categoryChecked':True,'zonesSha256':digest(proof['zones']),'categoriesSha256':digest(proof['categories']),'checkedAt':time.time()}
     task={'taskId':ident,'fingerprint':fingerprint,'scope':scope,'status':'prepared','createdAt':time.time(),'requiresWriteApproval':operation['method']!='GET'}
     if planning is not None:task['planningEvidence']=planning
+    if material_planning is not None:task['materialPlanningEvidence']=material_planning
     atomic_json(path,task);return task
  def _assert_resolved(self,shop,exclude=None):
   for entry in (self.state/'tasks').glob('*.json'):
@@ -120,7 +131,11 @@ class Operations:
     expected=task['scope']['shop'];actual=self.client.identity(expected['profile'])
     if any(str(actual.get(k))!=str(expected[k]) for k in ('shopName','venderId','shopId')) or actual.get('shopType')!='POP':raise SafetyError('shop-changed-stop-before-write')
     if task['requiresWriteApproval']:self._assert_resolved(expected,exclude=task_id)
-    contract=price_contract(task['scope'])
+    contract=price_contract(task['scope']);upload=describe_upload(task['scope'])
+    if upload:
+     descriptor,raw=upload;image=probe_image(self.state,raw);check_image_evidence(descriptor,image)
+     if task['scope'].get('materialUpload')!={'image':image}:raise SafetyError('native-image-approved-evidence-changed')
+     proof=verify_upload_context(self.client,expected,descriptor);task['materialPreconditionEvidence']={'zonesSha256':digest(proof['zones']),'categoriesSha256':digest(proof['categories']),'checkedAt':time.time()}
     precondition=task['scope'].get('precondition')
     if precondition:
      query=precondition['query'];current=self.client.invoke(expected['profile'],query['url'],method='GET',params=query['params'],skill_id=query['skillId'])
@@ -140,9 +155,11 @@ class Operations:
      result=self.client.invoke(expected['profile'],op['url'],method=op['method'],params=op['params'],body=op.get('body'),skill_id=op['skillId'],write_authorized=task['requiresWriteApproval'],**transport_options)
      payload=business_payload(result)
      if task['requiresWriteApproval'] and (not isinstance(payload,(dict,list)) or not payload):raise SafetyError('business-acknowledgement-missing')
+     if 'resultVerification' in task['scope']:resolve_result_verification(task['scope']['resultVerification'],result)
+     if upload:validate_image_receipt(descriptor,image,result)
     except Exception as error:
      task.update(status='unknown',error={'kind':type(error).__name__,'message':'提交结果待核对；不会自动重提，也不会因换工具重新提交'})
-    else:task.update(status='submitted' if task['requiresWriteApproval'] else 'completed',result=redact(result),finishedAt=time.time())
+    else:task.update(status='submitted' if task['requiresWriteApproval'] else 'completed',result=redact(result),resultReceiptSha256=digest(redact(result)),finishedAt=time.time())
     atomic_json(self._path(task_id),task);return task
  def readback(self,task_id,query,expected):
   query=_operation(query)
@@ -163,7 +180,7 @@ class Operations:
     # Exact API evidence of the desired state, not an assertion about authorship of an unknown submission.
     task['targetStateVerified']=match_count==1
     if match_count==1:
-     if task['status']!='unknown':task['status']='verified'
+     if task['status']!='unknown' and ('resultVerification' not in task['scope'] or task.get('resultStateVerified')):task['status']='verified'
      task['verificationMeaning']='目标状态由本店官方读取证明；unknown原提交仍未证明终态，继续阻断重提/新写入'
     atomic_json(self._path(task_id),task);return task
 
@@ -183,4 +200,23 @@ class Operations:
     task['onlineReadback']={'query':query,'expected':verification['expected'],'matchCount':count,'at':time.time(),'result':redact(result)}
     task['onlineStateVerified']=count==1
     # A current online value cannot certify authorship or clear an unknown request.
+    atomic_json(self._path(task_id),task);return task
+
+ def verify_result(self,task_id):
+  with FileLock(self.state/'install.lock'):
+   with FileLock(self.state/'tasks.lock'):
+    task=self.task(task_id);verification=task['scope'].get('resultVerification')
+    if task['status'] not in ('submitted','verified') or not verification:raise SafetyError('known-original-result-required-never-resolve-unknown-by-target-match')
+    result=task.get('result')
+    if result is None or digest(result)!=task.get('resultReceiptSha256'):raise SafetyError('original-result-receipt-missing-or-modified')
+    resolved=resolve_result_verification(verification,result);shop=task['scope']['shop']
+    if not _same_identity(self.client.identity(shop['profile']),shop):raise SafetyError('readback-shop-mismatch')
+    query=resolved['query'];response=self.client.invoke(shop['profile'],query['url'],method='GET',params=query['params'],skill_id=query['skillId'])
+    upload=describe_upload(task['scope'])
+    if upload:
+     descriptor,raw=upload;image=task['scope'].get('materialUpload',{}).get('image');check_image_evidence(descriptor,image);validate_image_receipt(descriptor,image,response,original=result)
+    count=_match_count(response,resolved['expected'])
+    task['resultReadback']={'query':query,'expected':resolved['expected'],'matchCount':count,'at':time.time(),'result':redact(response),'sourceResultSha256':task['resultReceiptSha256']}
+    task['resultStateVerified']=count==1
+    if count==1 and ('verification' not in task['scope'] or task.get('targetStateVerified')):task['status']='verified'
     atomic_json(self._path(task_id),task);return task

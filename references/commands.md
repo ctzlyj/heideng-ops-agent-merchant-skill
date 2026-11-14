@@ -26,7 +26,7 @@
 
 XLSX可选openpyxl：由Agent在独立商家运行时从公开来源安装；多可见Sheet须选择真实源Sheet，公式无缓存值不能造结果。不能往全局员工环境安装依赖。
 
-官方CLI调用固定生产环境和官方元数据入口，禁default Profile，禁止CLI的mock-token/print-code/code等不安全OAuth选项。大图超过平台CLI参数限制时，转当前Agent的已授权浏览器上传能力，不截断body、不声称已上传。
+官方CLI调用固定生产环境和官方元数据入口，禁default Profile，禁止CLI的mock-token/print-code/code等不安全OAuth选项。大载荷在提交前按官方同版stdin薄适配，不截body；接口权限错误不能换工具绕过。浏览器只有独立合法通道和对应范围授权时才适配，未知先查原回执不重提。
 
 ## 回查契约
 
@@ -49,3 +49,8 @@ XLSX可选openpyxl：由Agent在独立商家运行时从公开来源安装；多
 ## 大载荷（无需新的商家命令）
 
 原task-plan→task-approve→task-execute自动按实际commandline长度在提交前确定官方binary/stdin。必须查看scope.officialExecution（版本/SHA/sourceStatus）并绑定原fingerprint；不把源声明deprecated隐藏。stdin规则和验证边界见official-transport.md。所有status/readback只查询原任务；未知结果不得换transport重放。
+
+
+## 原生素材与结果ID绑定
+
+material-zones/material-categories/material-images/material-detail，material-upload-plan/material-upload-status，以及task-result-readback，详见native-materials.md。task-plan额外支持--result-verification，引用只解析原已知回执ID。CLI省略imgBase64并显示SHA，真实请求只在本地状态/传输管道；素材保存不宣称商品绑定/线上生效。

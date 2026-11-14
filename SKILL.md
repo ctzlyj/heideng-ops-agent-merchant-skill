@@ -56,3 +56,6 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 
 
 大图片/大上新JSON使用本仓库官方版本绑定stdin薄适配，见references/official-transport.md。task-plan的officialExecution必须展示与绑定；0.3.7公开源为deprecated，不能隐藏或当成正式新SDK。只在提交前选择transport，不因未知结果换方式重提；源码和载荷不得放OS argv或落源码日志。
+
+
+已有图片的原生素材入口见references/native-materials.md：先查询本店空间/分类，按原bytes SHA规划、批准、上传，再原imgId回查。批量保留全部SKU/文件映射，图片保存与商品主图/详情绑定分开；unknown不靠名称搜索解除。当前模型来源等待补充不阻塞已有合规图的本地解码和素材流程。
