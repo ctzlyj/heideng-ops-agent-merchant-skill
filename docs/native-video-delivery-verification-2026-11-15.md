@@ -16,7 +16,7 @@ Task2：原始本地视频交接证明 → 当前店铺视频zone/原生元数�
 - **431项隔离测试、12项安装/官方源码边界smoke全部通过**；其中视频专项37项。新HOME真实安装公开解码依赖，使用合成H264/AAC视频/静态封面全解码，执行生产multipart代码但连接/DNS均合成。
 - 归档：0.1.0-unreleased，72文件（含manifest）；SHA256 `b9348f114c48f4bc62e8584c7956b1b76cd4a02dbbdfe1bb59649bbb102f73ea`。零个人路径、凭据模式或未知分发文件；仅证明本项目受审计归档。
 - 官方0.3.7公开源码SHA `abcc6fe5a354d14c4a9b99a221d0b682759d77e8200fc3922f0c1ce32e86a0b2`；实际parser/signing，合成认证、最终HTTP替身和socket阻断。4例涵盖分配/保存成功及签名后deadline过期；没有真实OAuth或平台写入。
-- 独立审查及后续窄复核：原3项问题及追加save重放、owner残余分别RED→GREEN。最终窄复核5项回归、5项既往残余检查、3项直接阶段guard检查通过，发现项均已关闭。实际GitHub往返记录随后写入本报告JSON，不能以本地通过冒充远端交付。
+- 独立审查及后续窄复核：原3项问题及追加save重放、owner残余分别RED→GREEN。最终窄复核5项回归、5项既往残余检查、3项直接阶段guard检查通过，发现项均已关闭。实际GitHub往返也已通过，见下节；它仍只证明私有开发交付，不代替真实商家或公开许可验收。
 
 ## 中间失败与重验
 
@@ -27,3 +27,9 @@ Task2：原始本地视频交接证明 → 当前店铺视频zone/原生元数�
 私有仓库 `ctzlyj/heideng-ops-agent-merchant-skill`，分支 `codex/merchant-foundation`。内部只读基线仍1.5.4 / `13692b759bd52e35c3670cf8fad5330e1bf2b576`，工作区干净；没有修改其源码、安装或分发方式。视频上游0.3.0 / `29548089f7b71ac77ddb584caac0966a98df24ab`，生成服务等待用户指定。
 
 真实商家OAuth、原生动态卡、网络视频上传、平台审核和商业视觉/声音验收均未运行；没有真实商家写入或付费模型调用。Task3、整店批准写入、驳回修复/短标题、多类目兼容及公开分发/商业权利仍未完成。goal继续active，不宣称整个商家版已正式上线。
+
+## 实际GitHub私有往返
+
+- 已测试并推送的代码提交：`9a1001c42cea8ba628cbfe266bcfe35fa47e4b95`。通过已授权GitHub身份实际克隆既有私有分支，再detach固定该代码；不是本地复制或只测试当前工作树。
+- 全新venv/隔离HOME，公开依赖安装、受审计归档重建SHA相同、安装后onboarding、431项隔离测试及12项安装/官方源码smoke全部通过；本次全部阶段首次通过。完成后detach clone干净。
+- 独立记录：`github-native-video-delivery-roundtrip-2026-11-15.json`。后续commit只补验收证据/只读Task3审计，不改变该测试代码与归档SHA；代码commit和证据HEAD不混为一谈。

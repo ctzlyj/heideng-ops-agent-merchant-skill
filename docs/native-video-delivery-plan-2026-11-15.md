@@ -75,3 +75,12 @@ Produces `video-delivery` 原始文件证据、批准范围和不可重放的阶
 - Task3尚未实现；Task2上传/保存验收不能冒充SKU绑定、真实OAuth、真实网络上传或商业许可。
 - 上述owner缺口已完成RED→GREEN修复：全部四个证据树的空/缺失owner、default Profile、不完整或非法ID、空店名、混合无owner+另店owner均拒绝；完整一致另店证据仍允许本店继续。37项视频上传/保存专项回归通过，独立最终窄复核与431项最终包矩阵仍待结果；后续验收报告为最终依据。
 - 独立最终窄复核已关闭：5项目标回归（含非法owner子例）、5项原残余精确检查、3项_start直接重放guard检查均通过；没有剩余发现。该结论不代替最终431项/12smoke包矩阵或真实平台验收。
+
+## Task3只读审计补充（未实现）
+
+- 官方API830目录已列出`GET.sp-product.v0.sku-material-tags`、`GET.sp-product.v0.media-zones._zoneId.video-sku-rels`及素材批量绑定；场景Skill的“只查视频/无上传接口”表述不能覆盖API830能力。文档中的历史pre建议不采纳，真实动态合同仍须当前prod。
+- 只读参考的type42载荷包含`indexImage`、`videoFrom=1`、商家`videoId`、平台`jdVideoId`、title/duration及实际tagId/tagOrder/tagName；标签查询关联商品实际secondCategoryId，“产品展示”须精确匹配原生返回，不能把一级/末级类目ID任意代填。
+- 只读参考的关系查询使用`videoType=42`、videoIds及分页；旧代码有total缺失时提早结束、重复SKU覆盖、关系status与relationStatus别名差异等未证明边界，不能整体复制运行。后续需动态卡校验、稳定total、唯一关系、全SKU范围及原ID交叉核对。
+- 现有`sku_material_contract`只允许31/32/33/36/1002；42证明不能通过放宽`changes_checked`或generic task绕过，必须接入完整原视频会话、同商品SKU全量清点、父批准/分块和独立审核回查。当前Task2精确元数据证明不包含可直接写入42的完整videoMaterial，需单独读取/校验而非从manifest伪造字段。
+
+- Task2最终验收已完成：431项隔离测试、12项安装/官方源码边界smoke与72文件脱敏归档通过；代码9a1001c42cea8ba628cbfe266bcfe35fa47e4b95已推送既有私有分支。实际GitHub克隆、固定代码、新venv/HOME、相同归档SHA、同431项/12smoke与干净detach clone均通过。Task3仍未实现，完整商家版goal保持active。
