@@ -12,7 +12,7 @@ ID=re.compile('[a-f0-9]{24}');REQ=re.compile('[a-f0-9]{32}');HASH=re.compile('[a
 ACTIONS={'approve','execute','recover','results','effects','stop'}
 COMMAND_FOLDERS=('short-title-worker-commands','short-title-worker-dispatches','short-title-worker-results')
 NATIVE_FOLDERS=('short-title-import-attempts','short-title-import-dispatches','short-title-import-acks','short-title-import-observations','short-title-import-anchors','short-title-import-approvals','short-title-result-observations','short-title-result-receipts','short-title-effect-observations','short-title-effect-receipts')
-PUBLIC={'status','reason','importId','fingerprint','submittedBatchCount','unknownBatchCount','rowResultsVerified','actualTitlesVerified','formalAuditVerified','portalVerified','healthVerified','imported','retryAuthorized','effectObservationSequence','currentEffectSourceVerified','currentTaskAnchorMatched','currentResultSourceVerified','runtimeVersion','approvalCurrentlyValid','batchCount','proposedRowCount','approvedRowCount'}
+PUBLIC={'status','reason','importId','fingerprint','submittedBatchCount','unknownBatchCount','rowResultsVerified','actualTitlesVerified','formalAuditVerified','portalVerified','healthVerified','imported','retryAuthorized','effectObservationSequence','currentEffectSourceVerified','currentTaskAnchorMatched','currentResultSourceVerified','runtimeVersion','approvalCurrentlyValid','batchCount','proposedRowCount','approvedRowCount','effectEvidenceVersion','nativeHealthSourcesVerified','targetHealthRequirementsSatisfied','currentNativeHealthSourceVerified'}
 
 def _error():raise SafetyError('original-short-title-worker-evidence-required')
 def _id(value,pattern=ID):

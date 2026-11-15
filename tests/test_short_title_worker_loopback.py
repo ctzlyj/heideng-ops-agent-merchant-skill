@@ -57,6 +57,7 @@ class WorkerLoopbackTests(unittest.TestCase):
     finally:thread.join(timeout=20)
    self.assertFalse(thread.is_alive());self.assertFalse(errors,[str(e) for e in errors]);self.assertEqual(out['status'],'closed')
    self.assertEqual((native.driver.context.page.uploads,native.driver.context.page.creates),(1,1));self.assertEqual(set(native_threads),{owner});self.assertFalse(c.posts)
+   self.assertEqual(reads[-1]['result'].get('effectEvidenceVersion'),2);self.assertIn('nativeHealthSourcesVerified',reads[-1]['result'])
    self.assertFalse(reads[0]['result']['imported']);self.assertTrue(all(r['historicalResult'] for r in reads));self.assertEqual(service.status(j['workerId'])['status'],'closed')
  def test_broker_freeze_rejects_new_http_command_and_bad_origin_never_queues(self):
   from heideng_merchant.short_title_worker_broker import CommandBroker,make_server

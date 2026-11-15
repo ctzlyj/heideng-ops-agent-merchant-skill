@@ -81,3 +81,5 @@ health-list 读取官方命名的“商品信息健康分”及 improvementList�
 - short-title-import-plan / short-title-import-approve / short-title-import-status / short-title-import-rows：先读 references/native-short-title-import.md；原生execute/recover API会真实写入，必须本次精确root批准。CLI 持久 worker 已接入，先读 references/native-short-title-worker.md；启动只读、精确批准后原进程执行，当前仍不能称完整标题生效；unknown只查原件不重传、不推进。C1/C2 collect_results只读获取原实例结果、完整逐行处理回执，状态/--view results可分页；先读 references/native-short-title-results.md，rowResultsVerified不是实际title/audit/health通过或retry许可。
 
 原范围实际短标题/health 回读与持久化证据已接入部分原生来源 API；持久 worker 已接入；完整正式审核/门户/health 与确认失败子计划仍待完成，不称整店生效。Agent 用法与历史 effects 分页见 `references/native-short-title-effects.md`。
+
+C3 v2 native 健康列表/逐SKU详情的独立前后观察已接入原 worker effects；先读 `references/native-short-title-health.md`。这是健康来源与特定标题问题的证据，不是正式短标题审核、门户或整店导入完成，不放开未知/重试门禁。

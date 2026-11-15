@@ -69,6 +69,10 @@ class _Context:
     def check(self, value):
         keys = {'importId','fingerprint','originalAuditFingerprint','originalResultReceiptSha256','originalResultSequence','rows','identitySha256','originalAnchors','detailSources','healthSource','currentIdentityVerified','sourceDetailsStable','currentOriginalScopeComplete','currentTargetTitlesMatch','actualTitlesVerified','formalAuditVerified','portalVerified','healthVerified','C3ReceiptPersisted','imported','retryAuthorized'}
         root = self.root
+        modern=isinstance(value,dict) and 'effectEvidenceVersion' in value
+        if modern:
+            if type(value['effectEvidenceVersion']) is not int or value['effectEvidenceVersion']!=2:_error()
+            keys=keys|{'effectEvidenceVersion','nativeHealthEvidence','nativeHealthSourcesVerified','targetHealthRequirementsSatisfied'}
         if not isinstance(value, dict) or set(value) != keys or redact(value) != value or value['importId'] != root['importId'] or value['fingerprint'] != root['fingerprint'] or value['originalAuditFingerprint'] != self.audit_fp or value['identitySha256'] != self.identity_sha or value['currentIdentityVerified'] is not True: _error()
         if any(value[key] is not False for key in ('formalAuditVerified','portalVerified','healthVerified','C3ReceiptPersisted','imported','retryAuthorized')): _error()
         anchors = value['originalAnchors']
@@ -111,6 +115,15 @@ class _Context:
             if target: target_rows.append(row)
         if health['originalValuesComplete'] is not bool(health_complete) or value['currentTargetTitlesMatch'] is not (bool(target_rows) and all(row['actualTitleMatchesProposed'] for row in target_rows)) or value['actualTitlesVerified'] is not (bool(target_rows) and all(row['actualTitleVerified'] for row in target_rows)): _error()
 
+        if modern:
+            from .short_title_health_sources import evaluate_evidence,legacy_fields
+            expected_rows,expected_source=legacy_fields(value['nativeHealthEvidence']['listBefore'],self.original)
+            if digest(value['healthSource'])!=digest(expected_source):_error()
+            for row in rows:
+                if digest({k:row[k] for k in ('healthScore','healthTitleIssue','healthRowObserved')})!=digest(expected_rows[row['skuId']]):_error()
+            facts=evaluate_evidence(value['nativeHealthEvidence'],self.original,rows,scope_complete=full,details_stable=stable)
+            if any(value[key] is not flag for key,flag in facts.items()):_error()
+
 def read_log(state, root, anchors, *, repair=False):
     observations = _files(state,FOLDERS[0],root); receipts = _files(state,FOLDERS[1],root)
     head_path = path(state,HEAD,root['importId']); exists = head_path.exists(); head = _read(head_path) if exists else None
@@ -122,10 +135,13 @@ def read_log(state, root, anchors, *, repair=False):
         if exists or receipts: _error()
         return None,0,root['fingerprint']
     context = _Context(state,root,anchors); previous = root['fingerprint']; hashes = {0:previous}; missing = []
+    modern_seen=False
     for sequence in range(1,count+1):
         item = observations[sequence]
         if not isinstance(item,dict) or set(item) != {'importId','fingerprint','sequence','previousReceiptSha256','observedAt','observation'} or redact(item) != item or item['importId'] != root['importId'] or item['fingerprint'] != root['fingerprint'] or type(item['sequence']) is not int or item['sequence'] != sequence or item['previousReceiptSha256'] != previous or not valid_time(item['observedAt']): _error()
         context.check(item['observation'])
+        if modern_seen and item['observation'].get('effectEvidenceVersion')!=2:_error()
+        modern_seen=modern_seen or item['observation'].get('effectEvidenceVersion')==2
         receipt = {'importId':root['importId'],'fingerprint':root['fingerprint'],'sequence':sequence,'observationSha256':digest(item),'previousReceiptSha256':previous}
         if sequence not in receipts: missing.append((sequence,receipt))
         elif not isinstance(receipts[sequence],dict) or set(receipts[sequence]) != set(receipt) or type(receipts[sequence]['sequence']) is not int or receipts[sequence] != receipt: _error()
@@ -148,6 +164,7 @@ def append_observation(state, root, anchors, value, observed_at):
     context = _Context(state,root,anchors); context.check(value)
     if latest is not None:
         old = latest['observation']
+        if old.get('effectEvidenceVersion')==2 and value.get('effectEvidenceVersion')!=2:_error()
         if value['originalResultSequence'] < old['originalResultSequence'] or any(value['originalAnchors'].get(key) != sha for key,sha in old['originalAnchors'].items()): _error()
     sequence = count+1
     item = {'importId':root['importId'],'fingerprint':root['fingerprint'],'sequence':sequence,'previousReceiptSha256':previous,'observedAt':observed_at,'observation':value}
@@ -161,12 +178,16 @@ def summary(latest,count):
     result = {'effectObservationCount':count,'effectEvidenceHistorical':True,'currentEffectSourceVerified':False,'formalAuditVerified':False,'portalVerified':False,'retryAuthorized':False}
     if latest is not None:
         result.update(actualTitlesVerified=latest['observation']['actualTitlesVerified'],effectObservedOriginalSkuCount=len(latest['observation']['rows']),effectObservedAt=latest['observedAt'])
+        result.update(effectEvidenceVersion=latest['observation'].get('effectEvidenceVersion',1),nativeHealthSourcesVerified=latest['observation'].get('nativeHealthSourcesVerified',False),targetHealthRequirementsSatisfied=latest['observation'].get('targetHealthRequirementsSatisfied',False),nativeHealthEvidenceHistorical=True,currentNativeHealthSourceVerified=False)
     return result
 
 
 def effect_rows(state,root,latest):
     if latest is not None:
-        return [{**row,'effectObservedAt':latest['observedAt'],'effectObservationSequence':latest['sequence'],'effectEvidenceHistorical':True} for row in latest['observation']['rows']]
+        health=latest['observation'].get('nativeHealthEvidence',{});before={v['skuId']:v for v in health.get('detailsBefore',[])};after={v['skuId']:v for v in health.get('detailsAfter',[])}
+        return [{**row,'effectObservedAt':latest['observedAt'],'effectObservationSequence':latest['sequence'],'effectEvidenceHistorical':True,
+                 'nativeHealthEvidenceVersion':latest['observation'].get('effectEvidenceVersion',1),'nativeHealthEvidenceHistorical':True,
+                 'nativeHealthDetailBefore':before.get(row['skuId']),'nativeHealthDetailAfter':after.get(row['skuId'])} for row in latest['observation']['rows']]
     from .short_titles import ShortTitlePlans
     from .short_title_contract import source_context
     plan=ShortTitlePlans(state,None).plan(root['scope']['planId'])

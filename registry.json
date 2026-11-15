@@ -117,7 +117,9 @@
       "actualTitleReadApi": true,
       "effectReference": "references/native-short-title-effects.md",
       "C3Complete": false,
-      "workerReference": "references/native-short-title-worker.md"
+      "workerReference": "references/native-short-title-worker.md",
+      "nativeHealthDetailReadApi": true,
+      "nativeHealthReference": "references/native-short-title-health.md"
     },
     {
       "id": "listing",

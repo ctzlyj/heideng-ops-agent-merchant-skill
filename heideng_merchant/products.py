@@ -127,6 +127,19 @@ class ProductService:
                                   skill='jdo-product-price', maximum_page=100,
                                   page_size=page_size, max_pages=max_pages, start_page=start_page)
 
+    def health_detail(self, profile, sku_id):
+        """Read the documented unfiltered native health detail, bound to this SKU."""
+        sku_id = identifier(sku_id)
+        response = self._read(profile, '/rest/sp-product/v0/health-infos/{healthInfoId}',
+                              {'healthInfoId': int(sku_id)}, skill='jdo-product-price')
+        data = business_payload(response)
+        if not isinstance(data, dict) or identifier(data.get('skuId')) != sku_id:
+            raise SafetyError('native-health-detail-sku-mismatch')
+        identifier(data.get('productId'))
+        if 'healthScoreId' in data and identifier(data['healthScoreId']) != sku_id:
+            raise SafetyError('native-health-detail-id-mismatch')
+        return data
+
     def _list_records(self, profile, url, id_field, *, fields=None, filters=None, skill='jdo-product-status',
                       parent=None, page_size=20, max_pages=100, start_page=1, maximum_page=50):
         if any(isinstance(value, bool) or not isinstance(value, int) for value in (page_size, max_pages, start_page)) or not 1 <= page_size <= maximum_page or not 1 <= max_pages <= 1000 or start_page < 1:

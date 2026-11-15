@@ -112,7 +112,7 @@ class ShortTitleImports:
    self._current(p,readonly=True);self._browser(p,browser);browser.install_lock.require_owned(self.state/'install.lock')
    sequence=append_observation(self.state,p,anchors,observed,self.clock())
    self._browser(p,browser);browser.install_lock.require_owned(self.state/'install.lock')
-   observed.update(C3ReceiptPersisted=True,effectObservationSequence=sequence,currentEffectSourceVerified=observed['sourceDetailsStable'] and observed['currentOriginalScopeComplete'])
+   observed.update(C3ReceiptPersisted=True,effectObservationSequence=sequence,currentEffectSourceVerified=observed['sourceDetailsStable'] and observed['currentOriginalScopeComplete'],currentNativeHealthSourceVerified=observed.get('nativeHealthSourcesVerified',False))
    return observed
  def _browser(self,p,browser):
   from .short_title_import_browser import ShortTitleImportBrowser

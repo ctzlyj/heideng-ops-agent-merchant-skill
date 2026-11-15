@@ -161,13 +161,35 @@ def observe_original_effects(manager, import_id, browser, *, max_pages=1000):
             owned()
             values[pid] = title_detail_observation(raw, pid, skus)
         return values
+    from .short_title_health_sources import project_detail, project_list, unavailable_detail, evaluate_evidence, legacy_fields, UnsafeHealthSource, DETAIL_URL
+    def health_details():
+        values=[]
+        for row in original:
+            owned();manager._current(root,readonly=True);owned()
+            try:
+                raw=reader.health_detail(profile,row['skuId'])
+                projected=project_detail(raw,row['productId'],row['skuId'])
+            except UnsafeHealthSource:
+                raise
+            except Exception:
+                projected=unavailable_detail(row['productId'],row['skuId'])
+            owned();manager._current(root,readonly=True);owned()
+            values.append(projected)
+        return values
     start = details()
     owned()
     health = reader.list_health(profile, page_size=100, max_pages=max_pages)
     owned()
     manager._current(root, readonly=True)
     owned()
-    health_values, health_source = _health_facts(health, original)
+    health_before=project_list(health)
+    health_values, health_source = legacy_fields(health_before, original)
+    health_details_before=health_details()
+    owned()
+    health_end=reader.list_health(profile,page_size=100,max_pages=max_pages)
+    owned();manager._current(root,readonly=True);owned()
+    health_after=project_list(health_end)
+    health_details_after=health_details()
     end = details()
     manager._current(root, readonly=True)
     owned()
@@ -197,7 +219,7 @@ def observe_original_effects(manager, import_id, browser, *, max_pages=1000):
     owned()
     if end_identity != start_identity:
         _refuse()
-    return {'importId': import_id, 'fingerprint': root['fingerprint'],
+    result = {'importId': import_id, 'fingerprint': root['fingerprint'],
             'originalAuditFingerprint': plan['scope']['auditFingerprint'],
             'originalResultReceiptSha256': result_receipt_sha,
             'originalResultSequence': sequence, 'rows': output,
@@ -214,3 +236,10 @@ def observe_original_effects(manager, import_id, browser, *, max_pages=1000):
             'actualTitlesVerified': bool(targets) and all(v['actualTitleVerified'] for v in targets),
             'formalAuditVerified': False, 'portalVerified': False, 'healthVerified': False,
             'C3ReceiptPersisted': False, 'imported': False, 'retryAuthorized': False}
+
+    native_health={'version':1,'detailRoute':DETAIL_URL,'listRoute':'/rest/sp-product/v0/health-infos',
+                   'listBefore':health_before,'listAfter':health_after,
+                   'detailsBefore':health_details_before,'detailsAfter':health_details_after}
+    result.update(effectEvidenceVersion=2,nativeHealthEvidence=native_health)
+    result.update(evaluate_evidence(native_health,original,output,scope_complete=full_scope,details_stable=stable))
+    return result
