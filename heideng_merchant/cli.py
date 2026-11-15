@@ -24,6 +24,7 @@ from .video_runtime import VideoRuntime
 from .video_probe import probe_video
 from .video_handoff import preflight_video
 from .video_delivery import VideoDelivery
+from .video_binding import VideoBindingService
 from .catalog import load_catalog,route
 from .updates import ReleaseUpdates,github_json
 from .workflows import read_rows,diagnose_rows,compare_exact_specs,prepare_listing,material_audit,package_snapshot,attach_video
@@ -103,6 +104,13 @@ def parser():
  compare=sub.add_parser('compare');compare.add_argument('--source',required=True);compare.add_argument('--specs',required=True);compare.add_argument('--output',required=True)
  listing=sub.add_parser('prepare-listing');listing.add_argument('--product',required=True);listing.add_argument('--source-root',required=True);listing.add_argument('--output',required=True)
  collect=sub.add_parser('package-snapshot');collect.add_argument('--snapshot',required=True);collect.add_argument('--output',required=True)
+ for name in ('video-binding-preview','video-binding-plan'):
+  vb=sub.add_parser(name);vb.add_argument('--profile',required=True);vb.add_argument('--product-id',required=True);vb.add_argument('--session-id',required=True)
+  if name=='video-binding-plan':vb.add_argument('--review',required=True)
+ vb=sub.add_parser('video-binding-approve');vb.add_argument('--plan-id',required=True);vb.add_argument('--fingerprint',required=True);vb.add_argument('--confirm',action='store_true');vb.add_argument('--ttl-seconds',type=int,default=900)
+ for name in ('video-binding-execute','video-binding-status'):
+  vb=sub.add_parser(name);vb.add_argument('--plan-id',required=True)
+  if name=='video-binding-status':vb.add_argument('--refresh',action='store_true')
  vd=sub.add_parser('video-delivery-plan');vd.add_argument('--profile',required=True);vd.add_argument('--manifest',required=True);vd.add_argument('--zone-id',required=True);vd.add_argument('--name')
  va=sub.add_parser('video-delivery-approve');va.add_argument('--session-id',required=True);va.add_argument('--fingerprint',required=True);va.add_argument('--confirm',action='store_true');va.add_argument('--ttl-seconds',type=int,default=900)
  for name in ('video-delivery-execute','video-delivery-status'):
@@ -196,6 +204,11 @@ def run(args):
   result=compare_exact_specs(read_rows(args.source),_json_file(args.specs));atomic_json(Path(args.output),result);return result
  if command=='prepare-listing':return prepare_listing(read_input_json(args.product)[0],args.source_root,args.output)
  if command=='package-snapshot':return package_snapshot(_json_file(args.snapshot),args.output)
+ if command=='video-binding-preview':return VideoBindingService(state,client).preview(args.profile,args.product_id,args.session_id)
+ if command=='video-binding-plan':return VideoBindingService(state,client).prepare(args.profile,args.product_id,args.session_id,review=_json_file(args.review))
+ if command=='video-binding-approve':return VideoBindingService(state,client).approve(args.plan_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)
+ if command=='video-binding-execute':return VideoBindingService(state,client).execute(args.plan_id)
+ if command=='video-binding-status':return VideoBindingService(state,client).status(args.plan_id,refresh=args.refresh)
  if command=='video-delivery-plan':return VideoDelivery(state,client).prepare(args.profile,args.manifest,args.zone_id,name=args.name)
  if command=='video-delivery-approve':return VideoDelivery(state,client).approve(args.session_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)
  if command=='video-delivery-execute':return VideoDelivery(state,client).execute(args.session_id)

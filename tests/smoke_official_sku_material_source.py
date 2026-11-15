@@ -8,6 +8,8 @@ from heideng_merchant.official_transport import AUDITED_SOURCES
 from heideng_merchant.safety import atomic_json,file_sha
 raw=urllib.request.urlopen('https://mcp-open.jd.com/cli/jdo-cli',timeout=30).read(2*1024*1024+1);sha=hashlib.sha256(raw).hexdigest();assert sha==AUDITED_SOURCES['0.3.7']
 body={'skuMaterials':[{'productId':9,'skuId':sku,'materials':[{'skuId':sku,'materialType':31,'order':1,'imageMaterial':{'imgType':1,'replaceType':1,'skuImages':[{'index':1,'imgUrl':'jfs/t1/synthetic.png'}]}},{'skuId':sku,'materialType':1002,'order':1,'textMaterial':{'contents':['轻巧便携']}}]} for sku in range(101,151)]}
+for row in body['skuMaterials']:
+ row['materials'].append({'skuId':row['skuId'],'materialType':42,'order':1,'videoMaterial':{'videoFrom':1,'videoId':700,'jdVideoId':900,'indexImage':'jfs/synthetic/video.png','title':'synthetic item','duration':1,'tagId':17,'tagOrder':2,'tagName':'产品展示'}})
 records=[]
 for expired in (False,True):
  with tempfile.TemporaryDirectory(prefix='native-material-sdk-') as d:
@@ -40,6 +42,6 @@ for expired in (False,True):
   with patch.dict(os.environ,env,clear=True),patch('time.time',side_effect=lambda:clock[0]),patch.object(socket.socket,'connect',blocked),patch('socket.create_connection',blocked):result=execute_envelope(envelope,state,namespace_hook=hook)
   assert result['ok'] is (not expired) and calls==(['GET'] if expired else ['GET','POST']) and len(signs)==2
   assert all(secret not in json.dumps(result) for secret in ('SYNTHETIC_APP','SYNTHETIC_SECRET','SYNTHETIC_TOKEN'))
-  records.append({'expiredAfterSigning':expired,'success':result['ok'],'syntheticHttpMethods':calls,'signaturesComputed':len(signs),'nativeSkuCount':50})
-record={'status':'passed','officialSourceSha256':sha,'officialVersion':'0.3.7','binary':'synthetic receipt stub; not executed','auth':'synthetic in-memory only','http':'synthetic final boundary with socket blocked','endpoint':'native SKU materials batch','originalSourceSigningExecuted':True,'finalDeadlineAfterSigningEnforced':True,'cases':records,'realMerchantAuthorization':'not-run','realMerchantWrites':'not-run','paidModelCalls':0}
+  records.append({'expiredAfterSigning':expired,'success':result['ok'],'syntheticHttpMethods':calls,'signaturesComputed':len(signs),'nativeSkuCount':50,'materialTypes':[31,1002,42]})
+record={'status':'passed','officialSourceSha256':sha,'officialVersion':'0.3.7','binary':'synthetic receipt stub; not executed','auth':'synthetic in-memory only','http':'synthetic final boundary with socket blocked','endpoint':'native SKU materials batch','includesNativeVideoType42':True,'originalSourceSigningExecuted':True,'finalDeadlineAfterSigningEnforced':True,'cases':records,'realMerchantAuthorization':'not-run','realMerchantWrites':'not-run','paidModelCalls':0}
 atomic_json(ROOT/'.agent-work/information-score-audit/official-native-material-smoke.json',record);print(json.dumps(record))

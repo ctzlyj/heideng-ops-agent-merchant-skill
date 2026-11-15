@@ -57,4 +57,4 @@ python -m unittest discover -s tests -v
 
 ## 已有视频的本地交接
 
-Agent可独立全帧/音轨解码MP4、检查真实封面并绑定视频/封面/商品hash；视觉和声音须实际验收，不能凭`technicalPass=true`提升可绑定状态。运行时仅按需从公开PyPI安装，不生成/付费调用。详见`references/local-video-handoff.md`。本地就绪不等于原生上传、SKU绑定或平台审核成功，原生上传/保存的受批准会话已接入（见`references/native-video-delivery.md`），SKU绑定仍待实现，真实商家链路另获批准才实测。
+Agent可独立全帧/音轨解码MP4、检查真实封面并绑定视频/封面/商品hash；视觉和声音须实际验收，不能凭`technicalPass=true`提升可绑定状态。运行时仅按需从公开PyPI安装，不生成/付费调用。详见`references/local-video-handoff.md`。本地就绪不等于原生上传、SKU绑定或平台审核成功，原生上传/保存的受批准会话已接入（见`references/native-video-delivery.md`），SKU绑定已接入私有研发适配（见`references/native-video-binding.md`），仅经离线/合成验证，真实平台未实测，真实商家链路另获批准才实测。

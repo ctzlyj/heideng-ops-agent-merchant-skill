@@ -84,3 +84,27 @@ Produces `video-delivery` 原始文件证据、批准范围和不可重放的阶
 - 现有`sku_material_contract`只允许31/32/33/36/1002；42证明不能通过放宽`changes_checked`或generic task绕过，必须接入完整原视频会话、同商品SKU全量清点、父批准/分块和独立审核回查。当前Task2精确元数据证明不包含可直接写入42的完整videoMaterial，需单独读取/校验而非从manifest伪造字段。
 
 - Task2最终验收已完成：431项隔离测试、12项安装/官方源码边界smoke与72文件脱敏归档通过；代码9a1001c42cea8ba628cbfe266bcfe35fa47e4b95已推送既有私有分支。实际GitHub克隆、固定代码、新venv/HOME、相同归档SHA、同431项/12smoke与干净detach clone均通过。Task3仍未实现，完整商家版goal保持active。
+
+## Task3实施裁决（2026-11-15）
+
+复用Python标准库、Operations及原生视频会话，不另建平台；用户已委托剩余工程选择，不重复要求选择技术方案。只做合成测试。
+
+1. 新增`VideoBindingService.prepare/approve/execute/status`及专用type42合同；Operations经显式`videoMaterialInput`分派专用guard，不放松原图片/文本合同，也禁止generic回查提升视频写入。
+2. 原视频来源必须是本店已保存、独立回执/anchor/尝试齐全的原Task2会话；重新验证本地视频/封面/manifest和原videoId/jdVideoId。绑定批准与旧上传批准不同，不因旧上传deadline过期强迫重新上传。审核可从2变4，但3/5不可当成可绑定。
+3. 全商品详情+完整SKU分页双清点，实际二级类目和当前prod元数据/“产品展示”标签；Agent给出绑定视频hash、商品详情hash及全部SKU的商品身份确认。无确认只读展示，不写入；不要求商家手工写JSON。
+4. 只补type42/order1；已有相同完整视频字段可只读复用，其他order1拒绝覆盖。完整保留非目标视频orders和已查询图片/文本内容，并独立读回证明。每chunk<=50SKU，父批准覆盖全量SKU/所有chunk，子批准不能延长父deadline。
+5. 视频绑定attempt/receipt/anchor和父批准独立不可覆盖；journal/结果/attempt丢失或倒退不能重复写。未知原提交即使关系/字段已匹配仍保持unknown，并阻断同店后续写入。丢失journal但有遗留证明也不能解除隔离。
+6. 关系查询必须稳定total、完整分页、唯一SKU关系、本商品全SKU范围和原两个ID；不将短页、重复覆盖或缺失status当作完成。字段匹配、关联可见、审核pending/approved/rejected、信息分分别报告；绝不推断信息分已刷新。
+7. TDD：先复现缺服务及审批/分块/错来源/未知恢复的RED；逐步实现来源、完整范围、类型合同和独立写入证明；再验证篡改/丢失、过期、分页、保留orders、CLI和新HOME原生整链。最终完整隔离套件/归档审计/私有GitHub实际安装往返，不用Task2证据冒充Task3。
+
+### Task3开发验证进展（尚未交付）
+
+- 初组4项RED（缺原生绑定服务）→GREEN，覆盖只读准备/精确父批准、53SKU按50+3、保留已有orders、unknown匹配回查不解锁。
+- 后续复现并修复3个有界缺口：商品确认passed=1被当True；缺审核状态被归为pending；submitting journal落盘期间过期仍调用native。现在要求literal True，未知审核单列unknown，在原尝试持久化后、native调用前再次检查deadline；SDK最终deadline仍保留。
+- 分页漂移回归首次用了只有50条/total50的第一页，此时不可能观测未来第二页变化；已改为真实需第二页的报告total51→52漂移夹具，证明首块回查失败时不提交第二块，而非为满足错误断言改生产逻辑。
+- 13项新增绑定/CLI测试通过；完整隔离套件444项通过。原包72文件已被本轮76文件中间包替代，旧Task2 SHA不用于Task3。中间包SHA7fbfa5b8e3dbba87df826409ed5fe23611625b0e50634d5e786404c68ed49165审计通过，仅为初版，未完成完整安装矩阵或实际GitHub往返。
+- 裁决补充：POST只补新增42/order1，不重提已审核其他orders，以免平台重置审核；读回完整视频字段和图片/文本内容并独立报告非目标审核变化，不与内容/顺序变更混同。原生平台真实语义和动态合同仍需真实商家另授权验证，合成夹具不代替真实验收。
+- 独立审查与新HOME真实解码/生产multipart/53SKU原生绑定CLI整链smoke进行中。当前修改未提交，不宣称Task3完成。
+- 初版新HOME整链smoke已通过：真实公开解码环境、真实本地视频/封面、生产multipart合成连接、53SKU按50+3、保留原素材/顺序、视频与关系/素材审核区分、unknown停在第一块不重提。该初版包已被后续复核修复替代，不能用于最终SHA验证。
+- 独立审查4项有效发现均已主流程RED→GREEN：原上传批准缺失、缺关系status推进下一chunk、把非目标审核进度误当内容变化、后来的视频驳回无法只读报告。17项专项回归通过，最终窄复核待返回。原评论中“关系必须含jdVideoId”经证据复核撤回：源视频精确原ID对+完整type42素材相同ID对+关系精确videoId构成组合证明；存在jd字段则拒绝矛盾，不能强加未证明的原生输出字段。
+- 四项有效发现的独立窄复核已关闭：13项（4修复、5组合原ID证明、旧上传过期复用及3有界控制）通过；主流程又独立运行同13项通过。新增独立审核域/非目标进度报告回归RED→GREEN，绑定专项18项。最终包449项完整套件已通过，13项安装/官方源边界矩阵最后整链仍在运行；不以初版已安装smoke冒充最终包。

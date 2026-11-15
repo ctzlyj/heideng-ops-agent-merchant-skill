@@ -11,7 +11,7 @@
 5. `video-delivery-execute --session-id …`：最多一次新jdVideoId分配、一次完整multipart传输和一次保存。传输字段是video_file，不是PUT；使用原视频原字节，默认不转码/修复。仅当已确认没有启动HTTP传输时，允许一次以原jdVideoId+breakPointFlag重新取地址，不新建ID、不换素材。
 6. `video-delivery-status --session-id … --refresh`精确查询原videoId/jdVideoId。无refresh仅历史状态，storageVerified=false；新查询无原记录降为saved，不能继续当ready。报告转码、审核和原字段核对分别完成与否。
 
-**当前边界：只接上传/保存及元数据核对；SKU绑定还未接入。** 不允许通过generic task调用地址分配、视频写接口或绕过现有素材42证明guard。整店/单SKU绑定需下一阶段独立范围、实际标签、父批准、<=50SKU分块及关系审核回查。
+**上传/保存与绑定分开批准。SKU绑定已接入私有研发适配，见native-video-binding.md，当前仅经离线/合成验证，真实平台未实测。** 不允许通过generic task调用地址分配、视频写接口或绕过现有素材42证明guard。整商品绑定另用独立范围、实际标签、父批准、<=50SKU分块及关系审核回查。
 
 ## 安全和恢复
 

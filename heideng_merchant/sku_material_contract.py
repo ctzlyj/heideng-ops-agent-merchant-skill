@@ -230,6 +230,9 @@ def body_from_proof(ops,shop,proof):
  return body,expected
 
 def contract(ops,scope,*,live=False):
+ if 'videoMaterialInput' in scope:
+  from .video_binding_contract import contract as video_contract
+  return video_contract(ops,scope,live=live)
  op=scope['operation'];normalized='/'+('/'.join(p for p in op['url'].split('/') if p and p!='.'));native=bool(re.fullmatch(re.escape(READ)+r'(?:/.*)?',normalized))
  proof=scope.get('skuMaterialInput')
  if not native or op['method']=='GET':

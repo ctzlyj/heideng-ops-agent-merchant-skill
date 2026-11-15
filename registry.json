@@ -226,14 +226,20 @@
         "video-delivery-plan",
         "video-delivery-approve",
         "video-delivery-execute",
-        "video-delivery-status"
+        "video-delivery-status",
+        "video-binding-preview",
+        "video-binding-plan",
+        "video-binding-approve",
+        "video-binding-execute",
+        "video-binding-status"
       ],
       "reference": "references/local-video-handoff.md",
       "localTechnicalQA": "full-H264-AAC-original-decode-and-static-cover-verification",
       "nativeVideoDelivery": "allocation-transfer-save-and-original-field-readback-offline-tested-live-contract-and-merchant-unverified",
       "visualAndVoiceReview": "requires-real-inspection-bound-to-video-cover-and-listing-hashes",
-      "nativeVideoBinding": "pending-implementation",
-      "nativeDeliveryReference": "references/native-video-delivery.md"
+      "nativeVideoBinding": "receipt-bound-type42-full-sku-binding-offline-tested-live-contract-and-merchant-unverified",
+      "nativeDeliveryReference": "references/native-video-delivery.md",
+      "nativeBindingReference": "references/native-video-binding.md"
     }
   ],
   "videoUpstream": {

@@ -72,7 +72,8 @@ class Operations:
   value=read_json(self._path(task_id))
   if not value:raise SafetyError('task-not-found')
   if digest(value['scope'])!=value['fingerprint']:raise SafetyError('task-scope-modified')
-  return value
+  from .video_binding_state import checked_task
+  return checked_task(self,value)
  def _existing_publication(self,scope,new_id):
   # Persisted creation intent survives copying/moving a package; the path is
   # retained as a conservative fallback for older local task journals.
@@ -91,7 +92,7 @@ class Operations:
   for old in prepared:
    old.update(status='superseded',supersededBy=new_id);atomic_json(self._path(old['taskId']),old)
   return None
- def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None,listing_input=None,validated_task_id=None,sku_material_input=None):
+ def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None,listing_input=None,validated_task_id=None,sku_material_input=None,video_material_input=None):
   shop=self.shop(profile);operation=_operation(operation)
   scope={'shop':{k:shop[k] for k in ('profile','venderId','shopName','shopId')},'operation':operation,'runtimeVersion':VERSION}
   if callable(getattr(self.client,'plan_execution',None)):
@@ -105,6 +106,7 @@ class Operations:
    scope['nativeListingInput']=listing_input
   if validated_task_id is not None:scope['publicationValidationTaskId']=validated_task_id
   if sku_material_input is not None:scope['skuMaterialInput']=sku_material_input
+  if video_material_input is not None:scope['videoMaterialInput']=video_material_input
   from .sku_material_contract import contract as material_contract
   material_expected=material_contract(self,scope,live=True)
   publication_stage=check_publication_scope(self,scope,self.client)
@@ -137,6 +139,8 @@ class Operations:
     if material_planning is not None:task['materialPlanningEvidence']=material_planning
     atomic_json(path,task);return task
  def _assert_resolved(self,shop,exclude=None,resolved_uploads=(),exclude_video_session=None):
+  from .video_binding_state import assert_resolved as assert_binding_resolved
+  assert_binding_resolved(self,shop,exclude)
   from .video_delivery import assert_video_resolved
   assert_video_resolved(self.state,shop,exclude_video_session)
   for entry in (self.state/'tasks').glob('*.json'):
@@ -202,8 +206,11 @@ class Operations:
      deadline=min(task['approval']['expiresAt'],validation['finishedAt']+VALIDATION_TTL)
      if deadline<=time.time():raise SafetyError('validation-or-approval-expired-before-dispatch')
      transport_options['authorization_expires_at']=deadline
+    from .video_binding_state import start_attempt
+    start_attempt(self,task)
     task.update(status='submitting',startedAt=time.time());atomic_json(self._path(task_id),task)
     try:
+     if task['requiresWriteApproval'] and task['approval']['expiresAt']<=time.time():raise SafetyError('approval-expired-after-attempt-persistence-before-dispatch')
      result=self.client.invoke(expected['profile'],op['url'],method=op['method'],params=op['params'],body=op.get('body'),skill_id=op['skillId'],write_authorized=task['requiresWriteApproval'],**transport_options)
      if publication_stage=='validation':
       verdict=validation_verdict(result,expected_execution=execution)
@@ -219,6 +226,8 @@ class Operations:
       validate_image_receipt(descriptor,image,result)
       from .material_contract import preserve_upload_receipt
       preserve_upload_receipt(self,task,redact(result))
+     from .video_binding_state import preserve_receipt
+     preserve_receipt(self,task,redact(result))
     except Exception as error:
      task.update(status='unknown',error={'kind':type(error).__name__,'message':'提交结果待核对；不会自动重提，也不会因换工具重新提交'})
     else:
@@ -231,7 +240,7 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
-    if 'skuMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
+    if 'skuMaterialInput' in task['scope'] or 'videoMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
     if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
     if task['status'] not in ('submitted','unknown','verified'):raise SafetyError('readback-only-for-unresolved-write')
     verification=task['scope'].get('verification')
@@ -254,7 +263,7 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
-    if 'skuMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
+    if 'skuMaterialInput' in task['scope'] or 'videoMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
     if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
     if task['status'] not in ('submitted','unknown','verified'):raise SafetyError('online-readback-only-after-submission')
     verification=task['scope'].get('onlineVerification')
@@ -274,7 +283,7 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
-    if 'skuMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
+    if 'skuMaterialInput' in task['scope'] or 'videoMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
     if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
     verification=task['scope'].get('resultVerification')
     if task['status'] not in ('submitted','verified') or not verification:raise SafetyError('known-original-result-required-never-resolve-unknown-by-target-match')

@@ -24,6 +24,9 @@ def checked_plan(ops,plan):
  return plan
 
 def parent_deadline(ops,task):
+ if 'videoMaterialInput' in task['scope']:
+  from .video_binding_state import parent_deadline as video_deadline
+  return video_deadline(ops,task)
  proof=task['scope'].get('skuMaterialInput')
  if proof is None:return None
  intent=proof.get('intentHash')
