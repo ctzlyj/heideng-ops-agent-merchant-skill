@@ -1,0 +1,423 @@
+{
+  "verificationDate": "2026-11-16T00:40:08.537561+08:00",
+  "scope": "private-development-native-short-title-import-execution-api-only",
+  "sourceCommit": "02a909d126c7546e3efadab64b6379092890684e",
+  "baseCommit": "e4394b8e1f5c989765262a13fc790de6871d0ad8",
+  "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+  "local": {
+    "status": "passed",
+    "tests": 601,
+    "newPersistentTests": 32,
+    "smokes": 6,
+    "stages": {
+      "build": 0,
+      "smoke_short_title_import": 0,
+      "smoke_short_title_browser": 0,
+      "smoke_short_title_plan": 0,
+      "smoke_shop_material_repair": 0,
+      "smoke_shop_material_execution": 0,
+      "smoke_native_update_gate": 0,
+      "full-suite": 0
+    },
+    "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+    "audit": {
+      "releaseAudit": "passed",
+      "version": "0.1.0",
+      "fileCount": 98,
+      "personalPaths": 0,
+      "credentialPatterns": 0,
+      "unknownFiles": 0,
+      "scope": "audited-release-only-not-third-party-runtime-or-live-shop"
+    },
+    "sourceUnchangedDuringMatrix": true,
+    "realMerchantCalls": "not-run",
+    "CLIWorkerIntegrated": false,
+    "automaticMerchantImportComplete": false,
+    "goalComplete": false
+  },
+  "actualPrivateGitHubAcceptance": {
+    "status": "passed",
+    "sourceCommit": "02a909d126c7546e3efadab64b6379092890684e",
+    "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+    "actualGitHubClone": true,
+    "privateRepository": "ctzlyj/heideng-ops-agent-merchant-skill",
+    "branch": "codex/merchant-foundation",
+    "tests": 601,
+    "smokes": 6,
+    "audit": {
+      "releaseAudit": "passed",
+      "version": "0.1.0",
+      "fileCount": 98,
+      "personalPaths": 0,
+      "credentialPatterns": 0,
+      "unknownFiles": 0,
+      "scope": "audited-release-only-not-third-party-runtime-or-live-shop"
+    },
+    "freshHomeInstall": true,
+    "installedOnboarding": true,
+    "freshVenvAndPublicTestDependency": true,
+    "cleanDetachedClone": true,
+    "verificationAttempts": {
+      "github-clone": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "pin-source": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "check-source": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "fresh-venv": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "public-test-dependency": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "identical-bundle": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "package-audit": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "fresh-home-install": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "installed-onboarding": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "full-offline-suite": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "smoke_short_title_import": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "smoke_short_title_browser": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "smoke_short_title_plan": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "smoke_shop_material_repair": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "smoke_shop_material_execution": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "smoke_native_update_gate": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ],
+      "clean-clone": [
+        {
+          "attempt": 1,
+          "status": "passed"
+        }
+      ]
+    },
+    "sourceBytesAndImagePreflight": "synthetic",
+    "realMerchantAuthAndApi": "not-run",
+    "paidModelCalls": 0,
+    "goalComplete": false,
+    "formalPublicRelease": false,
+    "generationProvider": "awaiting-user-decision",
+    "importApi": {
+      "status": "passed",
+      "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+      "freshHomeInstall": true,
+      "businessAndBrowser": "synthetic",
+      "automaticMerchantCLIImportComplete": false,
+      "result": {
+        "status": "passed",
+        "installedModulePaths": true,
+        "nativeFileUploadCalls": 1,
+        "nativeCreateCalls": 1,
+        "lostCreateAckReadOnlyRecovered": true,
+        "noReplay": true,
+        "unknownAndSubmittedBlockUpdates": true,
+        "actualBrowserLaunched": false,
+        "realMerchantCalls": 0,
+        "paidModels": 0,
+        "imported": false,
+        "CLIWorkerIntegrated": false
+      },
+      "goalComplete": false
+    },
+    "browserSource": {
+      "status": "passed",
+      "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+      "freshHomeInstall": true,
+      "sourceAndMerchantCalls": "synthetic",
+      "actualBrowserLaunched": false,
+      "writeExecutionAvailable": false,
+      "result": {
+        "status": "passed",
+        "installedModulePaths": true,
+        "taskOwnedProfile": true,
+        "activeAndClosedUpdateGate": true,
+        "sameObjectIdentity": true,
+        "observedTaskRows": 2,
+        "instanceIds": [
+          "123456"
+        ],
+        "templateOriginCaptured": "synthetic browser event",
+        "taskListComplete": false,
+        "actualBrowserLaunched": false,
+        "realMerchantCalls": 0,
+        "paidModels": 0,
+        "imported": false,
+        "approvalReady": false
+      },
+      "goalComplete": false
+    },
+    "shortTitlePlan": {
+      "status": "passed",
+      "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+      "freshHomeInstall": true,
+      "sourceAndMerchantCalls": "synthetic",
+      "template": "synthetic-not-internal-asset",
+      "planningOnly": true,
+      "result": {
+        "status": "passed",
+        "installedPathsAsserted": true,
+        "onSaleSkuCount": 3,
+        "offSaleSiblingCount": 2,
+        "nativeIssues": 2,
+        "reviewedCopies": 1,
+        "remainingCopies": 1,
+        "workbookRows": 1,
+        "templateOriginVerified": false,
+        "writeExecutionAvailable": false,
+        "merchantApi": "synthetic",
+        "paidModels": 0
+      },
+      "goalComplete": false
+    },
+    "repairRegression": {
+      "status": "passed",
+      "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+      "freshHomeInstall": true,
+      "installedModulePathsAsserted": true,
+      "originalRootApproval": true,
+      "mixedRepairAndFill": true,
+      "allScopeRemainingGapsReported": true,
+      "sameImageUploadUsedForOwnedProducts": true,
+      "sourceBytesAndPreflight": "synthetic",
+      "merchantAuthAndApi": "synthetic-only",
+      "paidGenerationCalls": 0,
+      "results": {
+        "known": {
+          "status": "passed",
+          "case": "known",
+          "installedPathsAsserted": true,
+          "readyRepairs": 58,
+          "readyChanges": 59,
+          "nativePosts": 3,
+          "paidGenerationCalls": 0,
+          "originalBytesDownload": "synthetic",
+          "imagePreflight": "synthetic"
+        },
+        "unknown": {
+          "status": "passed",
+          "case": "unknown",
+          "installedPathsAsserted": true,
+          "readyRepairs": 58,
+          "readyChanges": 59,
+          "nativePosts": 2,
+          "paidGenerationCalls": 0,
+          "originalBytesDownload": "synthetic",
+          "imagePreflight": "synthetic"
+        },
+        "drift": {
+          "status": "passed",
+          "case": "drift",
+          "installedPathsAsserted": true,
+          "readyRepairs": 58,
+          "readyChanges": 59,
+          "nativePosts": 0,
+          "paidGenerationCalls": 0,
+          "originalBytesDownload": "synthetic",
+          "imagePreflight": "synthetic"
+        }
+      }
+    },
+    "fillRegression": {
+      "status": "passed",
+      "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+      "freshHomeInstall": true,
+      "installedModulePathsAsserted": true,
+      "syntheticMerchantAndNativeApi": true,
+      "mockedImagePreflight": true,
+      "realMerchantAuthorization": "not-run",
+      "realMerchantApi": "not-run",
+      "paidModelCalls": 0,
+      "defaultAllSlotsAndRemainingGaps": true,
+      "wholeScopeOriginalParentApproval": true,
+      "results": {
+        "known": {
+          "status": "passed",
+          "case": "known",
+          "installedModulesAsserted": true,
+          "nativePosts": 3,
+          "onSaleSkuCount": 56,
+          "originalImageUploadReceiptUsed": false,
+          "unknownNotReplayed": false,
+          "scoreRecalculated": false
+        },
+        "unknown": {
+          "status": "passed",
+          "case": "unknown",
+          "installedModulesAsserted": true,
+          "nativePosts": 2,
+          "onSaleSkuCount": 56,
+          "originalImageUploadReceiptUsed": false,
+          "unknownNotReplayed": true,
+          "scoreRecalculated": false
+        },
+        "image": {
+          "status": "passed",
+          "case": "image",
+          "installedModulesAsserted": true,
+          "nativePosts": 2,
+          "onSaleSkuCount": 2,
+          "originalImageUploadReceiptUsed": true,
+          "unknownNotReplayed": false,
+          "scoreRecalculated": false
+        }
+      }
+    },
+    "updateGate": {
+      "status": "passed",
+      "archiveSha256": "038f90688e7840b380f24c7b344edfafaa6ee6c7cc2566c42e181c6fb5b53ecc",
+      "freshHomeInstall": true,
+      "installedModulePathsAsserted": true,
+      "actualLocalUpdateRollbackRecovery": true,
+      "syntheticUpgradeFixtureOnly": "0.2.0",
+      "mockedTechnicalPreflight": true,
+      "realMerchantAuthorization": "not-run",
+      "realMerchantApi": "not-run",
+      "paidModelCalls": 0,
+      "results": {
+        "unknown": {
+          "status": "passed",
+          "unknownBlockedInstallRollbackRecoveryCancel": true,
+          "recoveryEvidenceUnchanged": true
+        },
+        "cancel": {
+          "status": "passed",
+          "confirmedLocalCancel": true,
+          "upgradeAllowedBeforeAttempt": true,
+          "staleRuntimeBlockedDispatch": true
+        },
+        "updated": {
+          "status": "passed",
+          "newVersionReplanned": true,
+          "knownCompletedRollbackAllowed": true
+        }
+      }
+    },
+    "planningOnly": false,
+    "nativeImportExecutionApiImplemented": true,
+    "CLIWorkerIntegrated": false,
+    "automaticMerchantImportComplete": false,
+    "actualTitlesVerified": false,
+    "rowResultsVerified": false,
+    "healthVerified": false,
+    "templateOriginVerified": "synthetic-native-only"
+  },
+  "independentReview": {
+    "scope": "original-two-Important-plus-held-lock-live-approval-bounded-recheck",
+    "scenarios": 8,
+    "originalImportantResolved": 2,
+    "reviewedFileCount": 19,
+    "hashesUnchanged": true,
+    "sourceIndexSha256": "0730f7b1a0326f9265323d48507608c9a252b0e3997295d56966689c2614b0df",
+    "manifestSha256": "910253e34d4b07944609264287e74edeccaea82c48e5145e36c551734d36d22f"
+  },
+  "corrections": [
+    "immutable attempt/dispatch/ACK/observation/anchor and full future-file prefix",
+    "contradictory actual IDs distinguished from absent; root-wide uniqueness",
+    "finished browser body bounded independently of compressed Content-Length; not original HTTP wire proof",
+    "synthetic template ZIP clock fixed without weakening template hashes",
+    "same-thread same-path still-held FileLock witness, no skip-lock CLI",
+    "fresh inline approval uses original open owner and retains lock/live reference on uncertain close",
+    "synthetic installed-smoke clock injection aligned; business assertions unchanged"
+  ],
+  "invalidReproductionExcluded": "first root-wide fixture hid old page before original anchor; only corrected 5000+1 RED is relied upon",
+  "internalBaseline": {
+    "version": "1.5.4",
+    "commit": "13692b759bd52e35c3670cf8fad5330e1bf2b576",
+    "clean": true,
+    "modified": false
+  },
+  "videoUpstreamAudited": {
+    "version": "0.3.0",
+    "commit": "29548089f7b71ac77ddb584caac0966a98df24ab",
+    "latestClaim": false
+  },
+  "realMerchantOAuthApiBrowser": "not-run",
+  "paidModelCalls": 0,
+  "actualTitlesVerified": false,
+  "rowResultsVerified": false,
+  "healthVerified": false,
+  "CLIWorkerIntegrated": false,
+  "automaticMerchantImportComplete": false,
+  "formalPublicRelease": false,
+  "goalComplete": false,
+  "remaining": [
+    "mandatory original-instance complete row results and verified-failure-only repair",
+    "independent original title/audit/health/portal observations",
+    "persistent owned worker and merchant execute CLI lifecycle",
+    "remote existing-video adoption",
+    "safe cross-version unattempted plan reconstruction",
+    "real authorized merchant/category/scale acceptance",
+    "generation provider selection",
+    "distribution and commercial rights"
+  ]
+}
