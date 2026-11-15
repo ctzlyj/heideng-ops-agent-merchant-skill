@@ -20,7 +20,8 @@
 - 新HOME实际安装发行ZIP及公开PyAV/Pillow依赖；安装后CLI全解码2份合成MP4（每份30视频帧），带AAC视频48128音频samples。没有用mock decoder冒充这次安装smoke。
 - 截断、坏packet、可恢复codec错误、假封面、变更原字节及变更已安装decoder都拒绝；原文件不转码/不修复；实际检查前后hash相同。
 - SHA256 **f68d77050bdfee6d49b34dfdafa2d659ebe32ea8b46965b028d00f1433fc5b8b**；审计 **68个文件（含manifest）**，个人路径/凭据模式/未知文件均0。包版本0.1.0，未正式发布。
-- 私有GitHub实际克隆/新HOME回环另附记录，未完成前不计入本段验收。
+- 私有GitHub实际克隆代码提交 **5d78ff4bca628a4f92fed024a6ad0ed57b3b7df1**，新venv/新HOME安装，复建归档SHA相同；393项隔离测试及10项smoke通过，测试后的detached clone干净。记录：`github-video-handoff-roundtrip-2026-11-15.json`。
+- GitHub回环首次视频smoke的公开PyPI wheel下载在300秒超时；原有9项已通过，仅重跑失败的视频smoke后通过。保留首次超时回执，没有重建替代业务任务、改源或隐去失败。
 
 ## 中间失败记录
 
