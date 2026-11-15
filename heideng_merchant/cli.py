@@ -13,6 +13,7 @@ from .schema_edit import EditService
 from .materials import MaterialService
 from .sku_materials import SkuMaterialService
 from .shop_material_audit import ShopMaterialAudit
+from .shop_material_execution import ShopMaterialExecution
 from .publish_support import PublishSupport
 from .publishing import PublishService
 from .publication_contract import read_input_json
@@ -38,6 +39,12 @@ def _json_file(value):
 def parser():
  p=argparse.ArgumentParser(description='黑灯运营智能体商家版：由Agent操作，商家只描述目标')
  p.add_argument('--home');p.add_argument('--json',action='store_true');sub=p.add_subparsers(dest='command',required=True)
+ sp=sub.add_parser('shop-material-plan');sp.add_argument('--audit-id',required=True);sp.add_argument('--changes');sp.add_argument('--target-slots')
+ sp=sub.add_parser('shop-material-approve');sp.add_argument('--plan-id',required=True);sp.add_argument('--fingerprint',required=True);sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
+ for name in ('shop-material-execute','shop-material-status','shop-material-rows'):
+  sp=sub.add_parser(name);sp.add_argument('--plan-id',required=True)
+  if name=='shop-material-status':sp.add_argument('--refresh',action='store_true')
+  if name=='shop-material-rows':sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=['coverage','chunks'],default='coverage')
  sa=sub.add_parser('sku-material-shop-audit');sa.add_argument('--profile',required=True);sa.add_argument('--threshold',type=int,default=89);sa.add_argument('--max-products',type=int,default=10000);sa.add_argument('--max-skus',type=int,default=100000);sa.add_argument('--max-pages',type=int,default=1000);sa.add_argument('--no-health',action='store_true')
  ss=sub.add_parser('sku-material-shop-status');ss.add_argument('--audit-id',required=True)
  sp=sub.add_parser('sku-material-shop-rows');sp.add_argument('--audit-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--include-offline',action='store_true');sp.add_argument('--only',choices=('all','low-score','gaps','pending','rejected','unscored','short-title','unobserved'),default='all')
@@ -149,6 +156,11 @@ def run(args):
  if command=='task-plan':return ops.prepare(args.profile,_json_file(args.operation),_json_file(args.verification),precondition=_json_file(args.precondition),online_verification=_json_file(args.online_verification),result_verification=_json_file(args.result_verification))
  if command=='task-approve':return ops.approve(args.task_id,args.fingerprint,confirmed=args.confirm)
  if command=='task-execute':return ops.execute(args.task_id)
+ if command=='shop-material-plan':return ShopMaterialExecution(state,client).prepare(args.audit_id,[] if args.changes is None else _json_file(args.changes),target_slots=None if args.target_slots is None else args.target_slots.split(','))
+ if command=='shop-material-approve':return ShopMaterialExecution(state,client).approve(args.plan_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)
+ if command=='shop-material-execute':return ShopMaterialExecution(state,client).execute(args.plan_id)
+ if command=='shop-material-status':return ShopMaterialExecution(state,client).status(args.plan_id,refresh=args.refresh)
+ if command=='shop-material-rows':return ShopMaterialExecution(state,client).rows(args.plan_id,page=args.page,page_size=args.page_size,view=args.view)
  if command=='sku-material-shop-audit':
   service=ShopMaterialAudit(state,client);result=service.audit(args.profile,threshold=args.threshold,max_products=args.max_products,max_skus=args.max_skus,max_pages=args.max_pages,include_health=not args.no_health);return service.summary(result['auditId'])
  if command=='sku-material-shop-status':return ShopMaterialAudit(state,client).summary(args.audit_id)

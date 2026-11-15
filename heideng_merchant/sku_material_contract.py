@@ -229,7 +229,9 @@ def body_from_proof(ops,shop,proof):
  validate_schema(body,current['POST']['inputSchema'])
  return body,expected
 
-def contract(ops,scope,*,live=False):
+def contract(ops,scope,*,live=False,dispatch=False):
+ from .shop_material_execution_contract import contract as shop_contract
+ shop_contract(ops,scope,live=live,dispatch=dispatch)
  if 'videoMaterialInput' in scope:
   from .video_binding_contract import contract as video_contract
   return video_contract(ops,scope,live=live)

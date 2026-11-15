@@ -70,3 +70,5 @@ publish-categories、publish-brands、publish-context；publish-validation-plan 
 全店在售来源审计：sku-material-shop-audit / sku-material-shop-status / sku-material-shop-rows。默认查询一次完整原生health来源，信息分和素材源的完整性独立记录，摘要不输出数千ID；全明细在原指纹捕获文件与分页接口，详见 references/native-shop-material-audit.md。
 
 原生已有视频计划的本地取消：video-delivery-cancel --session-id --fingerprint --confirm。仅明确取消且尚无业务尝试时可用，保留原计划和独立取消证明；unknown/allocated等不可取消，不删除状态或换ID重提。运行时版本与更新门禁见 references/native-video-delivery.md。
+
+整店已准备好素材的一份根范围：shop-material-plan --audit-id [--changes] [--target-slots]；shop-material-approve --plan-id --fingerprint --confirm [--ttl-seconds]；shop-material-execute --plan-id；shop-material-status --plan-id [--refresh]；shop-material-rows --plan-id [--view coverage|chunks --page --page-size]。Agent组织清单、批准与余缺说明，商家不手填JSON；先读 references/native-shop-material-execution.md。独立父批准/原件/全覆盖摘要，不把部分成功和平台信息分混淆。

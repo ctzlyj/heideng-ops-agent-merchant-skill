@@ -24,6 +24,9 @@ def checked_plan(ops,plan):
  return plan
 
 def parent_deadline(ops,task):
+ if 'shopMaterialInput' in task['scope']:
+  from .shop_material_execution_state import parent_deadline as shop_deadline
+  return shop_deadline(ops,task)
  if 'videoMaterialInput' in task['scope']:
   from .video_binding_state import parent_deadline as video_deadline
   return video_deadline(ops,task)

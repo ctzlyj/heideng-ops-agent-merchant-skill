@@ -73,7 +73,9 @@ class Operations:
   if not value:raise SafetyError('task-not-found')
   if digest(value['scope'])!=value['fingerprint']:raise SafetyError('task-scope-modified')
   from .video_binding_state import checked_task
-  return checked_task(self,value)
+  value=checked_task(self,value)
+  from .shop_material_execution_state import checked_task as checked_shop_task
+  return checked_shop_task(self,value)
  def _existing_publication(self,scope,new_id):
   # Persisted creation intent survives copying/moving a package; the path is
   # retained as a conservative fallback for older local task journals.
@@ -92,7 +94,7 @@ class Operations:
   for old in prepared:
    old.update(status='superseded',supersededBy=new_id);atomic_json(self._path(old['taskId']),old)
   return None
- def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None,listing_input=None,validated_task_id=None,sku_material_input=None,video_material_input=None):
+ def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None,listing_input=None,validated_task_id=None,sku_material_input=None,video_material_input=None,shop_material_input=None):
   shop=self.shop(profile);operation=_operation(operation)
   scope={'shop':{k:shop[k] for k in ('profile','venderId','shopName','shopId')},'operation':operation,'runtimeVersion':VERSION}
   if callable(getattr(self.client,'plan_execution',None)):
@@ -106,6 +108,7 @@ class Operations:
    scope['nativeListingInput']=listing_input
   if validated_task_id is not None:scope['publicationValidationTaskId']=validated_task_id
   if sku_material_input is not None:scope['skuMaterialInput']=sku_material_input
+  if shop_material_input is not None:scope['shopMaterialInput']=shop_material_input
   if video_material_input is not None:scope['videoMaterialInput']=video_material_input
   from .sku_material_contract import contract as material_contract
   material_expected=material_contract(self,scope,live=True)
@@ -141,6 +144,8 @@ class Operations:
  def _assert_resolved(self,shop,exclude=None,resolved_uploads=(),exclude_video_session=None):
   from .video_binding_state import assert_resolved as assert_binding_resolved
   assert_binding_resolved(self,shop,exclude)
+  from .shop_material_execution_state import assert_resolved as assert_shop_material_resolved
+  assert_shop_material_resolved(self,shop,exclude)
   from .video_delivery import assert_video_resolved
   assert_video_resolved(self.state,shop,exclude_video_session)
   for entry in (self.state/'tasks').glob('*.json'):
@@ -181,7 +186,7 @@ class Operations:
     publication_stage=check_publication_scope(self,task['scope'],self.client)
     if task['requiresWriteApproval']:self._assert_resolved(expected,exclude=task_id,resolved_uploads=([b['taskId'] for b in task['scope'].get('nativeListingInput',{}).get('assetBindings',[])] if publication_stage else [])+list(task['scope'].get('skuMaterialInput',{}).get('sources',{})))
     from .sku_material_contract import contract as material_contract
-    material_expected=material_contract(self,task['scope'],live=True)
+    material_expected=material_contract(self,task['scope'],live=True,dispatch=True)
     contract=price_contract(task['scope']);upload=describe_upload(task['scope'])
     if upload:
      descriptor,raw=upload;image=probe_image(self.state,raw);check_image_evidence(descriptor,image)
@@ -208,6 +213,8 @@ class Operations:
      transport_options['authorization_expires_at']=deadline
     from .video_binding_state import start_attempt
     start_attempt(self,task)
+    from .shop_material_execution_state import start_attempt as start_shop_attempt
+    start_shop_attempt(self,task)
     task.update(status='submitting',startedAt=time.time());atomic_json(self._path(task_id),task)
     try:
      if task['requiresWriteApproval'] and task['approval']['expiresAt']<=time.time():raise SafetyError('approval-expired-after-attempt-persistence-before-dispatch')
@@ -228,6 +235,8 @@ class Operations:
       preserve_upload_receipt(self,task,redact(result))
      from .video_binding_state import preserve_receipt
      preserve_receipt(self,task,redact(result))
+     from .shop_material_execution_state import preserve_receipt as preserve_shop_receipt
+     preserve_shop_receipt(self,task,redact(result))
     except Exception as error:
      task.update(status='unknown',error={'kind':type(error).__name__,'message':'提交结果待核对；不会自动重提，也不会因换工具重新提交'})
     else:

@@ -53,7 +53,12 @@
         "sku-material-plan",
         "sku-material-approve",
         "sku-material-execute",
-        "sku-material-status"
+        "sku-material-status",
+        "shop-material-plan",
+        "shop-material-approve",
+        "shop-material-execute",
+        "shop-material-status",
+        "shop-material-rows"
       ],
       "reference": "references/native-materials.md",
       "nativeUpload": "available-doc-contract-and-offline-tested-not-live-shop-verified",
@@ -64,7 +69,10 @@
       "officialBindingSkill": "jdo-api-830",
       "bindingReference": "references/native-sku-materials.md",
       "shopAudit": "full-on-sale-product-and-all-sibling-SKU-census-native-health-material-coverage-offline-tested-not-real-shop-verified",
-      "shopAuditReference": "references/native-shop-material-audit.md"
+      "shopAuditReference": "references/native-shop-material-audit.md",
+      "shopExecutionReference": "references/native-shop-material-execution.md",
+      "shopMaterialExecution": "original-whole-on-sale-audit-ready-assets-one-parent-approval-per-product-50-SKU-chunks-synthetic-tested-not-real-shop-verified",
+      "shopExecutionLimits": "ready missing slots only; complete awaiting/pending/rejected/empty coverage; no inferred score improvement"
     },
     {
       "id": "listing",

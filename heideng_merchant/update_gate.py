@@ -21,13 +21,18 @@ def _native_busy(state):
  from .operations import Operations
  from .video_delivery import _load,_valid_time,ACTIVE as VIDEO_ACTIVE
  from .video_binding_state import checked_plan,raw_plan
- ops=Operations(state,None);tasks={};bindings=set()
+ ops=Operations(state,None);tasks={};bindings=set();shop_materials=set()
  for p in _entries(state,'tasks'):
   if not p.is_file() or p.suffix!='.json':raise SafetyError('unreviewed-operation-state-file')
   value=_object(p);status=value.get('status')
   if not isinstance(status,str):raise SafetyError('unprovable-operation-state-status')
   if status in ACTIVE:return True
   tasks[p.stem]=value
+  if 'shopMaterialInput' in value.get('scope',{}):
+   if not ID.fullmatch(p.stem) or value.get('taskId')!=p.stem or value.get('fingerprint','')[:24]!=p.stem:raise SafetyError('unprovable-shop-material-task-identity')
+   checked=ops.task(p.stem)
+   if checked['status'] not in ('prepared','verified'):return True
+   shop_materials.add(p.stem)
   if 'videoMaterialInput' in value.get('scope',{}):
    if not ID.fullmatch(p.stem) or value.get('taskId')!=p.stem or value.get('fingerprint','')[:24]!=p.stem:raise SafetyError('unprovable-binding-task-identity')
    checked=ops.task(p.stem)
@@ -82,6 +87,33 @@ def _native_busy(state):
  for ident in bindings:
   parent=checked_plan(ops,raw_plan(ops,tasks[ident]))
   if parent['planId'] not in plans or not any(ref['taskId']==ident and ref['fingerprint']==tasks[ident]['fingerprint'] for ref in parent['scope']['tasks']):return True
+ return _shop_material_busy(ops,shop_materials,tasks)
+
+def _shop_material_busy(ops,children,tasks):
+ from .shop_material_execution_state import checked_plan,raw_plan,approval_record
+ state=ops.state;plans={}
+ for p in _entries(state,'shop-material-plans'):
+  if not p.is_file() or p.suffix!='.json' or not ID.fullmatch(p.stem):return True
+  value=checked_plan(ops,_object(p))
+  if value['planId']!=p.stem:return True
+  plans[p.stem]=value
+ for folder in ('shop-material-attempts','shop-material-receipts','shop-material-anchors'):
+  for p in _entries(state,folder):
+   if not p.is_file() or p.suffix!='.json' or p.stem not in children:return True
+ for directory in _entries(state,'shop-material-approvals'):
+  if not directory.is_dir() or directory.name not in plans:return True
+  files=_entries(state,'shop-material-approvals/'+directory.name)
+  if not files:return True
+  for p in files:
+   if not p.is_file() or p.suffix!='.json' or not re.fullmatch('[a-f0-9]{32}',p.stem):return True
+   approval_record(ops,plans[directory.name],p.stem)
+ for p in _entries(state,'shop-material-intents'):
+  if not p.is_file() or p.suffix!='.json' or not ID.fullmatch(p.stem):return True
+  index=_object(p)
+  if set(index)!={'planId','intentHash'} or not isinstance(index['intentHash'],str) or not re.fullmatch('[a-f0-9]{64}',index['intentHash']) or index['intentHash'][:24]!=p.stem or index['planId'] not in plans or plans[index['planId']]['scope']['intentHash']!=index['intentHash']:return True
+ for ident in children:
+  parent=raw_plan(ops,tasks[ident])
+  if parent['planId'] not in plans:return True
  return False
 
 def busy(state):
