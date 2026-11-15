@@ -79,3 +79,5 @@ minor (deferred)：worker没有第二次断言JDO_ENV=prod，正常parent已强�
 Ruling：无法无损往返的模板数字拒绝而非自建JSON序列化体系——保留数据/权限边界——真实schema出现此类数字时需补充无损运行时，不能宣称已完成该模板编辑。
 
 检查点8本地最终验证：新建Python3.12.10 venv，仅从公开PyPI安装tests/requirements.txt中的psutil7.2.2开发依赖；fresh HOME/禁socket完整222项通过。49文件包审核通过；安装后真实Pillow+file-fake CLI保留64SKU/65图片槽位，1000SKU价完整pending/online及unknown各1次PATCH，素材和旧价回归通过。包SHA4cce6ab95ddf3bb7c2b0061ce973a1b6d74dbca4040ac703c950143b7c720358。仍无真实商家授权、上传绑定/整版提交、外部模型调用或正式Release；下一步实际GitHub重新克隆安装回测。
+
+检查点8远端回测：实际GitHub克隆f61e6eaa6c0c8365d0d4256ce6fb1d1ce18ea019，重建SHA一致、49文件审核、fresh HOME安装/onboarding/222项套件和64SKU草案+1000SKU价smoke通过。详见native-schema-verification-2026-11-15及github-schema-roundtrip-2026-11-15。当前仍只是无损草案和完整价范围，不把缺真实SKU身份/整版validation/图片回查契约、真实链路和发行许可的整体目标认定完成。
