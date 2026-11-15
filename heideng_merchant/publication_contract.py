@@ -216,6 +216,15 @@ def check_scope(ops,scope,client):
  if op['method']!='POST' or url not in (VALIDATE,PUBLISH):return None
  if op['url']!=url:raise SafetyError('canonical-publication-route-required')
  proof=scope.get('nativeListingInput')
+ if isinstance(proof,dict) and proof.get('kind')=='schema-edit':
+  if any(key in scope for key in ('verification','resultVerification','onlineVerification','precondition')):raise SafetyError('dedicated-full-edit-verification-required-no-partial-unlock')
+  from .edit_contract import check_scope as check_edit_scope
+  if url==PUBLISH:
+   previous=checked_validation(ops,scope.get('publicationValidationTaskId'),op['body'],scope['shop'])
+   if proof!=previous['scope']['nativeListingInput']:raise SafetyError('edit-source-proof-changed-after-validation')
+  check_edit_scope(ops,scope,client)
+  if url==PUBLISH:checked_validation(ops,scope['publicationValidationTaskId'],op['body'],scope['shop'])
+  return 'validation' if url==VALIDATE else 'publication'
  if url==VALIDATE and proof is None:
   validation_body(op)
   return 'validation'

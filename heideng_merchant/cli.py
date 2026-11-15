@@ -9,6 +9,7 @@ from .official import OfficialClient
 from .operations import Operations
 from .products import ProductService
 from .product_schema import ProductSchemaService
+from .schema_edit import EditService
 from .materials import MaterialService
 from .publish_support import PublishSupport
 from .publishing import PublishService
@@ -62,6 +63,11 @@ def parser():
  draft=sub.add_parser('schema-image-draft');draft.add_argument('--capture-id',required=True);draft.add_argument('--changes',required=True)
  for command,flag in (('schema-capture-status','capture-id'),('schema-draft-status','draft-id')):
   c=sub.add_parser(command);c.add_argument('--'+flag,required=True)
+ baseline=sub.add_parser('schema-edit-baseline');baseline.add_argument('--capture-id',required=True);baseline.add_argument('--schema',required=True);baseline.add_argument('--bindings',required=True);baseline.add_argument('--sale-sources',required=True)
+ ev=sub.add_parser('schema-edit-validation-plan');ev.add_argument('--baseline-id',required=True);ev.add_argument('--changes',required=True)
+ ep=sub.add_parser('schema-edit-plan');ep.add_argument('--validation-task-id',required=True)
+ es=sub.add_parser('schema-edit-status');es.add_argument('--task-id',required=True);es.add_argument('--refresh',action='store_true')
+ eo=sub.add_parser('schema-edit-online');eo.add_argument('--task-id',required=True)
  cats=sub.add_parser('publish-categories');cats.add_argument('--profile',required=True);cats.add_argument('--ids')
  brands=sub.add_parser('publish-brands');brands.add_argument('--profile',required=True);brands.add_argument('--category-id',required=True);brands.add_argument('--name');brands.add_argument('--max-pages',type=int,default=100);brands.add_argument('--start-page',type=int,default=1)
  context=sub.add_parser('publish-context');context.add_argument('--profile',required=True);context.add_argument('--category-id',required=True);context.add_argument('--brand-id',required=True)
@@ -129,6 +135,11 @@ def run(args):
  if command=='schema-image-draft':return ProductSchemaService(state,client).draft_images(args.capture_id,_json_file(args.changes))
  if command=='schema-capture-status':return ProductSchemaService(state,client).capture(args.capture_id)
  if command=='schema-draft-status':return ProductSchemaService(state,client).draft(args.draft_id)
+ if command=='schema-edit-baseline':return EditService(state,client).baseline(args.capture_id,read_input_json(args.schema)[0],read_input_json(args.bindings)[0],read_input_json(args.sale_sources)[0])
+ if command=='schema-edit-validation-plan':return EditService(state,client).plan_validation(args.baseline_id,read_input_json(args.changes)[0])
+ if command=='schema-edit-plan':return EditService(state,client).plan_edit(args.validation_task_id)
+ if command=='schema-edit-status':return EditService(state,client).status(args.task_id,refresh=args.refresh)
+ if command=='schema-edit-online':return EditService(state,client).verify_online(args.task_id)
  if command=='publish-categories':return {'items':PublishSupport(state,client).categories(args.profile,read_input_json(args.ids)[0] if args.ids else [0]),'source':'official-realtime-authorized-category-query','completeShopCatalog':False}
  if command=='publish-brands':return PublishSupport(state,client).brands(args.profile,args.category_id,name=args.name,max_pages=args.max_pages,start_page=args.start_page)
  if command=='publish-context':return PublishSupport(state,client).context(args.profile,args.category_id,args.brand_id)

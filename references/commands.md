@@ -60,3 +60,5 @@ product-schema --profile --product-id；schema-capture-status --capture-id；sch
 
 ## 新品校验/提交入口
 publish-categories、publish-brands、publish-context；publish-validation-plan --profile --manifest --schema --spec-map --asset-bindings；publish-validation-status --task-id；publish-plan --validation-task-id；publish-status --task-id。详细字段来源、校验与条件提交的明确许可、同源包去重和未验证线上边界见native-publishing.md。prepare-listing保留完整sourceProduct；源码、规格、真实图片不可用空壳默认值补齐。
+
+既有商品整版编辑见 references/native-full-edit.md：schema-edit-baseline、schema-edit-validation-plan、schema-edit-plan、schema-edit-status [--refresh]、schema-edit-online。输入由 Agent 从当前原详情和模板生成，商家不手填 JSON；两步 POST 均需精确批准。

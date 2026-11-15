@@ -75,13 +75,14 @@ class Operations:
   # Persisted creation intent survives copying/moving a package; the path is
   # retained as a conservative fallback for older local task journals.
   import os
-  proof=scope['nativeListingInput'];source=os.path.normcase(str(Path(proof['manifestPath']).resolve()));intent=proof['publicationIntentId'];prepared=[]
+  proof=scope['nativeListingInput'];editing=proof.get('kind')=='schema-edit';source=None if editing else os.path.normcase(str(Path(proof['manifestPath']).resolve()));intent=proof['editIntentId'] if editing else proof['publicationIntentId'];prepared=[]
   for path in sorted((self.state/'tasks').glob('*.json')):
    old=read_json(path,{});old_scope=old.get('scope',{});op=old_scope.get('operation',{});old_proof=old_scope.get('nativeListingInput',{});old_source=old_proof.get('manifestPath')
    if op.get('method')!='POST' or op.get('url')!=PUBLISH or old.get('taskId')==new_id:continue
    if any(str(old_scope.get('shop',{}).get(k))!=str(scope['shop'][k]) for k in ('venderId','shopId')):continue
-   same_path=isinstance(old_source,str) and os.path.normcase(str(Path(old_source).resolve()))==source
-   if not same_path and old_proof.get('publicationIntentId')!=intent:continue
+   if editing!=(old_proof.get('kind')=='schema-edit'):continue
+   same_path=not editing and isinstance(old_source,str) and os.path.normcase(str(Path(old_source).resolve()))==source
+   if not same_path and old_proof.get('editIntentId' if editing else 'publicationIntentId')!=intent:continue
    old=self.task(old['taskId'])
    if old['status'] in ('submitted','verified','submitting','unknown'):return old
    if old['status']=='prepared':prepared.append(old)
@@ -134,10 +135,10 @@ class Operations:
   for entry in (self.state/'tasks').glob('*.json'):
    old=read_json(safe_join(self.state,'tasks/'+entry.name),{});subject=old.get('scope',{}).get('shop',{})
    same=subject.get('profile')==shop['profile'] or all(str(subject.get(k,''))==str(shop[k]) for k in ('venderId','shopId'))
-   if old.get('taskId')!=exclude and old.get('status') in ('unknown','submitting','submitted') and same:
+   if old.get('taskId')!=exclude and (old.get('status') in ('unknown','submitting','submitted') or old.get('status')=='verified' and old.get('scope',{}).get('nativeListingInput',{}).get('kind')=='schema-edit' and old.get('editPendingFieldsVerified') is not True) and same:
     if old.get('status')=='submitted' and old.get('taskId') in resolved_uploads and describe_upload(old['scope']) is not None:continue
     # A valid original publication receipt is known acceptance, not online activation.
-    if old.get('status')=='submitted' and old.get('scope',{}).get('operation',{}).get('url')==PUBLISH and old.get('resultReceiptSha256')==digest(old.get('result')):
+    if old.get('status')=='submitted' and old.get('scope',{}).get('operation',{}).get('url')==PUBLISH and old.get('resultReceiptSha256')==digest(old.get('result')) and old.get('scope',{}).get('nativeListingInput',{}).get('kind')!='schema-edit':
      publication_receipt(old['result']);continue
     raise SafetyError('shop-has-unresolved-write-check-before-new-write')
  def approve(self,task_id,fingerprint,*,confirmed=False,ttl_seconds=900):
@@ -195,7 +196,9 @@ class Operations:
      else:
       payload=business_payload(result)
       if task['requiresWriteApproval'] and (not isinstance(payload,(dict,list)) or not payload):raise SafetyError('business-acknowledgement-missing')
-      if publication_stage=='publication':publication_receipt(result)
+      if publication_stage=='publication':
+       received=publication_receipt(result)
+       if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit' and ('applyId' not in received or received.get('productId')!=str(op['body']['productApplyDTO']['productId'])):raise SafetyError('original-full-edit-receipt-product-mismatch')
      if 'resultVerification' in task['scope']:resolve_result_verification(task['scope']['resultVerification'],result)
      if upload:validate_image_receipt(descriptor,image,result)
     except Exception as error:
@@ -210,6 +213,7 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
+    if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
     if task['status'] not in ('submitted','unknown','verified'):raise SafetyError('readback-only-for-unresolved-write')
     verification=task['scope'].get('verification')
     if not verification or digest(verification)!=digest({'query':query,'expected':expected}):raise SafetyError('readback-must-match-original-approved-verification-scope')
@@ -231,6 +235,7 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
+    if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
     if task['status'] not in ('submitted','unknown','verified'):raise SafetyError('online-readback-only-after-submission')
     verification=task['scope'].get('onlineVerification')
     if not verification:raise SafetyError('online-verification-must-be-bound-before-approval')
@@ -248,7 +253,9 @@ class Operations:
  def verify_result(self,task_id):
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
-    task=self.task(task_id);verification=task['scope'].get('resultVerification')
+    task=self.task(task_id)
+    if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
+    verification=task['scope'].get('resultVerification')
     if task['status'] not in ('submitted','verified') or not verification:raise SafetyError('known-original-result-required-never-resolve-unknown-by-target-match')
     result=task.get('result')
     if result is None or digest(result)!=task.get('resultReceiptSha256'):raise SafetyError('original-result-receipt-missing-or-modified')

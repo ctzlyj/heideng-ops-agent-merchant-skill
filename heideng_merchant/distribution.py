@@ -1,6 +1,6 @@
 """Verified standalone installs, immutable receipts and recoverable switches."""
 from __future__ import annotations
-import hashlib,json,os,re,shutil,stat,tempfile,uuid,zipfile
+import hashlib,json,os,re,shutil,stat,tempfile,time,uuid,zipfile
 from pathlib import Path
 from . import SKILL_NAME
 from .safety import is_linked,SafetyError,safe_join,file_sha,atomic_json,read_json
@@ -115,6 +115,27 @@ def busy(state):
   if read_json(p,{}).get('status') in ('submitting','unknown','submitted','running'):return True
  return False
 
+def _replace_directory(source,target):
+ """Retry only an unchanged local directory switch under transient Windows locks.
+
+ A failed rename is not a business submission. Never overwrite a newly appeared
+ destination or retry a replacement source; persistent failures keep the journal.
+ """
+ source=Path(source);target=Path(target)
+ if is_linked(source) or not source.is_dir():raise SafetyError('directory-switch-source-changed')
+ original=source.stat();identity=(original.st_dev,original.st_ino)
+ delays=(.05,.1,.2,.4,.8)
+ for attempt in range(len(delays)+1):
+  if target.exists() or is_linked(target):raise SafetyError('directory-switch-target-changed')
+  if is_linked(source) or not source.is_dir():raise SafetyError('directory-switch-source-changed')
+  current=source.stat()
+  if (current.st_dev,current.st_ino)!=identity:raise SafetyError('directory-switch-source-changed')
+  try:
+   os.replace(source,target);return
+  except OSError as exc:
+   if getattr(exc,'winerror',None) not in (5,32,33) or attempt==len(delays):raise
+   time.sleep(delays[attempt])
+
 def _recover(target,state):
  journal=read_json(Path(state)/'install-journal.json')
  if not journal:return
@@ -122,7 +143,7 @@ def _recover(target,state):
  stage=_owned(journal['stage'],target,'stage');backup=_owned(journal['backup'],target,'backup')
  if target.exists():
   if not verify_install(target)['valid']:raise SafetyError('recovery-local-change')
- elif backup.exists():os.replace(backup,target)
+ elif backup.exists():_replace_directory(backup,target)
  elif stage.exists():raise SafetyError('interrupted-first-install-review-required')
  _remove_owned(stage,target,'stage')
  (Path(state)/'install-journal.json').unlink(missing_ok=True)
@@ -149,10 +170,10 @@ def install_archive(archive,target,state,*,expected_sha):
   atomic_json(state/'install-journal.json',{'target':str(target),'stage':str(stage),'backup':str(backup)})
   had_previous=target.exists()
   try:
-   if had_previous:os.replace(target,backup)
-   os.replace(stage,target)
+   if had_previous:_replace_directory(target,backup)
+   _replace_directory(stage,target)
   except OSError:
-   if not target.exists() and backup.exists():os.replace(backup,target)
+   if not target.exists() and backup.exists():_replace_directory(backup,target)
    raise SafetyError('install-switch-failed-recoverable') from None
   atomic_json(state/'install-history.json',{'target':str(target),'previous':str(backup) if had_previous else None,'version':manifest['version']})
   (state/'install-journal.json').unlink()
@@ -173,8 +194,8 @@ def rollback(target,state):
    if file_sha(safe_join(previous,name))!=sha:raise SafetyError('rollback-files-modified')
   if not verify_install(target)['valid']:raise SafetyError('locally-modified')
   displaced=target.parent/('.'+SKILL_NAME+'.backup-'+uuid.uuid4().hex)
-  os.replace(target,displaced)
-  try:os.replace(previous,target)
-  except OSError:os.replace(displaced,target);raise SafetyError('rollback-switch-failed') from None
+  _replace_directory(target,displaced)
+  try:_replace_directory(previous,target)
+  except OSError:_replace_directory(displaced,target);raise SafetyError('rollback-switch-failed') from None
   atomic_json(state/'install-history.json',{'target':str(target),'previous':str(displaced),'version':check['version']})
   return {'status':'rolled-back','version':check['version']}

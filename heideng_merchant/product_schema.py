@@ -199,9 +199,12 @@ class ProductSchemaService(ProductService):
             raise SafetyError('native-edit-source-changed-during-capture')
         if not _same_identity(self.client.identity(profile), shop):
             raise SafetyError('native-edit-shop-changed-during-capture')
+        _validate_logical_properties(before)
+        if redact(before) != before:
+            raise SafetyError('private-native-product-detail-capture-refused')
         scope = {'shop':{k:shop[k] for k in ('profile','shopName','shopId','venderId')},
                  'runtimeVersion':VERSION, 'productId':product_id, 'lastCategoryId':category,
-                 'schema':schema, 'skuIds':sku_ids, 'productDetailHash':digest(before),
+                 'schema':schema, 'skuIds':sku_ids, 'productDetail':copy.deepcopy(before), 'productDetailHash':digest(before),
                  'schemaTextSha256':text_hash, 'schemaResponseHash':response_hash,
                  'skuPageHashes':census['sourcePageHashes'], 'observedAt':time.time()}
         record = {'captureId':uuid.uuid4().hex[:24], 'scope':scope, 'fingerprint':digest(scope)}

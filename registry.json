@@ -74,19 +74,25 @@
         "publish-status",
         "product-detail",
         "sku-list",
-        "product-schema"
+        "product-schema",
+        "schema-edit-status",
+        "schema-edit-online"
       ],
       "preparationCommands": [
         "prepare-listing",
         "publish-validation-plan",
         "publish-plan",
-        "schema-image-draft"
+        "schema-image-draft",
+        "schema-edit-baseline",
+        "schema-edit-validation-plan",
+        "schema-edit-plan"
       ],
       "reference": "references/native-publishing.md",
       "nativeEditTemplate": "available-doc-contract-and-offline-tested-not-live-shop-verified",
       "imageDraft": "local-lossless-existing-slots-only-not-submittable",
-      "fullProductSubmission": "new-product-two-phase-validation-and-approval; full-edit-and-online-verification-pending",
-      "nativeNewProduct": "available-doc-contract-and-offline-tested-not-live-shop-verified"
+      "fullProductSubmission": "new-and-existing-product source-bound two-phase validation/approval; offline contract verified, live merchant unverified",
+      "nativeNewProduct": "available-doc-contract-and-offline-tested-not-live-shop-verified",
+      "fullEdit": "full-original-source-baseline, actual SKU identity, approved image/detail edit, original apply and online field readback; not pixels"
     },
     {
       "id": "image-refresh",
@@ -106,15 +112,21 @@
         "sku-list",
         "product-schema",
         "schema-capture-status",
-        "schema-draft-status"
+        "schema-draft-status",
+        "schema-edit-status",
+        "schema-edit-online"
       ],
       "preparationCommands": [
-        "schema-image-draft"
+        "schema-image-draft",
+        "schema-edit-baseline",
+        "schema-edit-validation-plan",
+        "schema-edit-plan"
       ],
       "reference": "references/native-product-schema.md",
       "nativeEditTemplate": "available-doc-contract-and-offline-tested-not-live-shop-verified",
       "imageDraft": "local-lossless-existing-slots-only-not-submittable",
-      "fullProductSubmission": "pending-real-schema-sku-mapping-validation-and-image-readback-contract"
+      "fullProductSubmission": "new-and-existing-product source-bound two-phase validation/approval; offline contract verified, live merchant unverified",
+      "fullEdit": "full-original-source-baseline, actual SKU identity, approved image/detail edit, original apply and online field readback; not pixels"
     },
     {
       "id": "diagnosis",

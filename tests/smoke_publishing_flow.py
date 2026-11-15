@@ -52,7 +52,11 @@ def main():
  with tempfile.TemporaryDirectory(prefix='merchant-publishing-smoke-') as temporary:
   home=Path(temporary);env=clean_environment(home);state=home/'.heideng-merchant';state.mkdir()
   fixture=state/'synthetic-api.json';atomic_json(fixture,{'foreign':False,'categoryStatus':1,'unknown':False,'postCount':0,'images':[],'businessCategories':[{'categoryId':44207,'categoryLevel':4,'categoryName':'synthetic leaf','leafFlag':True,'selectableFlag':True,'parentCategoryId':1348},{'categoryId':1348,'categoryLevel':3,'categoryName':'synthetic third','leafFlag':False,'selectableFlag':True,'parentCategoryId':2}],'rules':template(),'validationCount':0,'publishCount':0,'publishUnknown':False})
-  result=subprocess.run([sys.executable,'-I','-B',str(ROOT/'install.py'),'--offline','--home',str(home),'--archive',str(archive),'--sha256',file_sha(archive)],env=env,capture_output=True,timeout=60);assert result.returncode==0
+  result=subprocess.run([sys.executable,'-I','-B',str(ROOT/'install.py'),'--offline','--home',str(home),'--archive',str(archive),'--sha256',file_sha(archive)],env=env,capture_output=True,timeout=60)
+  if result.returncode:
+   from heideng_merchant.safety import redact
+   atomic_json(ROOT/'.agent-work/publishing-smoke/install-failure.json',{'returncode':result.returncode,'diagnostic':redact((result.stdout+result.stderr).decode('utf-8','replace'))})
+  assert result.returncode==0
   installed=home/'.codex/skills/heideng-ops-agent-merchant';ImageRuntime(state).ensure();shim=home/'publication-shim.py';shim.write_text(SHIM,encoding='utf-8')
   def command(*args,code=0):
    result=subprocess.run([sys.executable,'-I','-B',str(shim),str(installed),'--home',str(home),*args],env=env,capture_output=True,timeout=180)
