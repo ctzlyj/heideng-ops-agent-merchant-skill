@@ -11,6 +11,7 @@ from .products import ProductService
 from .product_schema import ProductSchemaService
 from .schema_edit import EditService
 from .materials import MaterialService
+from .sku_materials import SkuMaterialService
 from .publish_support import PublishSupport
 from .publishing import PublishService
 from .publication_contract import read_input_json
@@ -31,6 +32,14 @@ def _json_file(value):
 def parser():
  p=argparse.ArgumentParser(description='黑灯运营智能体商家版：由Agent操作，商家只描述目标')
  p.add_argument('--home');p.add_argument('--json',action='store_true');sub=p.add_subparsers(dest='command',required=True)
+ for name in ('sku-material-audit','sku-material-plan'):
+  mp=sub.add_parser(name);mp.add_argument('--profile',required=True);mp.add_argument('--product-id',required=True)
+  if name=='sku-material-audit':mp.add_argument('--include-health',action='store_true')
+  else:mp.add_argument('--changes',required=True)
+ ma=sub.add_parser('sku-material-approve');ma.add_argument('--plan-id',required=True);ma.add_argument('--fingerprint',required=True);ma.add_argument('--confirm',action='store_true');ma.add_argument('--ttl-seconds',type=int,default=900)
+ for name in ('sku-material-execute','sku-material-status'):
+  mp=sub.add_parser(name);mp.add_argument('--plan-id',required=True)
+  if name=='sku-material-status':mp.add_argument('--refresh',action='store_true')
  mz=sub.add_parser('material-zones');mz.add_argument('--profile',required=True);mz.add_argument('--zone-type',type=int,choices=(1,2))
  for name in ('material-categories','material-images'):
   mp=sub.add_parser(name);mp.add_argument('--profile',required=True);mp.add_argument('--zone-id',required=True);mp.add_argument('--filters');mp.add_argument('--page-size',type=int,default=50);mp.add_argument('--max-pages',type=int,default=100);mp.add_argument('--start-page',type=int,default=1)
@@ -116,6 +125,11 @@ def run(args):
  if command=='task-plan':return ops.prepare(args.profile,_json_file(args.operation),_json_file(args.verification),precondition=_json_file(args.precondition),online_verification=_json_file(args.online_verification),result_verification=_json_file(args.result_verification))
  if command=='task-approve':return ops.approve(args.task_id,args.fingerprint,confirmed=args.confirm)
  if command=='task-execute':return ops.execute(args.task_id)
+ if command=='sku-material-audit':return SkuMaterialService(state,client).audit(args.profile,args.product_id,include_health=args.include_health)
+ if command=='sku-material-plan':return SkuMaterialService(state,client).prepare(args.profile,args.product_id,_json_file(args.changes))
+ if command=='sku-material-approve':return SkuMaterialService(state,client).approve(args.plan_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)
+ if command=='sku-material-execute':return SkuMaterialService(state,client).execute(args.plan_id)
+ if command=='sku-material-status':return SkuMaterialService(state,client).status(args.plan_id,refresh=args.refresh)
  if command=='material-zones':return MaterialService(state,client).zones(args.profile,zone_type=args.zone_type)
  if command in ('material-categories','material-images'):
   service=MaterialService(state,client);options={'filters':_json_file(args.filters),'page_size':args.page_size,'max_pages':args.max_pages,'start_page':args.start_page}

@@ -51,4 +51,4 @@ python -m unittest discover -s tests -v
 
 原生模板自动编译入口见 references/native-template-compile.md：Agent 从同店原完整详情与原规则的字段声明准备全 SKU 来源基线，不让商家手填 schema/bindings/sale-sources；原始规则和编译证明保留，重复准备沿用同一编辑意图。未声明或无法证明的字段拒绝，不称所有线上模板已经实测。
 
-**健康分不是已证明等同的商品信息分**：health-infos 仅用于原生健康诊断；信息分仍需商家京麦 commodity-score 或已核实报表来源。图片空间上传、主图整版修改，不等于信息分专属槽位绑定；该完整链路仍待补齐。
+**信息分口径仍需实测对照**：官方目录将 health-infos 定义为“商品信息健康分”，可用原生 healthScore / improvementList 做诊断；与京麦页面 commodity-score 的逐行等价性尚未验证，不能仅凭名称断言相同或不同。已补齐原生 SKU 缺失素材槽位的审计、批准、绑定及全查询范围回读（仅合成测试）。图片空间保存、整版编辑、素材绑定、审核通过和分数重算分别记录。详见 references/native-sku-materials.md。

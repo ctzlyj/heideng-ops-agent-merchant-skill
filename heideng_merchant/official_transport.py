@@ -38,7 +38,7 @@ def transport_for(executable,profile,operation):
  from .official import BASE
  args=[str(executable),'--endpoint',BASE.rstrip('/'),*invoke_args(profile,operation)]
  units=len(subprocess.list2cmdline(args).encode('utf-16-le'))//2
- deadline_route=operation['method']=='POST' and operation['url'].rstrip('/') in ('/rest/sp-product/v0/product-applies','/rest/sp-product/v0/product-schemas/validations')
+ deadline_route=operation['method']=='POST' and operation['url'].rstrip('/') in ('/rest/sp-product/v0/product-applies','/rest/sp-product/v0/product-schemas/validations','/rest/sp-product/v0/sku-materials/batch')
  return 'official-source-stdin' if deadline_route or units>MAX_ARGV_UNITS else 'official-binary'
 
 def binary_execution(state,platform_name,transport):

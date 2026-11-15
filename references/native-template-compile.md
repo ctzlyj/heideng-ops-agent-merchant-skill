@@ -20,6 +20,6 @@ schema-compile --capture-id <id> 可单独查看编译 capture、自动 bindings
 ## 真实限制
 没有 field declaration 或已证明复合映射的组件拒绝，需 Agent 查明当前官方协议/真实合法数据，不要求商家编写 JSON。开发用与匿名官方字段声明一致的合成模板，不把它当全部线上类目兼容性验收；真实授权/API/线上状态语义和发行许可仍待完成。
 
-health-infos 是健康分，不是已证明等同的京麦商品信息分；commodity-score 来源和信息分专属素材槽位绑定仍为独立任务，不以此整版编辑或图片空间保存代替。媒体模型来源继续等待负责人补充，编译器不调用任何模型。
+health-infos 的官方名称是“商品信息健康分”；与京麦页面 commodity-score 的等价性未实测，不断言相同或不同。原生 SKU 缺失槽位绑定见 native-sku-materials.md，仍不以整版编辑或图片空间保存代替。媒体模型来源继续等待负责人补充，编译器不调用任何模型。
 
 存在 childrenComponents 与已填 value 时保留原 business children 及额外属性，再核对规则声明，不能用原型替换后偷偷丢字段。普通 SKU 属性使用 prop-sku/原 goodsAttrInfos 等实际声明，不能因为有属性记录就造销售维度；未覆盖原属性会拒绝。

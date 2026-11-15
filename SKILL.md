@@ -24,6 +24,7 @@ version: 0.1.0
 ## 可执行入口
 
 - ensure-shop / auth-start / auth-status / auth-observe / auth-cancel / auth-recover / auth-restart：独立店铺连接和同会话扫码OAuth。严格先读 references/shop-connection.md；只保存公开taskId，不导出私有授权页面；失联不重启，原unknown只读恢复。当前Windows新授权已实现但真实商家链路尚未实测，macOS新授权因官方secret argv风险禁用。
+- sku-material-audit / sku-material-plan / sku-material-approve / sku-material-execute / sku-material-status：本店完整 SKU 和原生素材缺口审计、原上传回执或宿主审核文字的缺失槽位绑定；先读 references/native-sku-materials.md。批准整个明确计划一次，各块单独留账；unknown、内容漂移和待审/驳回旧槽位不自动重提。
 - product-list / sku-list / health-list / product-detail / price-plan / price-status：实时原生商品、完整SKU、健康分和受控京东价更新。改价前先读 references/native-products.md，绑定旧价/类目与两阶段验证；待审匹配不是线上生效，unknown不换Profile或接着执行另一写任务。
 - diagnose：用户CSV/JSON/XLSX经营广告资料的定量诊断，缺指标标记partial/unavailable，不造黄金眼/EasyBI数据。
 - compare：有逐SKU原生上下文价格证据和结构化规格的同规格TOP10。不能把京东价与到手价混用，不依照片就猜规格。
@@ -71,4 +72,4 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 ### 原生规则模板自动准备
 既有商品图片/详情目标先走 product-schema，再 schema-edit-prepare --capture-id；必要时 schema-compile 查看自动编译与原 capture 证明。详见 references/native-template-compile.md。由 Agent 运行，不让商家手写全 SKU schema、bindings 或 sale-sources。没有声明/协议证明时读取当前官方原生文档及合法实际模板查明，不以相等值、默认值或删未知字段伪装 ready。仍通过原 validation/正式提交批准与原申请单/全字段回查；重复 prepare 不新增正式意图。
 
-health-list 查询的是健康分，尚不能当作京麦商品信息分 commodity-score。信息分目标使用商家原生 commodity-score 或已核实报表；媒体空间保存、普通主图编辑和健康分读取不能替代信息分槽位绑定验收。
+health-list 读取官方命名的“商品信息健康分”及 improvementList；与京麦页面 commodity-score 的等价性未实测，不断言相同或不同。素材空间保存、SKU 专属绑定、平台审核和分数重算不能互相替代。原生缺失槽位审计/绑定先读 references/native-sku-materials.md。

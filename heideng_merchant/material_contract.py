@@ -83,3 +83,28 @@ def validate_image_receipt(descriptor,info,response,*,original=None):
   size=first.get('imgSize')
   if image_id!=resource_id(first.get('imgId')) or url!=first.get('imgUrl') or isinstance(size,bool) or not str(size).isdigit() or int(data['imgSize'])!=int(size):raise SafetyError('native-image-readback-differs-from-original-receipt')
  return data
+
+
+def preserve_upload_receipt(ops,task,response):
+ """Separate first acknowledged upload receipt; never replace on rechecking."""
+ from .safety import atomic_json,read_json,safe_join
+ from .operations import digest
+ path=safe_join(ops.state,'upload-receipts/'+task['taskId']+'.json')
+ record={'taskId':task['taskId'],'scopeFingerprint':task['fingerprint'],'receipt':response,'receiptSha256':digest(response)}
+ old=read_json(path)
+ if old is not None:
+  if digest(old)!=digest(record):raise SafetyError('independent-original-upload-receipt-conflict')
+ else:atomic_json(path,record)
+
+def original_upload_receipt(ops,task):
+ from .safety import read_json,safe_join
+ from .operations import digest
+ record=read_json(safe_join(ops.state,'upload-receipts/'+task['taskId']+'.json'))
+ if record is not None:
+  if not isinstance(record,dict) or set(record)!={'taskId','scopeFingerprint','receipt','receiptSha256'} or record['taskId']!=task['taskId'] or record['scopeFingerprint']!=task['fingerprint'] or digest(record['receipt'])!=record['receiptSha256'] or record['receiptSha256']!=task.get('resultReceiptSha256'):raise SafetyError('independent-original-upload-receipt-does-not-match-task')
+  return record['receipt']
+ # Legacy tasks can use previously retained independently resolved readback,
+ # never bootstrap provenance by querying an ID selected by a rewritten result.
+ previous=task.get('resultReadback')
+ if not isinstance(previous,dict) or previous.get('matchCount')!=1 or previous.get('sourceResultSha256')!=task.get('resultReceiptSha256'):raise SafetyError('independent-original-upload-receipt-required')
+ return task['result']

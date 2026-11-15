@@ -89,7 +89,7 @@ class Operations:
   for old in prepared:
    old.update(status='superseded',supersededBy=new_id);atomic_json(self._path(old['taskId']),old)
   return None
- def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None,listing_input=None,validated_task_id=None):
+ def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None,listing_input=None,validated_task_id=None,sku_material_input=None):
   shop=self.shop(profile);operation=_operation(operation)
   scope={'shop':{k:shop[k] for k in ('profile','venderId','shopName','shopId')},'operation':operation,'runtimeVersion':VERSION}
   if callable(getattr(self.client,'plan_execution',None)):
@@ -102,6 +102,9 @@ class Operations:
    if operation['method']!='POST' or operation['url'] not in (VALIDATE,PUBLISH) or redact(listing_input)!=listing_input:raise SafetyError('native-publication-input-only')
    scope['nativeListingInput']=listing_input
   if validated_task_id is not None:scope['publicationValidationTaskId']=validated_task_id
+  if sku_material_input is not None:scope['skuMaterialInput']=sku_material_input
+  from .sku_material_contract import contract as material_contract
+  material_expected=material_contract(self,scope,live=True)
   publication_stage=check_publication_scope(self,scope,self.client)
   upload=describe_upload(scope)
   if upload:
@@ -116,7 +119,7 @@ class Operations:
      prior=self._existing_publication(scope,ident)
      if prior is not None:return prior
     if operation['method']!='GET':
-     self._assert_resolved(shop,resolved_uploads=[b['taskId'] for b in scope.get('nativeListingInput',{}).get('assetBindings',[])] if publication_stage else [])
+     self._assert_resolved(shop,resolved_uploads=([b['taskId'] for b in scope.get('nativeListingInput',{}).get('assetBindings',[])] if publication_stage else [])+list(scope.get('skuMaterialInput',{}).get('sources',{})))
     planning=None
     if contract:
      if not _same_identity(self.client.identity(profile),shop):raise SafetyError('native-price-planning-shop-mismatch')
@@ -147,7 +150,9 @@ class Operations:
     task=self.task(task_id)
     if not confirmed or fingerprint!=task['fingerprint'] or task['status']!='prepared':raise SafetyError('exact-user-approval-required')
     if not 1<=ttl_seconds<=3600:raise SafetyError('invalid-approval-lifetime')
-    task['approval']={'fingerprint':fingerprint,'expiresAt':time.time()+ttl_seconds,'confirmed':True}
+    from .sku_material_authorization import parent_deadline
+    parent=parent_deadline(self,task)
+    task['approval']={'fingerprint':fingerprint,'expiresAt':min(time.time()+ttl_seconds,parent) if parent is not None else time.time()+ttl_seconds,'confirmed':True}
     atomic_json(self._path(task_id),task);return task
  def execute(self,task_id):
   with FileLock(self.state/'install.lock'):
@@ -160,10 +165,15 @@ class Operations:
     if task['requiresWriteApproval']:
      approval=task.get('approval',{})
      if not approval.get('confirmed') or approval.get('fingerprint')!=task['fingerprint'] or approval.get('expiresAt',0)<=time.time():raise SafetyError('current-exact-write-approval-required')
+    from .sku_material_authorization import parent_deadline
+    parent=parent_deadline(self,task)
+    if parent is not None:task['approval']['expiresAt']=min(task['approval']['expiresAt'],parent)
     expected=task['scope']['shop'];actual=self.client.identity(expected['profile'])
     if any(str(actual.get(k))!=str(expected[k]) for k in ('shopName','venderId','shopId')) or actual.get('shopType')!='POP':raise SafetyError('shop-changed-stop-before-write')
     publication_stage=check_publication_scope(self,task['scope'],self.client)
-    if task['requiresWriteApproval']:self._assert_resolved(expected,exclude=task_id,resolved_uploads=[b['taskId'] for b in task['scope'].get('nativeListingInput',{}).get('assetBindings',[])] if publication_stage else [])
+    if task['requiresWriteApproval']:self._assert_resolved(expected,exclude=task_id,resolved_uploads=([b['taskId'] for b in task['scope'].get('nativeListingInput',{}).get('assetBindings',[])] if publication_stage else [])+list(task['scope'].get('skuMaterialInput',{}).get('sources',{})))
+    from .sku_material_contract import contract as material_contract
+    material_expected=material_contract(self,task['scope'],live=True)
     contract=price_contract(task['scope']);upload=describe_upload(task['scope'])
     if upload:
      descriptor,raw=upload;image=probe_image(self.state,raw);check_image_evidence(descriptor,image)
@@ -195,12 +205,16 @@ class Operations:
       verdict=validation_verdict(result,expected_execution=execution)
      else:
       payload=business_payload(result)
+      if material_expected is not None and (not isinstance(result,dict) or result.get('success') is not True):raise SafetyError('native-material-positive-business-acknowledgement-required')
       if task['requiresWriteApproval'] and (not isinstance(payload,(dict,list)) or not payload):raise SafetyError('business-acknowledgement-missing')
       if publication_stage=='publication':
        received=publication_receipt(result)
        if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit' and ('applyId' not in received or received.get('productId')!=str(op['body']['productApplyDTO']['productId'])):raise SafetyError('original-full-edit-receipt-product-mismatch')
      if 'resultVerification' in task['scope']:resolve_result_verification(task['scope']['resultVerification'],result)
-     if upload:validate_image_receipt(descriptor,image,result)
+     if upload:
+      validate_image_receipt(descriptor,image,result)
+      from .material_contract import preserve_upload_receipt
+      preserve_upload_receipt(self,task,redact(result))
     except Exception as error:
      task.update(status='unknown',error={'kind':type(error).__name__,'message':'提交结果待核对；不会自动重提，也不会因换工具重新提交'})
     else:
@@ -213,6 +227,7 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
+    if 'skuMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
     if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
     if task['status'] not in ('submitted','unknown','verified'):raise SafetyError('readback-only-for-unresolved-write')
     verification=task['scope'].get('verification')
@@ -235,6 +250,7 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
+    if 'skuMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
     if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
     if task['status'] not in ('submitted','unknown','verified'):raise SafetyError('online-readback-only-after-submission')
     verification=task['scope'].get('onlineVerification')
@@ -254,6 +270,7 @@ class Operations:
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
     task=self.task(task_id)
+    if 'skuMaterialInput' in task['scope']:raise SafetyError('dedicated-native-material-readback-required')
     if task['scope'].get('nativeListingInput',{}).get('kind')=='schema-edit':raise SafetyError('dedicated-full-edit-readback-required')
     verification=task['scope'].get('resultVerification')
     if task['status'] not in ('submitted','verified') or not verification:raise SafetyError('known-original-result-required-never-resolve-unknown-by-target-match')
@@ -270,3 +287,23 @@ class Operations:
     task['resultStateVerified']=count==1
     if count==1 and ('verification' not in task['scope'] or task.get('targetStateVerified')):task['status']='verified'
     atomic_json(self._path(task_id),task);return task
+
+ def verify_materials(self,task_id):
+  from .sku_material_contract import contract as material_contract, census, read_materials, SLOTS
+  with FileLock(self.state/'install.lock'),FileLock(self.state/'tasks.lock'):
+   task=self.task(task_id)
+   if task['status'] not in ('submitted','unknown','verified') or 'skuMaterialInput' not in task['scope']:raise SafetyError('submitted-native-material-task-required')
+   expected=material_contract(self,task['scope']);proof=task['scope']['skuMaterialInput'];shop=task['scope']['shop']
+   if task['status']!='unknown' and task.get('resultReceiptSha256')!=digest(task.get('result')):raise SafetyError('native-material-original-acknowledgement-modified')
+   siblings,_=census(self,shop['profile'],proof['productId'])
+   if siblings!=proof['siblingSkuIds']:raise SafetyError('native-material-readback-sibling-census-changed')
+   current=read_materials(self.client,shop,proof['skuIds']);matched=digest(current['contents'])==digest(expected)
+   audit=[]
+   for row in proof['changes']:
+    kind,order=SLOTS[row['slot']];audit.append(current['audit'][row['skuId']].get(f'{kind}:{order}',{}).get('status'))
+   task['materialReadback']={'at':time.time(),'matched':matched,'sourceHashes':current['sourceHashes'],'audit':current['audit']}
+   task['targetStateVerified']=matched;task['materialFieldsVerified']=matched and task['status']!='unknown';task['materialAuditApproved']=matched and bool(audit) and all(v==4 for v in audit) and task['status']!='unknown'
+   if matched and task['status']!='unknown':task['status']='verified'
+   elif task['status']=='verified':task['status']='submitted'
+   task['verificationMeaning']='Queried SKU material content and preserved orders only; acknowledgement is not audit approval, score recalculation or authorship of an unknown request.'
+   atomic_json(self._path(task_id),task);return task

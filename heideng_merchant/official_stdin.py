@@ -47,7 +47,7 @@ def execute_envelope(envelope,state,*,namespace_hook=None):
     if isinstance(value,str) and value:secrets.add(value)
    if namespace_hook is not None:namespace_hook(namespace)
    original_auth=namespace['get_auth_context'];original_refresh=namespace['refresh_auth_context'];original_request=namespace['execute_request_with_retry'];original_open=namespace.get('urlopen_with_ssl');business_writing=False
-   if op['url']=='/rest/sp-product/v0/product-applies' and not callable(original_open):raise SafetyError('official-publication-network-boundary-not-compatible')
+   if op['url'] in ('/rest/sp-product/v0/product-applies','/rest/sp-product/v0/sku-materials/batch') and not callable(original_open):raise SafetyError('official-publication-network-boundary-not-compatible')
    def auth(*a,**k):
     nonlocal frozen_context
     if frozen_context is not None:return frozen_context

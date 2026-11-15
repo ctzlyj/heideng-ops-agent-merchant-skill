@@ -41,18 +41,25 @@
         "material-zones",
         "material-categories",
         "material-images",
-        "material-detail"
+        "material-detail",
+        "sku-material-audit"
       ],
       "builtInCommands": [
         "material-upload-plan",
-        "material-upload-status"
+        "material-upload-status",
+        "sku-material-plan",
+        "sku-material-approve",
+        "sku-material-execute",
+        "sku-material-status"
       ],
       "reference": "references/native-materials.md",
       "nativeUpload": "available-doc-contract-and-offline-tested-not-live-shop-verified",
       "productBinding": "separate-write-not-part-of-image-upload",
-      "healthMetric": "diagnostic-health-not-proven-commodity-information-score",
-      "informationScoreSource": "merchant-native-commodity-score-or-verified-report",
-      "informationScoreBinding": "not-implemented-do-not-substitute-media-zone-storage"
+      "healthMetric": "native-product-information-health-healthScore-portal-equivalence-unverified",
+      "informationScoreSource": "official-health-infos-healthScore-and-improvementList-or-verified-merchant-report",
+      "informationScoreBinding": "absent-native-slot-binding-reference-contract-and-offline-tested-not-live-shop-verified",
+      "officialBindingSkill": "jdo-api-830",
+      "bindingReference": "references/native-sku-materials.md"
     },
     {
       "id": "listing",
