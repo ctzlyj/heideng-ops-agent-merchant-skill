@@ -7,6 +7,7 @@ from .safety import SafetyError
 
 _SEGMENT = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)(?:\[([A-Za-z_][A-Za-z0-9_]*)==([1-9][0-9]{0,18})\])?')
 _MISSING = object()
+MAX_EXPECTED_FIELDS = 1024  # Local evidence budget, not a platform SKU limit.
 
 
 def business_payload(response):
@@ -47,7 +48,7 @@ def _segments(path):
 
 
 def validate_expected(expected):
-    if not isinstance(expected, dict) or not expected or len(expected) > 128:
+    if not isinstance(expected, dict) or not expected or len(expected) > MAX_EXPECTED_FIELDS:
         raise SafetyError('bounded-verification-fields-required')
     for path, criterion in expected.items():
         _segments(path)

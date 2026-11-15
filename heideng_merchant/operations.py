@@ -35,7 +35,7 @@ def _verification(value):
  if not isinstance(value,dict) or set(value)!={'query','expected'}:raise SafetyError('complete-readback-scope-required')
  query=_operation(value['query']);validate_expected(value['expected'])
  if query['method']!='GET' or redact(value)!=value:raise SafetyError('readonly-nonsecret-readback-required')
- if len(json.dumps(value,ensure_ascii=False,allow_nan=False))>65536:raise SafetyError('verification-scope-too-large')
+ if len(json.dumps(value,ensure_ascii=False,allow_nan=False).encode('utf-8'))>256*1024:raise SafetyError('verification-scope-too-large')
  return {'query':query,'expected':value['expected']}
 
 def _same_identity(actual,expected):

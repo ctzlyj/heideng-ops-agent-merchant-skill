@@ -54,3 +54,6 @@ XLSX可选openpyxl：由Agent在独立商家运行时从公开来源安装；多
 ## 原生素材与结果ID绑定
 
 material-zones/material-categories/material-images/material-detail，material-upload-plan/material-upload-status，以及task-result-readback，详见native-materials.md。task-plan额外支持--result-verification，引用只解析原已知回执ID。CLI省略imgBase64并显示SHA，真实请求只在本地状态/传输管道；素材保存不宣称商品绑定/线上生效。
+
+## 完整编辑schema与无损本地草案
+product-schema --profile --product-id；schema-capture-status --capture-id；schema-image-draft --capture-id --changes；schema-draft-status --draft-id。来源、精确slot和未完成发布边界详见native-product-schema.md。只有商品详情/完整SKU分页/唯一编辑schema有限次观察一致才生成capture；未知字段不删、全部SKU不变、草案不提交。

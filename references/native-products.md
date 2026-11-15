@@ -37,3 +37,6 @@
 查看本次官方文档：`official-doc jdo-product-update --reference references/update-api.md --refresh`，必要时同样读取components.md；文件必须出现在官方版本策略且SHA匹配。公开文档不等于所有账户都有API权限，不用真实凭据dry-run输出认证头。
 
 当前实现按已核验官方0.3.7协议并通过离线/mock业务链、身份/并发/恢复回归。未执行真实商家查询、改价、上架或付费生成；不可把本地回归称为平台实机验收。其余合法POP任务仍可查官方资料、组合宿主能力，不把本页变成能力白名单。
+
+## 大范围价格本地预算
+旧18000字符guard已删除：官方transport按实际Windows argv选择binary/stdin。当前完整单任务最多1000条SKU价变更；每段验证最多1024字段/256KiB是本地证据预算，不是京东平台SKU上限。超过预算须保留完整用户目标并显式分段、逐段新鲜核验和批准，任何unknown阻断同店后续写入；不截断SKU、不只回查第一条。

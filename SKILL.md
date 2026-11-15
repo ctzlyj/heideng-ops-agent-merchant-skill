@@ -59,3 +59,6 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 
 
 已有图片的原生素材入口见references/native-materials.md：先查询本店空间/分类，按原bytes SHA规划、批准、上传，再原imgId回查。批量保留全部SKU/文件映射，图片保存与商品主图/详情绑定分开；unknown不靠名称搜索解除。当前模型来源等待补充不阻塞已有合规图的本地解码和素材流程。
+
+## 完整编辑模板前置能力
+已有商品先用product-schema读取并保存完整原生模板与SKU分页证据；schema-image-draft仅改原imageTargets中已有图片槽位，所有SKU/详情/非目标字段不变。素材来自同Profile的原已知上传回执fresh回查。SkuUUid不当真实skuId，色图mappingId不猜造，主图/逐SKU图/详情不混为一个“成功”。详见references/native-product-schema.md。当前draft明确submissionReady=false，不创建可执行商品提交任务；不能对商家宣称已完成整版发布或绑定。

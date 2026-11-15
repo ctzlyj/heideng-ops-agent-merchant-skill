@@ -80,5 +80,6 @@ def validate_image_receipt(descriptor,info,response,*,original=None):
  if fmt!=info['format'] or isinstance(data.get('imgSize'),bool) or not str(data.get('imgSize')).isdigit() or int(data['imgSize'])<=0:raise SafetyError('native-image-receipt-format-or-size-invalid')
  if original is not None:
   first=business_payload(original)
-  if image_id!=resource_id(first.get('imgId')) or url!=first.get('imgUrl'):raise SafetyError('native-image-readback-differs-from-original-receipt')
+  size=first.get('imgSize')
+  if image_id!=resource_id(first.get('imgId')) or url!=first.get('imgUrl') or isinstance(size,bool) or not str(size).isdigit() or int(data['imgSize'])!=int(size):raise SafetyError('native-image-readback-differs-from-original-receipt')
  return data

@@ -42,3 +42,5 @@ python -m unittest discover -s tests -v
 
 
 已有合规图可走原生素材规划/上传/回查，不调用生成模型；首次图片解码由Agent按需准备公开PyPI Pillow的独立运行时。图片空间保存与商品绑定分开，详见references/native-materials.md；目前为私有开发验收等级，真实账号权限与上传未实测。
+
+已有商品可读取全SKU编辑模板，生成只改已有主图/逐SKU图槽位的无损本地草案（全量SKU、销售属性、详情和未知控件保留），详见references/native-product-schema.md；草案没有商品写入任务，**整版提交、详情编辑及图片绑定/线上回查尚未完成**。当前价格规划不再受旧18000字符argv估计限制，按实际官方transport选择stdin；仍以完整旧值/待审/线上范围批准和回查，不截SKU。

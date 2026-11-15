@@ -8,6 +8,7 @@ from .state import merchant_home
 from .official import OfficialClient
 from .operations import Operations
 from .products import ProductService
+from .product_schema import ProductSchemaService
 from .materials import MaterialService
 from .public_output import public_result
 from .auth_manager import AuthManager
@@ -54,6 +55,10 @@ def parser():
   if name=='sku-list':c.add_argument('--product-id',required=True)
   else:c.add_argument('--filters')
  detail=sub.add_parser('product-detail');detail.add_argument('--profile',required=True);detail.add_argument('--product-id',required=True)
+ schema=sub.add_parser('product-schema');schema.add_argument('--profile',required=True);schema.add_argument('--product-id',required=True)
+ draft=sub.add_parser('schema-image-draft');draft.add_argument('--capture-id',required=True);draft.add_argument('--changes',required=True)
+ for command,flag in (('schema-capture-status','capture-id'),('schema-draft-status','draft-id')):
+  c=sub.add_parser(command);c.add_argument('--'+flag,required=True)
  price=sub.add_parser('price-plan');price.add_argument('--profile',required=True);price.add_argument('--product-id',required=True);price.add_argument('--changes',required=True)
  price_status=sub.add_parser('price-status');price_status.add_argument('--task-id',required=True);price_status.add_argument('--refresh',choices=('none','pending','online'),default='none')
  online=sub.add_parser('task-online-readback');online.add_argument('--task-id',required=True)
@@ -110,6 +115,10 @@ def run(args):
   if command=='sku-list':return service.list_skus(args.profile,args.product_id,**options)
   options['filters']=_json_file(args.filters)
   return service.list_products(args.profile,**options) if command=='product-list' else service.list_health(args.profile,**options)
+ if command=='product-schema':return ProductSchemaService(state,client).capture_edit(args.profile,args.product_id)
+ if command=='schema-image-draft':return ProductSchemaService(state,client).draft_images(args.capture_id,_json_file(args.changes))
+ if command=='schema-capture-status':return ProductSchemaService(state,client).capture(args.capture_id)
+ if command=='schema-draft-status':return ProductSchemaService(state,client).draft(args.draft_id)
  if command=='price-plan':return ProductService(state,client).prepare_price(args.profile,args.product_id,_json_file(args.changes))
  if command=='price-status':return ProductService(state,client).price_status(args.task_id,refresh=args.refresh)
  if command=='inspect-source':

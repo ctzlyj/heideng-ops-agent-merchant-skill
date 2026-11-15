@@ -65,7 +65,21 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "awaiting-provider"
+      "mediaGeneration": "awaiting-provider",
+      "readCommands": [
+        "product-detail",
+        "sku-list",
+        "product-schema",
+        "schema-capture-status",
+        "schema-draft-status"
+      ],
+      "preparationCommands": [
+        "schema-image-draft"
+      ],
+      "reference": "references/native-product-schema.md",
+      "nativeEditTemplate": "available-doc-contract-and-offline-tested-not-live-shop-verified",
+      "imageDraft": "local-lossless-existing-slots-only-not-submittable",
+      "fullProductSubmission": "pending-real-schema-sku-mapping-validation-and-image-readback-contract"
     },
     {
       "id": "image-refresh",
@@ -79,7 +93,21 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "awaiting-provider"
+      "mediaGeneration": "awaiting-provider",
+      "readCommands": [
+        "product-detail",
+        "sku-list",
+        "product-schema",
+        "schema-capture-status",
+        "schema-draft-status"
+      ],
+      "preparationCommands": [
+        "schema-image-draft"
+      ],
+      "reference": "references/native-product-schema.md",
+      "nativeEditTemplate": "available-doc-contract-and-offline-tested-not-live-shop-verified",
+      "imageDraft": "local-lossless-existing-slots-only-not-submittable",
+      "fullProductSubmission": "pending-real-schema-sku-mapping-validation-and-image-readback-contract"
     },
     {
       "id": "diagnosis",

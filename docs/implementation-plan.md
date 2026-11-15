@@ -71,3 +71,11 @@ minor (deferred)：worker没有第二次断言JDO_ENV=prod，正常parent已强�
 
 
 检查点7最终验收：193项完整clean suite、47文件包审核、真实Pillow/file-fake安装闭环通过；代码commit1545c6a9bb6ec21d64de849d9f1685b2cc1307c4私有推送后实际GitHubclone重建SHA一致、隔离安装/onboarding/素材及价格回测193项通过。继续主图/详情/各SKU原生绑定与完整上新，尚未正式发行或真实商家写入验证。
+
+## 检查点8计划：原生完整编辑模板与无损图片草案
+采用已批准的自主执行；具体任务和限制见 native-edit-schema-plan-2026-11-15.md。官方 info 需要商家授权、可能刷新token，本轮不调用。整版图片写入缺真实映射/回查契约，不以草案替代完成。旧价大scope限制在同一轮按TDD修复。
+
+检查点8评审：一次有界独立review确认3项P2（非目标数字精度/逻辑key-value秘密字段/原回执imgSize漂移）。已实际RED复现，采用小数数值精确往返否则拒绝、递归逻辑敏感键拒绝、shared素材验证比较原imgSize；额外用类型敏感digest拒绝bool/int源变化，并覆盖LongImg/SkuRectangleImage。修改不生成全版商品提交能力。最终GREEN与安装验收待记录。
+Ruling：无法无损往返的模板数字拒绝而非自建JSON序列化体系——保留数据/权限边界——真实schema出现此类数字时需补充无损运行时，不能宣称已完成该模板编辑。
+
+检查点8本地最终验证：新建Python3.12.10 venv，仅从公开PyPI安装tests/requirements.txt中的psutil7.2.2开发依赖；fresh HOME/禁socket完整222项通过。49文件包审核通过；安装后真实Pillow+file-fake CLI保留64SKU/65图片槽位，1000SKU价完整pending/online及unknown各1次PATCH，素材和旧价回归通过。包SHA4cce6ab95ddf3bb7c2b0061ce973a1b6d74dbca4040ac703c950143b7c720358。仍无真实商家授权、上传绑定/整版提交、外部模型调用或正式Release；下一步实际GitHub重新克隆安装回测。
