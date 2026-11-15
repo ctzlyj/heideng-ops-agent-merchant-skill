@@ -20,6 +20,9 @@ from .public_output import public_result
 from .auth_manager import AuthManager
 from .providers import MediaConfiguration
 from .video_source import VideoSource
+from .video_runtime import VideoRuntime
+from .video_probe import probe_video
+from .video_handoff import preflight_video
 from .catalog import load_catalog,route
 from .updates import ReleaseUpdates,github_json
 from .workflows import read_rows,diagnose_rows,compare_exact_specs,prepare_listing,material_audit,package_snapshot,attach_video
@@ -51,7 +54,7 @@ def parser():
  mu=sub.add_parser('material-upload-plan');mu.add_argument('--profile',required=True);mu.add_argument('--image',required=True);mu.add_argument('--zone-id',required=True);mu.add_argument('--category-id',required=True);mu.add_argument('--name')
  ms=sub.add_parser('material-upload-status');ms.add_argument('--task-id',required=True);ms.add_argument('--refresh',action='store_true')
  rv=sub.add_parser('task-result-readback');rv.add_argument('--task-id',required=True)
- for name in ('onboarding','catalog','media-status','video-source-status','update-check','update-apply','video-source-check'):sub.add_parser(name)
+ for name in ('onboarding','catalog','media-status','video-source-status','update-check','update-apply','video-source-check','video-runtime-status','video-runtime-prepare'):sub.add_parser(name)
  r=sub.add_parser('route');r.add_argument('request')
  d=sub.add_parser('doctor');d.add_argument('--install-cli',action='store_true')
  od=sub.add_parser('official-doc');od.add_argument('skill_id');od.add_argument('--reference',default='SKILL.md');od.add_argument('--refresh',action='store_true')
@@ -99,6 +102,8 @@ def parser():
  compare=sub.add_parser('compare');compare.add_argument('--source',required=True);compare.add_argument('--specs',required=True);compare.add_argument('--output',required=True)
  listing=sub.add_parser('prepare-listing');listing.add_argument('--product',required=True);listing.add_argument('--source-root',required=True);listing.add_argument('--output',required=True)
  collect=sub.add_parser('package-snapshot');collect.add_argument('--snapshot',required=True);collect.add_argument('--output',required=True)
+ vp=sub.add_parser('probe-video');vp.add_argument('--video',required=True)
+ vf=sub.add_parser('video-preflight');vf.add_argument('--manifest',required=True)
  video=sub.add_parser('attach-video');video.add_argument('--manifest',required=True);video.add_argument('--video',required=True);video.add_argument('--cover');video.add_argument('--review')
  return p
 
@@ -185,7 +190,11 @@ def run(args):
   result=compare_exact_specs(read_rows(args.source),_json_file(args.specs));atomic_json(Path(args.output),result);return result
  if command=='prepare-listing':return prepare_listing(read_input_json(args.product)[0],args.source_root,args.output)
  if command=='package-snapshot':return package_snapshot(_json_file(args.snapshot),args.output)
- if command=='attach-video':return attach_video(args.manifest,args.video,args.cover,_json_file(args.review))
+ if command=='video-runtime-status':return VideoRuntime(state).status()
+ if command=='video-runtime-prepare':return VideoRuntime(state).ensure()
+ if command=='probe-video':return probe_video(state,args.video)
+ if command=='video-preflight':return preflight_video(args.manifest,state=state)
+ if command=='attach-video':return attach_video(args.manifest,args.video,args.cover,_json_file(args.review),state=state)
  raise SafetyError('unknown-command')
 
 def main(argv=None):

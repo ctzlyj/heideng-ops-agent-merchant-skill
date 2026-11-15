@@ -54,3 +54,7 @@ python -m unittest discover -s tests -v
 **信息分口径仍需实测对照**：官方目录将 health-infos 定义为“商品信息健康分”，可用原生 healthScore / improvementList 做诊断；与京麦页面 commodity-score 的逐行等价性尚未验证，不能仅凭名称断言相同或不同。已补齐原生 SKU 缺失素材槽位的审计、批准、绑定及全查询范围回读（仅合成测试）。图片空间保存、整版编辑、素材绑定、审核通过和分数重算分别记录。详见 references/native-sku-materials.md。
 
 全店在售素材/信息健康审计新增完整来源入口：在售商品→全部兄弟SKU（包含离线兄弟）→一次原生health数据集→全部支持素材→前后商品/SKU集合交叉核对。摘要只返回完整范围计数，明细保存在本地且可分页筛选；分值未知、未取到和缺失分开，不补0、不自动写店铺。仅合成/安装验证，真实权限/接口未实测。详见 references/native-shop-material-audit.md。
+
+## 已有视频的本地交接
+
+Agent可独立全帧/音轨解码MP4、检查真实封面并绑定视频/封面/商品hash；视觉和声音须实际验收，不能凭`technicalPass=true`提升可绑定状态。运行时仅按需从公开PyPI安装，不生成/付费调用。详见`references/local-video-handoff.md`。本地就绪不等于原生上传、SKU绑定或平台审核成功，后者尚待实现和商家授权实测。

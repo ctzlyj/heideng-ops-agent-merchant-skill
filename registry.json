@@ -216,7 +216,18 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "awaiting-provider"
+      "mediaGeneration": "awaiting-provider",
+      "preparationCommands": [
+        "video-runtime-status",
+        "video-runtime-prepare",
+        "probe-video",
+        "attach-video",
+        "video-preflight"
+      ],
+      "reference": "references/local-video-handoff.md",
+      "localTechnicalQA": "full-H264-AAC-original-decode-and-static-cover-verification",
+      "nativeVideoDelivery": "pending-implementation-and-live-contract-verification",
+      "visualAndVoiceReview": "requires-real-inspection-bound-to-video-cover-and-listing-hashes"
     }
   ],
   "videoUpstream": {

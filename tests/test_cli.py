@@ -18,3 +18,14 @@ class CliTests(unittest.TestCase):
    self.assertEqual(p.returncode,0,p.stderr);self.assertTrue((root/'report.json').is_file());self.assertEqual(json.loads(p.stdout)['scope'],'uploaded-rows')
 
 if __name__=='__main__':unittest.main()
+
+class VideoCliTests(unittest.TestCase):
+ def test_video_runtime_status_is_offline_and_does_not_install(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=subprocess.run([sys.executable,'scripts/merchant.py','--home',d,'video-runtime-status'],capture_output=True,text=True,encoding='utf-8')
+   self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(json.loads(p.stdout)['status'],'not-prepared');self.assertFalse((Path(d)/'.heideng-merchant/runtime/video-runtime.json').exists())
+ def test_preflight_rejects_missing_video_manifest_without_shop_calls(self):
+  with tempfile.TemporaryDirectory() as d:
+   manifest=Path(d)/'manifest.json';manifest.write_text('{"merchantPackageSchemaVersion":1}')
+   p=subprocess.run([sys.executable,'scripts/merchant.py','--home',d,'video-preflight','--manifest',str(manifest)],capture_output=True,text=True,encoding='utf-8')
+   self.assertEqual(p.returncode,2);self.assertEqual(json.loads(p.stdout)['error'],'video-handoff-not-reviewed-for-current-listing')

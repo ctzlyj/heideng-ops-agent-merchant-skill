@@ -8,7 +8,7 @@ from .state import FileLock
 PACKAGES=('playwright','psutil')
 
 def pypi_metadata(url):
- if not re.fullmatch(r'https://pypi\.org/pypi/(playwright|psutil|Pillow)/json',url):raise SafetyError('public-runtime-source-required')
+ if not re.fullmatch(r'https://pypi\.org/pypi/(?:(playwright|psutil|Pillow)/json|av/16\.1\.0/json)',url):raise SafetyError('public-runtime-source-required')
  try:
   with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url,timeout=30) as response:raw=response.read(4*1024*1024+1)
   if len(raw)>4*1024*1024:raise SafetyError('runtime-metadata-too-large')
@@ -47,20 +47,25 @@ class BrowserRuntime:
  def python(self):
   if not self.ready():raise SafetyError('browser-runtime-not-prepared')
   return safe_join(self.state,read_json(self.receipt)['python'])
+ def _source_url(self,name):return 'https://pypi.org/pypi/'+name+'/json'
+ def _install(self,python,home,pins,sources):
+  self._run([str(python),'-I','-m','pip','--isolated','install','--index-url','https://pypi.org/simple','--no-cache-dir','--only-binary=:all:',*[name+'=='+pins[name] for name in self.packages]],home,300)
+ def _receipt_details(self,python,home):return {}
  def ensure(self):
   with FileLock(self.state/'runtime'/'install.lock',timeout=10):
    if self.ready():return self.status()
    if read_json(self.receipt):raise SafetyError('existing-browser-runtime-changed-preserve-and-review')
    sources={};pins={}
    for name in self.packages:
-    info=self.metadata('https://pypi.org/pypi/'+name+'/json');version=info.get('info',{}).get('version','')
+    url=self._source_url(name);info=self.metadata(url);version=info.get('info',{}).get('version','')
     if not re.fullmatch('[0-9][0-9A-Za-z._+-]{0,40}',version):raise SafetyError('invalid-browser-runtime-version')
-    pins[name]=version;sources[name]={'url':'https://pypi.org/pypi/'+name+'/json','version':version,'license':info.get('info',{}).get('license') or info.get('info',{}).get('license_expression'),'artifactSha256':[r.get('digests',{}).get('sha256') for r in info.get('urls',[]) if r.get('packagetype')=='bdist_wheel']}
+    pins[name]=version;sources[name]={'url':url,'version':version,'license':info.get('info',{}).get('license') or info.get('info',{}).get('license_expression'),'artifactSha256':[r.get('digests',{}).get('sha256') for r in info.get('urls',[]) if r.get('packagetype')=='bdist_wheel']}
    relative='runtime/'+self.runtime_name+'-'+uuid.uuid4().hex;root=safe_join(self.state,relative);root.mkdir(parents=True);home=root/'home';home.mkdir()
    self._run([sys.executable,'-I','-m','venv',str(root/'venv')],home,90)
    python=root/'venv'/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
-   self._run([str(python),'-I','-m','pip','--isolated','install','--index-url','https://pypi.org/simple','--no-cache-dir','--only-binary=:all:',*[name+'=='+pins[name] for name in self.packages]],home,300)
+   self._install(python,home,pins,sources)
    actual=self._probe(python,home)
    if actual!=pins:raise SafetyError('browser-runtime-package-version-mismatch')
    record={'python':python.relative_to(self.state).as_posix(),'home':home.relative_to(self.state).as_posix(),'pythonSha256':file_sha(python),'packages':actual,'sources':sources,'channel':self.runtime_channel,'status':'ready'}
+   record.update(self._receipt_details(python,home))
    atomic_json(self.receipt,record);return self.status()

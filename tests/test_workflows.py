@@ -41,7 +41,7 @@ class WorkflowTests(unittest.TestCase):
  def test_video_never_bindable_without_verified_reviews(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);manifest=prepare_listing(self.fixture(root),root,root/'package');video=root/'existing.mp4';video.write_bytes(b'\x00\x00\x00\x18ftypmp42'+b'fixture')
-   r=attach_video(root/'package'/'manifest.json',video,None);self.assertFalse(r['video']['bindable']);self.assertEqual(r['video']['origin'],'user-supplied');self.assertEqual(r['video']['sha256'],file_sha(video))
+   with self.assertRaises(SafetyError):attach_video(root/'package'/'manifest.json',video,None)
 
  def test_snapshot_does_not_persist_browser_credentials(self):
   snapshot={'title':'test','url':'https://item.jd.com/1.html','selectedSkuId':'1','skuOrder':['1'],'skus':[{'skuId':'1','handPrice':'10','priceEvidence':'native-sku-context'}],'assets':[],'cookies':'fake-only'}

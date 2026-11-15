@@ -157,18 +157,5 @@ def package_snapshot(snapshot,output,fetch=None):
   writer=csv.DictWriter(stream,fieldnames=['skuId','handPrice','priceEvidence']);writer.writeheader();writer.writerows({k:r.get(k,'') for k in writer.fieldnames} for r in sorted(skus,key=lambda s:order.index(str(s['skuId']))))
  return result
 
-def attach_video(manifest_path,video,cover=None,review=None):
- manifest_path=Path(manifest_path).resolve();root=manifest_path.parent;manifest=read_json(manifest_path)
- if not isinstance(manifest,dict) or manifest.get('merchantPackageSchemaVersion')!=1:raise SafetyError('merchant-listing-manifest-required')
- video=Path(video).resolve()
- if not video.is_file() or b'ftyp' not in video.read_bytes()[:64]:raise SafetyError('existing-mp4-required')
- sha=file_sha(video);relative='video/'+sha[:16]+'.mp4';dest=safe_join(root,relative);dest.parent.mkdir(exist_ok=True)
- if video!=dest:shutil.copyfile(video,dest)
- info={'schemaVersion':1,'origin':'user-supplied','localPath':relative,'sha256':sha,'bindable':False,'taskId':None,'upstreamRepository':'ctzlyj/jd-pop-main-video-skill','review':{'technical':'not-verified','visual':'pending','voice':'pending'}}
- if cover:
-  p=Path(cover).resolve();cover_sha=file_sha(p);name='video/'+cover_sha[:16]+p.suffix.lower();shutil.copyfile(p,safe_join(root,name));info.update(coverPath=name,coverSha256=cover_sha)
- if review:
-  if review.get('sha256')!=sha:raise SafetyError('video-review-hash-mismatch')
-  info['review']=review
-  info['bindable']=all(review.get(k) is True for k in ('technicalPass','visualPass','voiceConfirmed')) and bool(info.get('coverSha256'))
- manifest['video']=info;atomic_json(manifest_path,manifest);return manifest
+# Kept as an import for existing workflow callers.
+from .video_handoff import attach_video
