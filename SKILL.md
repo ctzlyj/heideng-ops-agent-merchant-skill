@@ -67,3 +67,8 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 新品不只出listing-package：先publish-categories/publish-brands/publish-context取本商真实许可与规则；按公开官方组件/销售属性指南填完整schema和来源，不猜ID、不删SKU。publish-validation-plan生成精确校验范围，批准后execute；已知成功才publish-plan生成同body的提交范围，再绑定明确用户许可。所有原照片、全部价格/库存/规格和源商品进入前检；共享task-plan不能绕过，换校验nonce不能重复创建。publish-status只读原回执、不制造新链接，不把受理当线上已生效。详见references/native-publishing.md；新品不代替现有商品整版编辑/图片绑定与视频上传。
 
 既有商品整版图片/详情编辑：按 `references/native-full-edit.md` 先保留全原详情/组件/SKU并建立逐字段来源基线，运行 schema-edit-baseline/schema-edit-validation-plan/schema-edit-plan，再分别精确批准。原 applyId 的完整字段回查和原 productId/全 SKU 回查分开；不把模板/受理/当前目标值匹配当作原 unknown 请求终态。缺字段声明/完整模板时查明，不猜默认值、不借内部接口。
+
+### 原生规则模板自动准备
+既有商品图片/详情目标先走 product-schema，再 schema-edit-prepare --capture-id；必要时 schema-compile 查看自动编译与原 capture 证明。详见 references/native-template-compile.md。由 Agent 运行，不让商家手写全 SKU schema、bindings 或 sale-sources。没有声明/协议证明时读取当前官方原生文档及合法实际模板查明，不以相等值、默认值或删未知字段伪装 ready。仍通过原 validation/正式提交批准与原申请单/全字段回查；重复 prepare 不新增正式意图。
+
+health-list 查询的是健康分，尚不能当作京麦商品信息分 commodity-score。信息分目标使用商家原生 commodity-score 或已核实报表；媒体空间保存、普通主图编辑和健康分读取不能替代信息分槽位绑定验收。

@@ -63,6 +63,8 @@ def parser():
  draft=sub.add_parser('schema-image-draft');draft.add_argument('--capture-id',required=True);draft.add_argument('--changes',required=True)
  for command,flag in (('schema-capture-status','capture-id'),('schema-draft-status','draft-id')):
   c=sub.add_parser(command);c.add_argument('--'+flag,required=True)
+ compiled=sub.add_parser('schema-compile');compiled.add_argument('--capture-id',required=True)
+ prepared=sub.add_parser('schema-edit-prepare');prepared.add_argument('--capture-id',required=True)
  baseline=sub.add_parser('schema-edit-baseline');baseline.add_argument('--capture-id',required=True);baseline.add_argument('--schema',required=True);baseline.add_argument('--bindings',required=True);baseline.add_argument('--sale-sources',required=True)
  ev=sub.add_parser('schema-edit-validation-plan');ev.add_argument('--baseline-id',required=True);ev.add_argument('--changes',required=True)
  ep=sub.add_parser('schema-edit-plan');ep.add_argument('--validation-task-id',required=True)
@@ -135,6 +137,8 @@ def run(args):
  if command=='schema-image-draft':return ProductSchemaService(state,client).draft_images(args.capture_id,_json_file(args.changes))
  if command=='schema-capture-status':return ProductSchemaService(state,client).capture(args.capture_id)
  if command=='schema-draft-status':return ProductSchemaService(state,client).draft(args.draft_id)
+ if command=='schema-compile':return ProductSchemaService(state,client).compile_capture(args.capture_id)
+ if command=='schema-edit-prepare':return EditService(state,client).prepare_baseline(args.capture_id)
  if command=='schema-edit-baseline':return EditService(state,client).baseline(args.capture_id,read_input_json(args.schema)[0],read_input_json(args.bindings)[0],read_input_json(args.sale_sources)[0])
  if command=='schema-edit-validation-plan':return EditService(state,client).plan_validation(args.baseline_id,read_input_json(args.changes)[0])
  if command=='schema-edit-plan':return EditService(state,client).plan_edit(args.validation_task_id)

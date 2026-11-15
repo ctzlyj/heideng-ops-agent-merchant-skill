@@ -222,7 +222,52 @@ class ProductSchemaService(ProductService):
             raise SafetyError('native-schema-record-missing-or-modified')
         if record['scope'].get('runtimeVersion') != VERSION:
             raise SafetyError('native-schema-runtime-changed-capture-again')
+        scope = record['scope']
+        if ('rawSchema' in scope) != ('schemaCompiler' in scope):
+            raise SafetyError('native-raw-schema-alias-requires-compilation-proof')
+        if 'schemaCompiler' in scope:
+            from .template_compile import verify_compiled_scope
+            proof = scope['schemaCompiler']
+            original_id = proof.get('originalCaptureId') if isinstance(proof, dict) else None
+            if kind != 'captures' or original_id == ident:
+                raise SafetyError('native-compiled-capture-origin-required')
+            original = self._load('captures', original_id)
+            if 'schemaCompiler' in original['scope'] or proof.get('originalCaptureFingerprint') != original['fingerprint']:
+                raise SafetyError('native-compiled-capture-origin-changed')
+            wanted = {**original['scope'], 'schema':scope['schema'],
+                      'rawSchema':original['scope']['schema'], 'schemaCompiler':proof}
+            if digest(scope) != digest(wanted):
+                raise SafetyError('native-compiled-source-must-match-original-capture')
+            verify_compiled_scope(scope)
         return record
+
+    def compile_capture(self, capture_id):
+        from .template_compile import compile_native, compilation_proof, verify_compiled_scope
+        from .state import FileLock
+        original = self._load('captures', capture_id)
+        if 'schemaCompiler' in original['scope']:
+            result = verify_compiled_scope(original['scope'])
+            return {**self._capture_view(original), 'bindings':result['bindings'],
+                    'saleSources':result['saleSources'], 'automaticBindingsPrepared':True}
+        source = original['scope']
+        result = compile_native(source['schema'], source['productDetail'])
+        proof = compilation_proof(source['schema'], source['productDetail'], result,
+                                  capture_id, original['fingerprint'])
+        scope = {**copy.deepcopy(source), 'rawSchema':copy.deepcopy(source['schema']),
+                 'schema':result['schema'], 'schemaCompiler':proof}
+        ident = digest({'capture':original['fingerprint'], 'proof':proof})[:24]
+        record = {'captureId':ident, 'scope':scope, 'fingerprint':digest(scope)}
+        with FileLock(self.state / 'native-compile.lock'):
+            path = self._path('captures', ident)
+            if path.exists():
+                current = self._load('captures', ident)
+                if current['fingerprint'] != record['fingerprint']:
+                    raise SafetyError('native-compiled-capture-conflict')
+                record = current
+            else:
+                atomic_json(path, record)
+        return {**self._capture_view(record), 'bindings':result['bindings'],
+                'saleSources':result['saleSources'], 'automaticBindingsPrepared':True}
 
     @staticmethod
     def _capture_view(record):

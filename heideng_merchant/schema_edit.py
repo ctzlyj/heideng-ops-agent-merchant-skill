@@ -23,15 +23,31 @@ class EditService:
   return record
  def _fresh(self,cap):
   scope=cap['scope'];profile=scope['shop']['profile'];actual=self.schemas.detail(profile,scope['productId']);schema,_,_=self.schemas._template(profile,scope['productId'],scope['lastCategoryId'])
-  if digest(actual)!=scope['productDetailHash'] or digest(schema)!=digest(scope['schema']):raise SafetyError('edit-source-or-template-changed-capture-again')
+  if digest(actual)!=scope['productDetailHash'] or digest(schema)!=digest(scope['rawSchema'] if 'schemaCompiler' in scope else scope['schema']):raise SafetyError('edit-source-or-template-changed-capture-again')
   census=self.schemas.list_skus(profile,scope['productId'],page_size=50)
   if not census['complete'] or census['reportedTotal'] is None or set(identifier(r.get('skuId')) for r in census['items'])!=set(scope['skuIds']):raise SafetyError('complete-current-edit-sku-census-required')
   if not _same_identity(self.client.identity(profile),scope['shop']):raise SafetyError('edit-shop-changed-during-read')
- def baseline(self,capture_id,schema,bindings,sale_sources):
+ def baseline(self,capture_id,schema,bindings,sale_sources,*,_stable_id=None):
   cap=self.schemas._load('captures',capture_id);self._fresh(cap);submitted,ids,_=validate_baseline(cap,schema,bindings,sale_sources);self._fresh(cap);source=cap['scope']
   scope={'captureId':capture_id,'captureFingerprint':cap['fingerprint'],'runtimeVersion':VERSION,'shop':source['shop'],'productId':source['productId'],'lastCategoryId':source['lastCategoryId'],'skuIds':ids,'schema':submitted,'containerCodes':sorted(container_codes(source['schema'])),'bindings':copy.deepcopy(bindings),'saleSources':copy.deepcopy(sale_sources),'createdAt':time.time()}
-  record={'baselineId':uuid.uuid4().hex[:24],'scope':scope,'fingerprint':digest(scope)};atomic_json(self._path(record['baselineId']),record)
-  return {**record,'schema':copy.deepcopy(submitted),'skuCount':len(ids),'skuIdentityMappingVerified':True,'allBaselineValuesSourceBound':True,'submissionReady':False,'phase':'full-original-edit-baseline-not-submitted'}
+  record={'baselineId':_stable_id or uuid.uuid4().hex[:24],'scope':scope,'fingerprint':digest(scope)}
+  path=self._path(record['baselineId'])
+  if _stable_id and path.exists():
+   old=self._load(_stable_id)
+   if digest({k:v for k,v in old['scope'].items() if k!='createdAt'})!=digest({k:v for k,v in scope.items() if k!='createdAt'}):raise SafetyError('native-automatic-baseline-conflict')
+   record=old
+  else:atomic_json(path,record)
+  return self._baseline_view(record)
+ @staticmethod
+ def _baseline_view(record):
+  scope=record['scope']
+  return {**record,'schema':copy.deepcopy(scope['schema']),'skuCount':len(scope['skuIds']),'skuIdentityMappingVerified':True,'allBaselineValuesSourceBound':True,'submissionReady':False,'phase':'full-original-edit-baseline-not-submitted'}
+ def prepare_baseline(self,capture_id):
+  original=self.schemas._load('captures',capture_id);self._fresh(original)
+  compiled=self.schemas.compile_capture(capture_id)
+  stable=digest({'compiledCapture':compiled['fingerprint'],'compiler':compiled['scope']['schemaCompiler']})[:24]
+  with FileLock(self.state/'native-prepare.lock'):
+   return self.baseline(compiled['captureId'],compiled['scope']['schema'],compiled['bindings'],compiled['saleSources'],_stable_id=stable)
  @staticmethod
  def _body(scope,schema):return {'scene':'pop','schema':json.dumps(schema,ensure_ascii=False,separators=(',',':'),allow_nan=False),'productApplyDTO':{'productId':int(scope['productId']),'categoryDTO':{'lastCategoryId':int(scope['lastCategoryId'])}}}
  def plan_validation(self,baseline_id,changes):
