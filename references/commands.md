@@ -57,3 +57,6 @@ material-zones/material-categories/material-images/material-detail，material-up
 
 ## 完整编辑schema与无损本地草案
 product-schema --profile --product-id；schema-capture-status --capture-id；schema-image-draft --capture-id --changes；schema-draft-status --draft-id。来源、精确slot和未完成发布边界详见native-product-schema.md。只有商品详情/完整SKU分页/唯一编辑schema有限次观察一致才生成capture；未知字段不删、全部SKU不变、草案不提交。
+
+## 新品校验/提交入口
+publish-categories、publish-brands、publish-context；publish-validation-plan --profile --manifest --schema --spec-map --asset-bindings；publish-validation-status --task-id；publish-plan --validation-task-id；publish-status --task-id。详细字段来源、校验与条件提交的明确许可、同源包去重和未验证线上边界见native-publishing.md。prepare-listing保留完整sourceProduct；源码、规格、真实图片不可用空壳默认值补齐。

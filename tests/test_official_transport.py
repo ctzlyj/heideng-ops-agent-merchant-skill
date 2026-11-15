@@ -81,4 +81,14 @@ class TransportTests(unittest.TestCase):
     with self.assertRaisesRegex(SafetyError,'secret-argv'):c.invoke('merchant-demo','/rest/sp-product/v0/products',method='POST',body={'text':'x'*30000},write_authorized=True,expected_shop={'profile':'merchant-demo','venderId':'1','shopId':'3','shopName':'synthetic-store'})
     self.assertEqual(len(calls),prior);runner.assert_not_called()
 
+ def test_small_publication_uses_reviewed_stdin_for_final_deadline(self):
+  captured=[]
+  def runner(args,**kw):captured.append((args,kw));return self.success(json.loads(kw['input'])['execution'])
+  with tempfile.TemporaryDirectory() as d:
+   c,p,downloads=self.client(d,runner)
+   with patch('heideng_merchant.official_transport.AUDITED_SOURCES',{'0.3.7':SOURCE_SHA}):
+    result=c.invoke('merchant-demo','/rest/sp-product/v0/product-applies',method='POST',body={'schema':'[]'},skill_id='jdo-product-publish',write_authorized=True,authorization_expires_at=9999999999,expected_shop={'profile':'merchant-demo','venderId':'1','shopId':'3','shopName':'synthetic-store'})
+   self.assertEqual(len(captured),1);self.assertIn('input',captured[0][1]);self.assertEqual(result['_merchantExecution']['transport'],'official-source-stdin')
+   self.assertEqual(json.loads(captured[0][1]['input'])['approvalExpiresAt'],9999999999)
+
 if __name__=='__main__':unittest.main()

@@ -62,3 +62,6 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 
 ## 完整编辑模板前置能力
 已有商品先用product-schema读取并保存完整原生模板与SKU分页证据；schema-image-draft仅改原imageTargets中已有图片槽位，所有SKU/详情/非目标字段不变。素材来自同Profile的原已知上传回执fresh回查。SkuUUid不当真实skuId，色图mappingId不猜造，主图/逐SKU图/详情不混为一个“成功”。详见references/native-product-schema.md。当前draft明确submissionReady=false，不创建可执行商品提交任务；不能对商家宣称已完成整版发布或绑定。
+
+## 全SKU新品原生流水线
+新品不只出listing-package：先publish-categories/publish-brands/publish-context取本商真实许可与规则；按公开官方组件/销售属性指南填完整schema和来源，不猜ID、不删SKU。publish-validation-plan生成精确校验范围，批准后execute；已知成功才publish-plan生成同body的提交范围，再绑定明确用户许可。所有原照片、全部价格/库存/规格和源商品进入前检；共享task-plan不能绕过，换校验nonce不能重复创建。publish-status只读原回执、不制造新链接，不把受理当线上已生效。详见references/native-publishing.md；新品不代替现有商品整版编辑/图片绑定与视频上传。

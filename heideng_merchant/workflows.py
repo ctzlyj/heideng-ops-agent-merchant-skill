@@ -77,6 +77,8 @@ def compare_exact_specs(rows,specs):
  return {'scope':'supplied-exact-spec-evidence','specs':specs,'top10':accepted[:10],'matchedCount':len(accepted),'excludedCount':len(excluded),'excluded':excluded,'repricing':'requires-separate-shop-plan-and-approval'}
 
 def prepare_listing(product,source_root,output):
+ from .product_schema import _validate_logical_properties
+ _validate_logical_properties(product)
  if redact(product)!=product:raise SafetyError("credentials-not-allowed-in-listing-data")
  if not isinstance(product,dict) or not product.get('title') or not product.get('categoryId'):raise SafetyError('title-and-actual-category-required')
  skus=product.get('skus',[]);images=product.get('images',[])
@@ -84,7 +86,7 @@ def prepare_listing(product,source_root,output):
  identifiers=[]
  for sku in skus:
   ident=str(sku.get('merchantCode',''))
-  if not ident or not sku.get('specs'):raise SafetyError('actual-merchant-code-and-specs-required')
+  if not ident or not isinstance(sku.get('specs'),dict):raise SafetyError('actual-merchant-code-and-specs-required')
   number(sku.get('price'),positive=True)
   stock=number(sku.get('stock'))
   if stock<0 or stock!=stock.to_integral_value():raise SafetyError('nonnegative-integer-stock-required')
@@ -101,7 +103,7 @@ def prepare_listing(product,source_root,output):
  photos=[]
  for i,(p,sha) in enumerate(refs):
   relative='images/'+str(i+1).zfill(2)+'-'+sha[:12]+p.suffix.lower();shutil.copyfile(p,safe_join(output,relative));photos.append({'localPath':relative,'sha256':sha,'source':'user-supplied','visualReview':'pending'})
- manifest={'merchantPackageSchemaVersion':1,'title':product['title'],'categoryId':str(product['categoryId']),'skus':skus,'sellingPoints':product.get('sellingPoints',[]),'source':{'kind':'local-photos','fingerprint':digest({'product':product,'photoHashes':[sha for _,sha in refs]})},'images':photos,'publication':{'status':'not_submitted','needsCategorySchemaValidation':True},'video':None,'generation':{'status':'awaiting-provider','paidCalls':0}}
+ manifest={'merchantPackageSchemaVersion':1,'sourceProduct':product,'title':product['title'],'categoryId':str(product['categoryId']),'skus':skus,'sellingPoints':product.get('sellingPoints',[]),'source':{'kind':'local-photos','fingerprint':digest({'product':product,'photoHashes':[sha for _,sha in refs]})},'images':photos,'publication':{'intentId':uuid.uuid4().hex,'status':'not_submitted','needsCategorySchemaValidation':True},'video':None,'generation':{'status':'awaiting-provider','paidCalls':0}}
  if product.get('jdUrl'):manifest['jdUrl']=product['jdUrl']
  atomic_json(output/'manifest.json',manifest);return manifest
 

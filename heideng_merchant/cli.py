@@ -10,6 +10,9 @@ from .operations import Operations
 from .products import ProductService
 from .product_schema import ProductSchemaService
 from .materials import MaterialService
+from .publish_support import PublishSupport
+from .publishing import PublishService
+from .publication_contract import read_input_json
 from .public_output import public_result
 from .auth_manager import AuthManager
 from .providers import MediaConfiguration
@@ -59,6 +62,13 @@ def parser():
  draft=sub.add_parser('schema-image-draft');draft.add_argument('--capture-id',required=True);draft.add_argument('--changes',required=True)
  for command,flag in (('schema-capture-status','capture-id'),('schema-draft-status','draft-id')):
   c=sub.add_parser(command);c.add_argument('--'+flag,required=True)
+ cats=sub.add_parser('publish-categories');cats.add_argument('--profile',required=True);cats.add_argument('--ids')
+ brands=sub.add_parser('publish-brands');brands.add_argument('--profile',required=True);brands.add_argument('--category-id',required=True);brands.add_argument('--name');brands.add_argument('--max-pages',type=int,default=100);brands.add_argument('--start-page',type=int,default=1)
+ context=sub.add_parser('publish-context');context.add_argument('--profile',required=True);context.add_argument('--category-id',required=True);context.add_argument('--brand-id',required=True)
+ validation=sub.add_parser('publish-validation-plan');validation.add_argument('--profile',required=True);validation.add_argument('--manifest',required=True);validation.add_argument('--schema',required=True);validation.add_argument('--spec-map',required=True);validation.add_argument('--asset-bindings',required=True)
+ pub=sub.add_parser('publish-plan');pub.add_argument('--validation-task-id',required=True)
+ for name in ('publish-validation-status','publish-status'):
+  c=sub.add_parser(name);c.add_argument('--task-id',required=True)
  price=sub.add_parser('price-plan');price.add_argument('--profile',required=True);price.add_argument('--product-id',required=True);price.add_argument('--changes',required=True)
  price_status=sub.add_parser('price-status');price_status.add_argument('--task-id',required=True);price_status.add_argument('--refresh',choices=('none','pending','online'),default='none')
  online=sub.add_parser('task-online-readback');online.add_argument('--task-id',required=True)
@@ -119,6 +129,13 @@ def run(args):
  if command=='schema-image-draft':return ProductSchemaService(state,client).draft_images(args.capture_id,_json_file(args.changes))
  if command=='schema-capture-status':return ProductSchemaService(state,client).capture(args.capture_id)
  if command=='schema-draft-status':return ProductSchemaService(state,client).draft(args.draft_id)
+ if command=='publish-categories':return {'items':PublishSupport(state,client).categories(args.profile,read_input_json(args.ids)[0] if args.ids else [0]),'source':'official-realtime-authorized-category-query','completeShopCatalog':False}
+ if command=='publish-brands':return PublishSupport(state,client).brands(args.profile,args.category_id,name=args.name,max_pages=args.max_pages,start_page=args.start_page)
+ if command=='publish-context':return PublishSupport(state,client).context(args.profile,args.category_id,args.brand_id)
+ if command=='publish-validation-plan':return PublishService(state,client).plan_validation(args.profile,args.manifest,read_input_json(args.schema)[0],read_input_json(args.spec_map)[0],read_input_json(args.asset_bindings)[0])
+ if command=='publish-validation-status':return PublishService(state,client).validation_status(args.task_id)
+ if command=='publish-plan':return PublishService(state,client).plan_publish(args.validation_task_id)
+ if command=='publish-status':return PublishService(state,client).status(args.task_id)
  if command=='price-plan':return ProductService(state,client).prepare_price(args.profile,args.product_id,_json_file(args.changes))
  if command=='price-status':return ProductService(state,client).price_status(args.task_id,refresh=args.refresh)
  if command=='inspect-source':
@@ -129,7 +146,7 @@ def run(args):
   result=diagnose_rows(rows) if command=='diagnose' else material_audit(rows);atomic_json(Path(args.output),result);return result
  if command=='compare':
   result=compare_exact_specs(read_rows(args.source),_json_file(args.specs));atomic_json(Path(args.output),result);return result
- if command=='prepare-listing':return prepare_listing(_json_file(args.product),args.source_root,args.output)
+ if command=='prepare-listing':return prepare_listing(read_input_json(args.product)[0],args.source_root,args.output)
  if command=='package-snapshot':return package_snapshot(_json_file(args.snapshot),args.output)
  if command=='attach-video':return attach_video(args.manifest,args.video,args.cover,_json_file(args.review))
  raise SafetyError('unknown-command')

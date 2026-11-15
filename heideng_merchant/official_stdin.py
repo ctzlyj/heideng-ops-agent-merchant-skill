@@ -46,7 +46,8 @@ def execute_envelope(envelope,state,*,namespace_hook=None):
     value=namespace.get(name)
     if isinstance(value,str) and value:secrets.add(value)
    if namespace_hook is not None:namespace_hook(namespace)
-   original_auth=namespace['get_auth_context'];original_refresh=namespace['refresh_auth_context'];original_request=namespace['execute_request_with_retry']
+   original_auth=namespace['get_auth_context'];original_refresh=namespace['refresh_auth_context'];original_request=namespace['execute_request_with_retry'];original_open=namespace.get('urlopen_with_ssl');business_writing=False
+   if op['url']=='/rest/sp-product/v0/product-applies' and not callable(original_open):raise SafetyError('official-publication-network-boundary-not-compatible')
    def auth(*a,**k):
     nonlocal frozen_context
     if frozen_context is not None:return frozen_context
@@ -72,12 +73,34 @@ def execute_envelope(envelope,state,*,namespace_hook=None):
     collect(context)
     try:return original_refresh(context,*a,**k)
     finally:collect(context)
+   def http_open(*a,**k):
+    if business_writing and deadline is not None and time.time()>=deadline:raise SafetyError('authorization-expired-after-signing-before-http')
+    if not business_writing:return original_open(*a,**k)
+    # The official TLS helper may attempt a second native urlopen. Keep the
+    # original signed request/network helper, but guard each native attempt
+    # and prohibit a second business HTTP launch within this isolated worker.
+    request_module=getattr(namespace.get('urllib'),'request',None)
+    native_open=getattr(request_module,'urlopen',None)
+    if not callable(native_open):return original_open(*a,**k)
+    attempts=0
+    def bounded_open(*args,**kwargs):
+     nonlocal attempts
+     if deadline is not None and time.time()>=deadline:raise SafetyError('authorization-expired-before-native-http')
+     if attempts:raise SafetyError('second-business-http-attempt-refused')
+     attempts+=1;return native_open(*args,**kwargs)
+    request_module.urlopen=bounded_open
+    try:return original_open(*a,**k)
+    finally:request_module.urlopen=native_open
+   if callable(original_open):namespace['urlopen_with_ssl']=http_open
    def request(factory,timeout,http_method,refresh_callback=None,retry_safe=False):
+    nonlocal business_writing
     # Preserve official signing/networking; forbid any second business write,
     # even a broad auth-marker response. Proactive OAuth refresh still works.
     writing=str(http_method).upper()!='GET'
     if writing and deadline is not None and time.time()>=deadline:raise SafetyError('approval-expired-before-official-request')
-    return original_request(factory,timeout,http_method,refresh_callback=None if writing else refresh_callback,retry_safe=False if writing else retry_safe)
+    previous=business_writing;business_writing=writing
+    try:return original_request(factory,timeout,http_method,refresh_callback=None if writing else refresh_callback,retry_safe=False if writing else retry_safe)
+    finally:business_writing=previous
    namespace.update(get_auth_context=auth,refresh_auth_context=refresh,execute_request_with_retry=request,log_event=quiet,_maybe_report_telemetry=quiet)
    from heideng_merchant.official import BASE
    sys.argv=[str(exe),'--endpoint',BASE.rstrip('/'),*invoke_args(profile,op)]

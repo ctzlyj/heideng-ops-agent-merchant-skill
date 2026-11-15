@@ -53,3 +53,10 @@ class WorkflowTests(unittest.TestCase):
    with self.assertRaises(SafetyError):prepare_listing(product,root,root/'out')
 
 if __name__=='__main__':unittest.main()
+
+class ListingInputPreservationTests(unittest.TestCase):
+ def test_full_original_product_and_single_sku_with_no_sale_dimensions_are_preserved(self):
+  from tests.material_fixtures import png
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);(root/'photo.png').write_bytes(png());product={'title':'plain single item','categoryId':44207,'brandId':9001,'transportId':'12','attributes':{'origin':'user-provided'},'images':['photo.png'],'skus':[{'merchantCode':'ONLY','specs':{},'price':'30.00','stock':1}]}
+   result=prepare_listing(product,root,root/'listing');self.assertEqual(result['sourceProduct'],product);self.assertEqual(result['skus'][0]['specs'],{})

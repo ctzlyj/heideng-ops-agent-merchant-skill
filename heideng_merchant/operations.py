@@ -10,6 +10,7 @@ from .verification import business_payload,matches_fields,validate_expected
 from .price_contract import price_contract,validate_native_price_response
 from .result_verification import validate_result_verification,resolve_result_verification
 from .image_probe import probe_image
+from .publication_contract import check_scope as check_publication_scope,checked_validation,VALIDATION_TTL,VALIDATE,PUBLISH,validation_verdict,receipt as publication_receipt
 from .material_contract import describe_upload,check_image_evidence,verify_upload_context,validate_image_receipt
 
 def digest(value):return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
@@ -70,7 +71,24 @@ class Operations:
   if not value:raise SafetyError('task-not-found')
   if digest(value['scope'])!=value['fingerprint']:raise SafetyError('task-scope-modified')
   return value
- def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None):
+ def _existing_publication(self,scope,new_id):
+  # Persisted creation intent survives copying/moving a package; the path is
+  # retained as a conservative fallback for older local task journals.
+  import os
+  proof=scope['nativeListingInput'];source=os.path.normcase(str(Path(proof['manifestPath']).resolve()));intent=proof['publicationIntentId'];prepared=[]
+  for path in sorted((self.state/'tasks').glob('*.json')):
+   old=read_json(path,{});old_scope=old.get('scope',{});op=old_scope.get('operation',{});old_proof=old_scope.get('nativeListingInput',{});old_source=old_proof.get('manifestPath')
+   if op.get('method')!='POST' or op.get('url')!=PUBLISH or old.get('taskId')==new_id:continue
+   if any(str(old_scope.get('shop',{}).get(k))!=str(scope['shop'][k]) for k in ('venderId','shopId')):continue
+   same_path=isinstance(old_source,str) and os.path.normcase(str(Path(old_source).resolve()))==source
+   if not same_path and old_proof.get('publicationIntentId')!=intent:continue
+   old=self.task(old['taskId'])
+   if old['status'] in ('submitted','verified','submitting','unknown'):return old
+   if old['status']=='prepared':prepared.append(old)
+  for old in prepared:
+   old.update(status='superseded',supersededBy=new_id);atomic_json(self._path(old['taskId']),old)
+  return None
+ def prepare(self,profile,operation,verification=None,*,precondition=None,online_verification=None,result_verification=None,listing_input=None,validated_task_id=None):
   shop=self.shop(profile);operation=_operation(operation)
   scope={'shop':{k:shop[k] for k in ('profile','venderId','shopName','shopId')},'operation':operation,'runtimeVersion':VERSION}
   if callable(getattr(self.client,'plan_execution',None)):
@@ -79,6 +97,11 @@ class Operations:
   for key,value in (('verification',verification),('precondition',precondition),('onlineVerification',online_verification)):
    if value is not None:scope[key]=_verification(value)
   if result_verification is not None:scope['resultVerification']=validate_result_verification(result_verification,_operation)
+  if listing_input is not None:
+   if operation['method']!='POST' or operation['url'] not in (VALIDATE,PUBLISH) or redact(listing_input)!=listing_input:raise SafetyError('native-publication-input-only')
+   scope['nativeListingInput']=listing_input
+  if validated_task_id is not None:scope['publicationValidationTaskId']=validated_task_id
+  publication_stage=check_publication_scope(self,scope,self.client)
   upload=describe_upload(scope)
   if upload:
    descriptor,raw=upload;image=probe_image(self.state,raw);check_image_evidence(descriptor,image);scope['materialUpload']={'image':image}
@@ -88,8 +111,11 @@ class Operations:
    with FileLock(self.state/'tasks.lock'):
     existing=read_json(path)
     if existing:return self.task(ident)
+    if publication_stage=='publication':
+     prior=self._existing_publication(scope,ident)
+     if prior is not None:return prior
     if operation['method']!='GET':
-     self._assert_resolved(shop)
+     self._assert_resolved(shop,resolved_uploads=[b['taskId'] for b in scope.get('nativeListingInput',{}).get('assetBindings',[])] if publication_stage else [])
     planning=None
     if contract:
      if not _same_identity(self.client.identity(profile),shop):raise SafetyError('native-price-planning-shop-mismatch')
@@ -104,11 +130,16 @@ class Operations:
     if planning is not None:task['planningEvidence']=planning
     if material_planning is not None:task['materialPlanningEvidence']=material_planning
     atomic_json(path,task);return task
- def _assert_resolved(self,shop,exclude=None):
+ def _assert_resolved(self,shop,exclude=None,resolved_uploads=()):
   for entry in (self.state/'tasks').glob('*.json'):
    old=read_json(safe_join(self.state,'tasks/'+entry.name),{});subject=old.get('scope',{}).get('shop',{})
    same=subject.get('profile')==shop['profile'] or all(str(subject.get(k,''))==str(shop[k]) for k in ('venderId','shopId'))
-   if old.get('taskId')!=exclude and old.get('status') in ('unknown','submitting','submitted') and same:raise SafetyError('shop-has-unresolved-write-check-before-new-write')
+   if old.get('taskId')!=exclude and old.get('status') in ('unknown','submitting','submitted') and same:
+    if old.get('status')=='submitted' and old.get('taskId') in resolved_uploads and describe_upload(old['scope']) is not None:continue
+    # A valid original publication receipt is known acceptance, not online activation.
+    if old.get('status')=='submitted' and old.get('scope',{}).get('operation',{}).get('url')==PUBLISH and old.get('resultReceiptSha256')==digest(old.get('result')):
+     publication_receipt(old['result']);continue
+    raise SafetyError('shop-has-unresolved-write-check-before-new-write')
  def approve(self,task_id,fingerprint,*,confirmed=False,ttl_seconds=900):
   with FileLock(self.state/'install.lock'):
    with FileLock(self.state/'tasks.lock'):
@@ -130,7 +161,8 @@ class Operations:
      if not approval.get('confirmed') or approval.get('fingerprint')!=task['fingerprint'] or approval.get('expiresAt',0)<=time.time():raise SafetyError('current-exact-write-approval-required')
     expected=task['scope']['shop'];actual=self.client.identity(expected['profile'])
     if any(str(actual.get(k))!=str(expected[k]) for k in ('shopName','venderId','shopId')) or actual.get('shopType')!='POP':raise SafetyError('shop-changed-stop-before-write')
-    if task['requiresWriteApproval']:self._assert_resolved(expected,exclude=task_id)
+    publication_stage=check_publication_scope(self,task['scope'],self.client)
+    if task['requiresWriteApproval']:self._assert_resolved(expected,exclude=task_id,resolved_uploads=[b['taskId'] for b in task['scope'].get('nativeListingInput',{}).get('assetBindings',[])] if publication_stage else [])
     contract=price_contract(task['scope']);upload=describe_upload(task['scope'])
     if upload:
      descriptor,raw=upload;image=probe_image(self.state,raw);check_image_evidence(descriptor,image)
@@ -150,16 +182,27 @@ class Operations:
      transport_options={'expected_execution':execution,'expected_shop':expected,'authorization_expires_at':task.get('approval',{}).get('expiresAt') if task['requiresWriteApproval'] else None}
     if execution is not None and task['requiresWriteApproval'] and not _same_identity(self.client.identity(expected['profile']),expected):raise SafetyError('shop-changed-during-transport-preflight')
     if task['requiresWriteApproval'] and task['approval']['expiresAt']<=time.time():raise SafetyError('approval-expired-during-transport-preflight')
+    if publication_stage=='publication':
+     validation=checked_validation(self,task['scope']['publicationValidationTaskId'],op['body'],expected)
+     deadline=min(task['approval']['expiresAt'],validation['finishedAt']+VALIDATION_TTL)
+     if deadline<=time.time():raise SafetyError('validation-or-approval-expired-before-dispatch')
+     transport_options['authorization_expires_at']=deadline
     task.update(status='submitting',startedAt=time.time());atomic_json(self._path(task_id),task)
     try:
      result=self.client.invoke(expected['profile'],op['url'],method=op['method'],params=op['params'],body=op.get('body'),skill_id=op['skillId'],write_authorized=task['requiresWriteApproval'],**transport_options)
-     payload=business_payload(result)
-     if task['requiresWriteApproval'] and (not isinstance(payload,(dict,list)) or not payload):raise SafetyError('business-acknowledgement-missing')
+     if publication_stage=='validation':
+      verdict=validation_verdict(result,expected_execution=execution)
+     else:
+      payload=business_payload(result)
+      if task['requiresWriteApproval'] and (not isinstance(payload,(dict,list)) or not payload):raise SafetyError('business-acknowledgement-missing')
+      if publication_stage=='publication':publication_receipt(result)
      if 'resultVerification' in task['scope']:resolve_result_verification(task['scope']['resultVerification'],result)
      if upload:validate_image_receipt(descriptor,image,result)
     except Exception as error:
      task.update(status='unknown',error={'kind':type(error).__name__,'message':'提交结果待核对；不会自动重提，也不会因换工具重新提交'})
-    else:task.update(status='submitted' if task['requiresWriteApproval'] else 'completed',result=redact(result),resultReceiptSha256=digest(redact(result)),finishedAt=time.time())
+    else:
+     task.update(status='completed' if publication_stage=='validation' else ('submitted' if task['requiresWriteApproval'] else 'completed'),result=redact(result),resultReceiptSha256=digest(redact(result)),finishedAt=time.time())
+     if publication_stage=='validation':task['validationVerdict']=verdict
     atomic_json(self._path(task_id),task);return task
  def readback(self,task_id,query,expected):
   query=_operation(query)

@@ -98,4 +98,38 @@ class StdinTests(unittest.TestCase):
     namespace['main']=fail
    result=execute_envelope(envelope,Path(d),namespace_hook=hook);self.assertFalse(result['ok']);self.assertNotIn('SYNTHETIC_PRIVATE',json.dumps(result))
 
+ def test_publication_deadline_after_signing_prevents_http_open(self):
+  import time
+  with tempfile.TemporaryDirectory() as d,self.environment(d),patch.dict(transport.AUDITED_SOURCES,{'0.3.7':SHA}):
+   envelope=self.envelope(d);envelope['operation']={'url':'/rest/sp-product/v0/product-applies','method':'POST','params':{},'body':{'schema':'[]'},'skillId':'jdo-product-publish'};envelope['approvalExpiresAt']=100;clock=[99];opened=[]
+   def hook(ns):
+    def http_open(*a,**kw):opened.append(1);return (200,'{}')
+    def request(factory,timeout,http_method,refresh_callback=None,retry_safe=False):
+     signed=factory();return ns['urlopen_with_ssl'](signed,timeout=timeout)
+    def main():
+     def signing():clock[0]=101;return object()
+     ns['execute_request_with_retry'](signing,30,'POST');print('{}')
+    ns.update(urlopen_with_ssl=http_open,execute_request_with_retry=request,main=main)
+   with patch('time.time',side_effect=lambda:clock[0]):result=execute_envelope(envelope,Path(d),namespace_hook=hook)
+   self.assertFalse(result['ok']);self.assertEqual(opened,[])
+
+ def test_publication_native_http_fallback_cannot_send_after_deadline(self):
+  from types import SimpleNamespace
+  with tempfile.TemporaryDirectory() as d,self.environment(d),patch.dict(transport.AUDITED_SOURCES,{'0.3.7':SHA}):
+   envelope=self.envelope(d);envelope['operation']={'url':'/rest/sp-product/v0/product-applies','method':'POST','params':{},'body':{'schema':'[]'},'skillId':'jdo-product-publish'};envelope['approvalExpiresAt']=100;clock=[99];opened=[]
+   def hook(ns):
+    def native(*a,**kw):
+     opened.append(1)
+     if len(opened)==1:clock[0]=101;raise RuntimeError('synthetic TLS failure before application acceptance')
+     return (200,'{}')
+    module=SimpleNamespace(request=SimpleNamespace(urlopen=native));ns['urllib']=module
+    def http_open(*a,**kw):
+     try:return module.request.urlopen(*a,**kw)
+     except RuntimeError:return module.request.urlopen(*a,**kw)
+    def request(factory,timeout,http_method,refresh_callback=None,retry_safe=False):return ns['urlopen_with_ssl'](factory(),timeout=timeout)
+    def main():ns['execute_request_with_retry'](lambda:object(),30,'POST');print('{}')
+    ns.update(urlopen_with_ssl=http_open,execute_request_with_retry=request,main=main)
+   with patch('time.time',side_effect=lambda:clock[0]):result=execute_envelope(envelope,Path(d),namespace_hook=hook)
+   self.assertFalse(result['ok']);self.assertEqual(opened,[1])
+
 if __name__=='__main__':unittest.main()

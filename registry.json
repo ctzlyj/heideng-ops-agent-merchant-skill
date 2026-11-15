@@ -67,19 +67,26 @@
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
       "mediaGeneration": "awaiting-provider",
       "readCommands": [
+        "publish-categories",
+        "publish-brands",
+        "publish-context",
+        "publish-validation-status",
+        "publish-status",
         "product-detail",
         "sku-list",
-        "product-schema",
-        "schema-capture-status",
-        "schema-draft-status"
+        "product-schema"
       ],
       "preparationCommands": [
+        "prepare-listing",
+        "publish-validation-plan",
+        "publish-plan",
         "schema-image-draft"
       ],
-      "reference": "references/native-product-schema.md",
+      "reference": "references/native-publishing.md",
       "nativeEditTemplate": "available-doc-contract-and-offline-tested-not-live-shop-verified",
       "imageDraft": "local-lossless-existing-slots-only-not-submittable",
-      "fullProductSubmission": "pending-real-schema-sku-mapping-validation-and-image-readback-contract"
+      "fullProductSubmission": "new-product-two-phase-validation-and-approval; full-edit-and-online-verification-pending",
+      "nativeNewProduct": "available-doc-contract-and-offline-tested-not-live-shop-verified"
     },
     {
       "id": "image-refresh",
