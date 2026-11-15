@@ -14,6 +14,7 @@ from .materials import MaterialService
 from .sku_materials import SkuMaterialService
 from .shop_material_audit import ShopMaterialAudit
 from .shop_material_execution import ShopMaterialExecution
+from .short_titles import ShortTitlePlans
 from .publish_support import PublishSupport
 from .publishing import PublishService
 from .publication_contract import read_input_json
@@ -39,6 +40,10 @@ def _json_file(value):
 def parser():
  p=argparse.ArgumentParser(description='黑灯运营智能体商家版：由Agent操作，商家只描述目标')
  p.add_argument('--home');p.add_argument('--json',action='store_true');sub=p.add_subparsers(dest='command',required=True)
+ sp=sub.add_parser('short-title-plan');sp.add_argument('--audit-id',required=True);sp.add_argument('--changes')
+ sp=sub.add_parser('short-title-status');sp.add_argument('--plan-id',required=True)
+ sp=sub.add_parser('short-title-rows');sp.add_argument('--plan-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=['coverage','chunks','siblings'],default='coverage')
+ sp=sub.add_parser('short-title-workbooks');sp.add_argument('--plan-id',required=True);sp.add_argument('--template',required=True)
  sp=sub.add_parser('shop-material-plan');sp.add_argument('--audit-id',required=True);sp.add_argument('--changes');sp.add_argument('--target-slots')
  sp=sub.add_parser('shop-material-approve');sp.add_argument('--plan-id',required=True);sp.add_argument('--fingerprint',required=True);sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
  for name in ('shop-material-execute','shop-material-status','shop-material-rows'):
@@ -156,6 +161,10 @@ def run(args):
  if command=='task-plan':return ops.prepare(args.profile,_json_file(args.operation),_json_file(args.verification),precondition=_json_file(args.precondition),online_verification=_json_file(args.online_verification),result_verification=_json_file(args.result_verification))
  if command=='task-approve':return ops.approve(args.task_id,args.fingerprint,confirmed=args.confirm)
  if command=='task-execute':return ops.execute(args.task_id)
+ if command=='short-title-plan':return ShortTitlePlans(state,client).prepare(args.audit_id,[] if args.changes is None else _json_file(args.changes))
+ if command=='short-title-status':return ShortTitlePlans(state,client).status(args.plan_id)
+ if command=='short-title-rows':return ShortTitlePlans(state,client).rows(args.plan_id,page=args.page,page_size=args.page_size,view=args.view)
+ if command=='short-title-workbooks':return ShortTitlePlans(state,client).compile(args.plan_id,args.template)
  if command=='shop-material-plan':return ShopMaterialExecution(state,client).prepare(args.audit_id,[] if args.changes is None else _json_file(args.changes),target_slots=None if args.target_slots is None else args.target_slots.split(','))
  if command=='shop-material-approve':return ShopMaterialExecution(state,client).approve(args.plan_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)
  if command=='shop-material-execute':return ShopMaterialExecution(state,client).execute(args.plan_id)

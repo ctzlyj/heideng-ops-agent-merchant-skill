@@ -23,6 +23,8 @@ version: 0.1.0
 
 ## 可执行入口
 
+- short-title-plan / short-title-status / short-title-rows / short-title-workbooks：先读 references/native-short-title-planning.md。完整原库存与health问题、宿主审核稿和模板编译的前置阶段，当前planning-only；不能把文件/稿称导入成功，不能给商家默认人工上传。浏览器自动导入和原件恢复仍待下一阶段，不猜CLI写接口或用job类型ID冒充实例。
+
 - ensure-shop / auth-start / auth-status / auth-observe / auth-cancel / auth-recover / auth-restart：独立店铺连接和同会话扫码OAuth。严格先读 references/shop-connection.md；只保存公开taskId，不导出私有授权页面；失联不重启，原unknown只读恢复。当前Windows新授权已实现但真实商家链路尚未实测，macOS新授权因官方secret argv风险禁用。
 - sku-material-shop-audit / sku-material-shop-status / sku-material-shop-rows：全店在售商品与全部兄弟SKU、原生信息健康分/素材的完整来源核对；分页摘要不会冒充全店，不以有分值的SKU当库存，未取得分值不补0。先读 references/native-shop-material-audit.md。
 - shop-material-plan / shop-material-approve / shop-material-execute / shop-material-status / shop-material-rows：原完整审计上的整店可用素材统一范围、逐商品50SKU分块与原件恢复。默认覆盖全部已支持槽位、缺模型只报告等待素材不静默缩范围；未知不重提/不推进，根批准不能被子批准替代。先读 references/native-shop-material-execution.md；明确驳回/空槽修复再读 references/native-shop-material-repair.md，旧状态/理由和原图字节留证，新图不能换URL复用旧字节；部分成功≠整店信息分维护完成，真实商家链路未实测。

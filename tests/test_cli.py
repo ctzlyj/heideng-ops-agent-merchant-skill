@@ -4,7 +4,11 @@ from heideng_merchant.catalog import route,load_catalog
 
 class CliTests(unittest.TestCase):
  def test_catalog_is_not_a_whitelist(self):
-  self.assertEqual(len(load_catalog()['capabilities']),8)
+  catalog=load_catalog();entries=catalog['capabilities'];ids=[row['id'] for row in entries]
+  self.assertTrue(catalog['toolboxIsNotWhitelist']);self.assertEqual(len(ids),len(set(ids)))
+  self.assertTrue({'shop-connection','materials','listing','image-refresh','diagnosis','collection','comparison','video','short-titles'}<=set(ids))
+  short=next(row for row in entries if row['id']=='short-titles');self.assertEqual(short['preparation'],'planning-only');self.assertEqual(short['shopExecution'],'browser-import-not-yet-implemented')
+  self.assertEqual(route('维护这家店的短标题')['matches'][0]['id'],'short-titles')
   self.assertEqual(route('帮我看一下店铺广告诊断')['matches'][0]['id'],'diagnosis')
   self.assertEqual(route('一个清单没写的合法任务')['status'],'open-toolbox')
  def test_onboarding_does_not_require_model_key(self):

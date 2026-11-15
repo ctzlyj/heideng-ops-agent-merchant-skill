@@ -73,7 +73,28 @@
       "shopExecutionReference": "references/native-shop-material-execution.md",
       "shopRepairReference": "references/native-shop-material-repair.md",
       "shopMaterialExecution": "original-whole-on-sale-audit-ready-assets-one-parent-approval-per-product-50-SKU-chunks-synthetic-tested-not-real-shop-verified",
-      "shopExecutionLimits": "ready missing slots only; complete awaiting/pending/rejected/empty coverage; no inferred score improvement"
+      "shopExecutionLimits": "ready missing slots and explicit rejected/approved-empty repairs; complete awaiting/pending/rejected/empty coverage; original bytes across repair scope excluded; no inferred score improvement"
+    },
+    {
+      "id": "short-titles",
+      "name": "短标题自动导入前置规划",
+      "triggers": [
+        "短标题"
+      ],
+      "source": "builtin-independent-merchant-runtime",
+      "preparation": "planning-only",
+      "shopExecution": "browser-import-not-yet-implemented",
+      "mediaGeneration": "not-required",
+      "builtInCommands": [
+        "short-title-plan",
+        "short-title-status",
+        "short-title-rows",
+        "short-title-workbooks"
+      ],
+      "reference": "references/native-short-title-planning.md",
+      "templateOriginVerified": false,
+      "manualUploadDefault": false,
+      "remaining": "owned-browser-source-and-exact-approval-upload-instance-receipts-row-results-verification-update-gate"
     },
     {
       "id": "listing",
