@@ -31,9 +31,11 @@ def response_bytes(response,page,*,service=None):
   if not re.fullmatch(r'application/(?:[a-z0-9.-]+\+)?json(?:\s*;.*)?',content.lower()):raise SafetyError('browser-json-content-type-required')
   size=response.header_value('content-length')
   if size is not None and (not size.isdigit() or int(size)>MAX_JSON):raise SafetyError('bounded-browser-response-required')
+  if response.finished() is not None:raise SafetyError('complete-browser-response-required')
+  encoding=response.header_value('content-encoding') or 'identity'
   raw=response.body()
   if not isinstance(raw,bytes) or not 0<len(raw)<=MAX_JSON:raise SafetyError('bounded-browser-response-required')
-  if size is not None and int(size)!=len(raw):raise SafetyError('complete-browser-response-required')
+  if encoding.lower()=='identity' and size is not None and int(size)!=len(raw):raise SafetyError('complete-browser-response-required')
   def unique_pairs(pairs):
    out={}
    for key,value in pairs:

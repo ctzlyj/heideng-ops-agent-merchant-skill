@@ -13,5 +13,6 @@ def template(extra=None):
  if extra:parts.update(extra)
  out=io.BytesIO()
  with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
-  for name,body in parts.items():z.writestr(name,body)
+  for name,body in parts.items():
+   info=zipfile.ZipInfo(name,date_time=(2000,1,1,0,0,0));info.compress_type=zipfile.ZIP_DEFLATED;z.writestr(info,body)
  return out.getvalue()

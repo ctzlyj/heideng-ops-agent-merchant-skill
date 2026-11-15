@@ -19,6 +19,8 @@ def _object(p):
 def _native_busy(state):
  from .short_title_browser_gate import busy as browser_source_busy
  if browser_source_busy(state):return True
+ from .short_title_import_gate import busy as native_import_busy
+ if native_import_busy(state):return True
  from . import VERSION
  from .operations import Operations
  from .video_delivery import _load,_valid_time,ACTIVE as VIDEO_ACTIVE

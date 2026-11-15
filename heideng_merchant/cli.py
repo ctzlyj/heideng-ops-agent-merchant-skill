@@ -15,6 +15,7 @@ from .sku_materials import SkuMaterialService
 from .shop_material_audit import ShopMaterialAudit
 from .shop_material_execution import ShopMaterialExecution
 from .short_titles import ShortTitlePlans
+from .short_title_imports import ShortTitleImports
 from .publish_support import PublishSupport
 from .publishing import PublishService
 from .publication_contract import read_input_json
@@ -44,6 +45,10 @@ def parser():
  sp=sub.add_parser('short-title-status');sp.add_argument('--plan-id',required=True)
  sp=sub.add_parser('short-title-rows');sp.add_argument('--plan-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=['coverage','chunks','siblings'],default='coverage')
  sp=sub.add_parser('short-title-workbooks');sp.add_argument('--plan-id',required=True);sp.add_argument('--template',required=True)
+ sp=sub.add_parser('short-title-import-plan');sp.add_argument('--plan-id',required=True);sp.add_argument('--source-id',required=True)
+ sp=sub.add_parser('short-title-import-approve');sp.add_argument('--import-id',required=True);sp.add_argument('--fingerprint',required=True);sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
+ sp=sub.add_parser('short-title-import-status');sp.add_argument('--import-id',required=True)
+ sp=sub.add_parser('short-title-import-rows');sp.add_argument('--import-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=['batches','changes'],default='batches')
  sp=sub.add_parser('shop-material-plan');sp.add_argument('--audit-id',required=True);sp.add_argument('--changes');sp.add_argument('--target-slots')
  sp=sub.add_parser('shop-material-approve');sp.add_argument('--plan-id',required=True);sp.add_argument('--fingerprint',required=True);sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
  for name in ('shop-material-execute','shop-material-status','shop-material-rows'):
@@ -165,6 +170,10 @@ def run(args):
  if command=='short-title-status':return ShortTitlePlans(state,client).status(args.plan_id)
  if command=='short-title-rows':return ShortTitlePlans(state,client).rows(args.plan_id,page=args.page,page_size=args.page_size,view=args.view)
  if command=='short-title-workbooks':return ShortTitlePlans(state,client).compile(args.plan_id,args.template)
+ if command=='short-title-import-plan':return ShortTitleImports(state,client).prepare(args.plan_id,args.source_id)
+ if command=='short-title-import-approve':return ShortTitleImports(state,client).approve(args.import_id,args.fingerprint,confirmed=args.confirm,ttl=args.ttl_seconds)
+ if command=='short-title-import-status':return ShortTitleImports(state,client).status(args.import_id)
+ if command=='short-title-import-rows':return ShortTitleImports(state,client).rows(args.import_id,page=args.page,page_size=args.page_size,view=args.view)
  if command=='shop-material-plan':return ShopMaterialExecution(state,client).prepare(args.audit_id,[] if args.changes is None else _json_file(args.changes),target_slots=None if args.target_slots is None else args.target_slots.split(','))
  if command=='shop-material-approve':return ShopMaterialExecution(state,client).approve(args.plan_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)
  if command=='shop-material-execute':return ShopMaterialExecution(state,client).execute(args.plan_id)

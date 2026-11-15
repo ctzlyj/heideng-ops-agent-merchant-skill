@@ -63,13 +63,15 @@ class ShortTitleSourceBrowser:
  def _lifecycle(self,status):atomic_json(self.lifecycle_path,{'sessionId':self.session_id,'status':status})
  def _validate_owner(self):
   if read_json(self.owner_path)!=self.binding:raise SafetyError('task-owned-short-title-browser-owner-changed')
+ def _open_allowed(self):
+  if safe_join(self.state,'short-title-browser-sources/'+self.session_id+'.json').exists():raise SafetyError('browser-source-capture-already-completed')
  def open(self):
   if self.controller is not None:raise SafetyError('task-owned-short-title-browser-already-open')
   if self.root.exists() and not self.owner_path.exists():raise SafetyError('unowned-browser-profile-not-adopted')
   if self.owner_path.exists():
    self._validate_owner()
    if read_json(self.lifecycle_path,{}).get('status')!='closed':raise SafetyError('owned-browser-not-confirmed-closed-no-reopen')
-  if safe_join(self.state,'short-title-browser-sources/'+self.session_id+'.json').exists():raise SafetyError('browser-source-capture-already-completed')
+  self._open_allowed()
   try:
    interlock=FileLock(safe_join(self.state,'install.lock'),timeout=0);interlock.__enter__();self.install_lock=interlock
    lock=FileLock(safe_join(self.state,'browser/short-title/'+self.session_id+'/owner.lock'));lock.__enter__();self.lock=lock

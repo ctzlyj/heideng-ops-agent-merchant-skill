@@ -50,12 +50,15 @@ class ShopMaterialAudit:
   value=read_json(self.path(audit_id))
   if not isinstance(value,dict) or not isinstance(value.get('scope'),dict) or digest(value['scope'])!=value.get('fingerprint') or value['fingerprint'][:24]!=audit_id or value.get('auditId')!=audit_id:raise SafetyError('shop-material-audit-missing-or-modified')
   return value
- def audit(self,profile,*,threshold=89,max_products=10000,max_skus=100000,max_pages=1000,include_health=True):
+ def audit(self,profile,*,threshold=89,max_products=10000,max_skus=100000,max_pages=1000,include_health=True,install_guard=None):
   for value,minimum,maximum in ((threshold,0,99),(max_products,1,100000),(max_skus,1,1000000),(max_pages,1,1000)):
    if isinstance(value,bool) or not isinstance(value,int) or not minimum<=value<=maximum:raise SafetyError('bounded-whole-shop-audit-options-required')
   if not isinstance(include_health,bool):raise SafetyError('explicit-health-read-choice-required')
+  if install_guard is not None:
+   if not isinstance(install_guard,FileLock):raise SafetyError('existing-same-owner-install-guard-required')
+   install_guard.require_owned(self.state/'install.lock')
   shop={k:self.ops.shop(profile)[k] for k in ('profile','venderId','shopId','shopName')};self._shop(shop)
-  with FileLock(self.state/'shop-material-audit.lock'),FileLock(self.state/'install.lock'):
+  with (__import__('contextlib').nullcontext() if install_guard is not None else FileLock(self.state/'install.lock')),FileLock(self.state/'shop-material-audit.lock'):
    started=time.time();reasons=[];filters={'productStatusList':[ON_SALE],'sortBy':'created','sortType':'asc'}
    def product_read():return self.products.list_products(profile,filters=filters,page_size=50,max_pages=max_pages)
    products=self._collect(shop,product_read,reasons,'product census')

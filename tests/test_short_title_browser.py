@@ -12,7 +12,8 @@ HREF='https://storage.jd.com/synthetic/template.xlsx?token=synthetic-only-privat
 class Response:
  def __init__(self,page,url,payload):self.url=url;self.status=200;self.request=SimpleNamespace(resource_type='fetch',frame=getattr(page,'main_frame',SimpleNamespace(page=page)),url=url,timing={'startTime':1000000},started=False);self.payload=payload
  def body(self):return json.dumps(self.payload,ensure_ascii=False).encode()
- def header_value(self,name):return 'application/json' if name=='content-type' else str(len(self.body()))
+ def header_value(self,name):return 'application/json' if name=='content-type' else str(len(self.body())) if name=='content-length' else None
+ def finished(self):return None
 
 class Pending:
  def __init__(self,page,kind,predicate=None):self.page=page;self.kind=kind;self.predicate=predicate;self.value=None

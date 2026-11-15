@@ -77,3 +77,5 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 既有商品图片/详情目标先走 product-schema，再 schema-edit-prepare --capture-id；必要时 schema-compile 查看自动编译与原 capture 证明。详见 references/native-template-compile.md。由 Agent 运行，不让商家手写全 SKU schema、bindings 或 sale-sources。没有声明/协议证明时读取当前官方原生文档及合法实际模板查明，不以相等值、默认值或删未知字段伪装 ready。仍通过原 validation/正式提交批准与原申请单/全字段回查；重复 prepare 不新增正式意图。
 
 health-list 读取官方命名的“商品信息健康分”及 improvementList；与京麦页面 commodity-score 的等价性未实测，不断言相同或不同。素材空间保存、SKU 专属绑定、平台审核和分数重算不能互相替代。原生缺失槽位审计/绑定先读 references/native-sku-materials.md。
+
+- short-title-import-plan / short-title-import-approve / short-title-import-status / short-title-import-rows：先读 references/native-short-title-import.md；原生execute/recover API会真实写入，必须本次精确root批准。CLI没有worker/execute商家闭环，当前不能称完整导入或标题生效；unknown只查原件不重传、不推进。

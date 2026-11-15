@@ -77,24 +77,31 @@
     },
     {
       "id": "short-titles",
-      "name": "短标题自动导入前置规划",
+      "name": "短标题维护（规划与原生API，worker/验证待完成）",
       "triggers": [
         "短标题"
       ],
       "source": "builtin-independent-merchant-runtime",
       "preparation": "planning-only",
-      "shopExecution": "browser-import-not-yet-implemented",
+      "shopExecution": "browser-import-api-worker-and-verification-pending",
       "mediaGeneration": "not-required",
       "builtInCommands": [
         "short-title-plan",
         "short-title-status",
         "short-title-rows",
-        "short-title-workbooks"
+        "short-title-workbooks",
+        "short-title-import-plan",
+        "short-title-import-approve",
+        "short-title-import-status",
+        "short-title-import-rows"
       ],
       "reference": "references/native-short-title-planning.md",
       "templateOriginVerified": false,
       "manualUploadDefault": false,
-      "remaining": "owned-browser-source-and-exact-approval-upload-instance-receipts-row-results-verification-update-gate"
+      "remaining": "owned-CLI-worker-and-full-row-results-original-title-audit-health-verification-live-merchant-acceptance",
+      "importExecutionApi": true,
+      "importCLIWorkerIntegrated": false,
+      "importReference": "references/native-short-title-import.md"
     },
     {
       "id": "listing",
