@@ -77,13 +77,13 @@
     },
     {
       "id": "short-titles",
-      "name": "短标题维护（导入/处理结果API，worker/生效回读待完成）",
+      "name": "短标题维护（持久原生worker，正式生效验证待完成）",
       "triggers": [
         "短标题"
       ],
       "source": "builtin-independent-merchant-runtime",
       "preparation": "planning-only",
-      "shopExecution": "browser-import-and-original-result-api-worker-and-title-verification-pending",
+      "shopExecution": "owned-cli-worker-native-import-and-original-results-title-verification-pending",
       "mediaGeneration": "not-required",
       "builtInCommands": [
         "short-title-plan",
@@ -93,20 +93,31 @@
         "short-title-import-plan",
         "short-title-import-approve",
         "short-title-import-status",
-        "short-title-import-rows"
+        "short-title-import-rows",
+        "short-title-worker-start",
+        "short-title-worker-resume",
+        "short-title-worker-status",
+        "short-title-worker-command-status",
+        "short-title-worker-approve",
+        "short-title-worker-execute",
+        "short-title-worker-recover",
+        "short-title-worker-results",
+        "short-title-worker-effects",
+        "short-title-worker-stop"
       ],
       "reference": "references/native-short-title-planning.md",
       "templateOriginVerified": false,
       "manualUploadDefault": false,
-      "remaining": "owned-CLI-worker-and-original-title-audit-health-portal-verification-verified-failure-repair-live-merchant-acceptance",
+      "remaining": "original-title-audit-health-portal-verification-verified-failure-repair-live-merchant-acceptance",
       "importExecutionApi": true,
-      "importCLIWorkerIntegrated": false,
+      "importCLIWorkerIntegrated": true,
       "importReference": "references/native-short-title-import.md",
       "processingResultsApi": true,
       "resultReference": "references/native-short-title-results.md",
       "actualTitleReadApi": true,
       "effectReference": "references/native-short-title-effects.md",
-      "C3Complete": false
+      "C3Complete": false,
+      "workerReference": "references/native-short-title-worker.md"
     },
     {
       "id": "listing",

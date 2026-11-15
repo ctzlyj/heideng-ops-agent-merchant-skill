@@ -38,7 +38,7 @@ try:
  assert distribution.busy(state)
  for file in state.rglob('*.json'):
   text=file.read_text(encoding='utf-8-sig');assert 'synthetic-only-private' not in text and 'SYNTHETIC_ONLY_DO_NOT_PERSIST' not in text
- result={'status':'passed','installedModulePaths':True,'nativeUploadCalls':p.uploads,'nativeCreateCalls':p.creates,'originalSiblingRows':5,'originalTargetRows':1,'oldObservationRetained':True,'missingReceiptRecovered':True,'CLIHistoricalRows':True,'newC2PrefixPreservesHistory':True,'pendingNeverRetransmits':True,'actualTitleNativeFieldRead':True,'formalAuditVerified':False,'healthVerified':False,'portalVerified':False,'imported':False,'retryAuthorized':False,'CLIWorkerIntegrated':False,'actualBrowserLaunched':False,'realMerchantCalls':0,'paidModels':0,'goalComplete':False}
+ result={'status':'passed','installedModulePaths':True,'nativeUploadCalls':p.uploads,'nativeCreateCalls':p.creates,'originalSiblingRows':5,'originalTargetRows':1,'oldObservationRetained':True,'missingReceiptRecovered':True,'CLIHistoricalRows':True,'newC2PrefixPreservesHistory':True,'pendingNeverRetransmits':True,'actualTitleNativeFieldRead':True,'formalAuditVerified':False,'healthVerified':False,'portalVerified':False,'imported':False,'retryAuthorized':False,'CLIWorkerIntegrated':True,'NativeWorkerExercised':False,'actualBrowserLaunched':False,'realMerchantCalls':0,'paidModels':0,'goalComplete':False}
 finally:b.close()
 print(json.dumps(result))
 '''

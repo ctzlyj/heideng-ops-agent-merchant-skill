@@ -17,6 +17,8 @@ def _object(p):
  return value
 
 def _native_busy(state):
+ from .short_title_worker_gate import busy as worker_busy
+ if worker_busy(state):return True
  from .short_title_browser_gate import busy as browser_source_busy
  if browser_source_busy(state):return True
  from .short_title_import_gate import busy as native_import_busy

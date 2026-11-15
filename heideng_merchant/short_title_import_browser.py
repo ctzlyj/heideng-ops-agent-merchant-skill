@@ -12,12 +12,12 @@ from .short_title_import_state import evidence,event_path
 
 class ShortTitleImportBrowser(ShortTitleSourceBrowser):
  def __init__(self,manager,import_id,*,factory=None,headless=False,channel=None,result_transport=None):
-  root=manager.record(import_id);self.manager=manager;self.import_id=import_id;self.root_fingerprint=root['fingerprint'];self.root_scope=root['scope'];self.memo=None;self.current_proof=None;self.preflight_at=0;self.pending_attempt=None
+  root=manager.record(import_id);self.manager=manager;self.import_id=import_id;self.root_fingerprint=root['fingerprint'];self.root_scope=root['scope'];self.memo=None;self.stop_requested=lambda:False;self.current_proof=None;self.preflight_at=0;self.pending_attempt=None
   from .short_title_result_transport import ResultTransport
   self.result_transport=result_transport or ResultTransport(clock=lambda:manager.clock());self._last_result_sources=[]
   super().__init__(manager.state,manager.client,root['scope']['planId'],session_id=root['scope']['sourceId'],factory=factory,clock=lambda:manager.clock(),headless=headless,channel=channel)
- def open(self):
-  super().open();self.manager.live_browser=self
+ def open(self,*,install_guard=None):
+  super().open(install_guard=install_guard);self.manager.live_browser=self
  def close(self):
   super().close()
   if self.manager.live_browser is self:self.manager.live_browser=None
@@ -59,7 +59,10 @@ class ShortTitleImportBrowser(ShortTitleSourceBrowser):
  def _dispatch(self,artifact,phase,attempt):
   p=self.manager.record(self.import_id);ev=evidence(self.state,p);key=(artifact['batch'],phase)
   if self.pending_attempt!=attempt['context']['attemptId'] or key not in ev[1] or ev[1][key]!=attempt or key in ev[2] or artifact!=p['scope']['artifacts'][artifact['batch']-1] or attempt['context']['fingerprint']!=p['fingerprint'] or self.manager._approval(p)['approvalId']!=attempt['approvalId']:raise SafetyError('new-manager-owned-native-import-attempt-required')
-  self.pending_attempt=None;self._timeout(attempt['deadline']);self._identity();self.manager._current(p);_once(event_path(self.state,'short-title-import-dispatches',self.import_id,artifact['batch'],phase),{'context':attempt['context'],'attemptSha256':digest(attempt)})
+  self.pending_attempt=None;self._timeout(attempt['deadline']);self._identity();self.manager._current(p)
+  if self.stop_requested():raise SafetyError('worker-stop-requested-no-next-native-action')
+  _once(event_path(self.state,'short-title-import-dispatches',self.import_id,artifact['batch'],phase),{'context':attempt['context'],'attemptSha256':digest(attempt)});self.manager._worker_checkpoint()
+  if self.stop_requested():raise SafetyError('worker-stop-requested-no-next-native-action')
  def grant(self,attempt):
   p=self.manager.record(self.import_id);ev=evidence(self.state,p);key=(attempt['context']['batch'],attempt['context']['phase'])
   if key not in ev[1] or ev[1][key]!=attempt or key in ev[2] or key in ev[4]:raise SafetyError('unused-original-native-import-attempt-required')

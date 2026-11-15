@@ -1,0 +1,144 @@
+{
+  "scope": "private-development-not-merchant-goal-complete",
+  "baseCommit": "a1ff9869ef9090cc0778623f4cbc62ced9dd4059",
+  "localFirstFull": {
+    "discovered": 745,
+    "testsRun": 745,
+    "failures": 0,
+    "errors": 1,
+    "skipped": 0,
+    "seconds": 1533.484,
+    "sourceUnchanged": true,
+    "realMerchantCalls": 0,
+    "paidModels": 0,
+    "C3Complete": false,
+    "goalComplete": false
+  },
+  "localFullGreen": false,
+  "harnessException": "exact-local-Windows-junction-creation-blocked-by-python-only-process-allowlist",
+  "isolatedJunctionRecheck": {
+    "methods": 1,
+    "seconds": 0.108,
+    "passed": true
+  },
+  "independentReview": {
+    "scope": "synthetic-private-development-worker",
+    "reviewerId": "01a1e0f4-5f18-74d1-9896-49918bfdf0ae",
+    "reviewerClosed": true,
+    "initialFindings": {
+      "Critical": 1,
+      "Important": 2
+    },
+    "recheck": {
+      "methods": 8,
+      "seconds": 26.193,
+      "passed": true,
+      "newCriticalImportant": 0,
+      "nativePrefixDeletionUploadCreate": [
+        1,
+        1
+      ],
+      "halfAdmissionUploadCreate": [
+        0,
+        0
+      ],
+      "stopPreflightUploadCreate": [
+        0,
+        0
+      ],
+      "stopCreateHealthUploadCreate": [
+        1,
+        0
+      ],
+      "stopDispatchCurrentUploadCreate": [
+        0,
+        0
+      ]
+    },
+    "realMerchantCalls": 0,
+    "paidModels": 0,
+    "fullSuiteRunByReviewer": false,
+    "goalComplete": false
+  },
+  "installedWorkerSmoke": {
+    "archiveSha256": "323cc61a0145d8c425f2af7620f126e1ac679f8265d56e37816aad78d4f00cd9",
+    "freshHomeInstall": true,
+    "result": {
+      "status": "passed",
+      "installedModules": true,
+      "defaultManagedInstallVerifier": true,
+      "actualLoopbackIPC": true,
+      "ownerThreadNativeActions": true,
+      "nativeUploadCalls": 1,
+      "nativeCreateCalls": 1,
+      "duplicateExecuteNotReplayed": true,
+      "realBrowser": false,
+      "realMerchantCalls": 0,
+      "paidModels": 0,
+      "C3Complete": false,
+      "goalComplete": false
+    },
+    "goalComplete": false
+  },
+  "installedEffectsSmoke": {
+    "status": "passed",
+    "archiveSha256": "323cc61a0145d8c425f2af7620f126e1ac679f8265d56e37816aad78d4f00cd9",
+    "freshHomeInstall": true,
+    "result": {
+      "status": "passed",
+      "installedModulePaths": true,
+      "nativeUploadCalls": 1,
+      "nativeCreateCalls": 1,
+      "originalSiblingRows": 5,
+      "originalTargetRows": 1,
+      "oldObservationRetained": true,
+      "missingReceiptRecovered": true,
+      "CLIHistoricalRows": true,
+      "newC2PrefixPreservesHistory": true,
+      "pendingNeverRetransmits": true,
+      "actualTitleNativeFieldRead": true,
+      "formalAuditVerified": false,
+      "healthVerified": false,
+      "portalVerified": false,
+      "imported": false,
+      "retryAuthorized": false,
+      "CLIWorkerIntegrated": true,
+      "NativeWorkerExercised": false,
+      "actualBrowserLaunched": false,
+      "realMerchantCalls": 0,
+      "paidModels": 0,
+      "goalComplete": false
+    },
+    "C3Complete": false,
+    "merchantAutomaticImportComplete": false,
+    "goalComplete": false
+  },
+  "package": {
+    "sha256": "323cc61a0145d8c425f2af7620f126e1ac679f8265d56e37816aad78d4f00cd9",
+    "filesIncludingManifest": 114,
+    "releaseAudit": {
+      "releaseAudit": "passed",
+      "version": "0.1.0",
+      "fileCount": 114,
+      "personalPaths": 0,
+      "credentialPatterns": 0,
+      "unknownFiles": 0,
+      "scope": "audited-release-only-not-third-party-runtime-or-live-shop"
+    }
+  },
+  "pinnedGitHubFreshCloneComplete": false,
+  "internal": {
+    "auditedVersion": "1.5.4",
+    "head": "13692b759bd52e35c3670cf8fad5330e1bf2b576",
+    "gitClean": true
+  },
+  "videoUpstream": {
+    "auditedVersion": "0.3.0",
+    "auditedCommit": "29548089f7b71ac77ddb584caac0966a98df24ab",
+    "refreshedThisStage": false
+  },
+  "C3Complete": false,
+  "realMerchantCalls": 0,
+  "paidModels": 0,
+  "goalComplete": false
+}

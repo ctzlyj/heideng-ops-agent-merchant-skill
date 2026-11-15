@@ -45,6 +45,14 @@ def parser():
  sp=sub.add_parser('short-title-status');sp.add_argument('--plan-id',required=True)
  sp=sub.add_parser('short-title-rows');sp.add_argument('--plan-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=['coverage','chunks','siblings'],default='coverage')
  sp=sub.add_parser('short-title-workbooks');sp.add_argument('--plan-id',required=True);sp.add_argument('--template',required=True)
+ sp=sub.add_parser('short-title-worker-start');sp.add_argument('--plan-id',required=True);sp.add_argument('--foreground',action='store_true')
+ for action in ('resume','status','command-status','approve','execute','recover','results','effects','stop'):
+  sp=sub.add_parser('short-title-worker-'+action);sp.add_argument('--worker-id',required=True)
+  if action=='command-status':sp.add_argument('--request-id',required=True)
+  elif action not in ('resume','status'):
+   sp.add_argument('--request-id')
+   if action!='stop':sp.add_argument('--import-id',required=True);sp.add_argument('--fingerprint',required=True)
+   if action=='approve':sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
  sp=sub.add_parser('short-title-import-plan');sp.add_argument('--plan-id',required=True);sp.add_argument('--source-id',required=True)
  sp=sub.add_parser('short-title-import-approve');sp.add_argument('--import-id',required=True);sp.add_argument('--fingerprint',required=True);sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
  sp=sub.add_parser('short-title-import-status');sp.add_argument('--import-id',required=True)
@@ -170,6 +178,14 @@ def run(args):
  if command=='short-title-status':return ShortTitlePlans(state,client).status(args.plan_id)
  if command=='short-title-rows':return ShortTitlePlans(state,client).rows(args.plan_id,page=args.page,page_size=args.page_size,view=args.view)
  if command=='short-title-workbooks':return ShortTitlePlans(state,client).compile(args.plan_id,args.template)
+ if command.startswith('short-title-worker-'):
+  from .short_title_worker_service import ShortTitleWorkerService
+  worker=ShortTitleWorkerService(state,client=client);action=command.removeprefix('short-title-worker-')
+  if action=='start':return worker.start(args.plan_id,foreground=args.foreground)
+  if action=='resume':return worker.resume(args.worker_id)
+  if action=='status':return worker.status(args.worker_id)
+  if action=='command-status':return worker.command_status(args.worker_id,args.request_id)
+  return worker.command(args.worker_id,action,import_id=getattr(args,'import_id',None),fingerprint=getattr(args,'fingerprint',None),confirmed=getattr(args,'confirm',False),ttl=getattr(args,'ttl_seconds',900),request_id=args.request_id)
  if command=='short-title-import-plan':return ShortTitleImports(state,client).prepare(args.plan_id,args.source_id)
  if command=='short-title-import-approve':return ShortTitleImports(state,client).approve(args.import_id,args.fingerprint,confirmed=args.confirm,ttl=args.ttl_seconds)
  if command=='short-title-import-status':return ShortTitleImports(state,client).status(args.import_id)

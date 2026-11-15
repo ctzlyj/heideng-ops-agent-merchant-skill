@@ -23,7 +23,7 @@ version: 0.1.0
 
 ## 可执行入口
 
-- short-title-plan / short-title-status / short-title-rows / short-title-workbooks：先读 references/native-short-title-planning.md。完整原库存与health问题、宿主审核稿和模板编译的前置阶段，当前planning-only；不能把文件/稿称导入成功，不能给商家默认人工上传。该A入口不是导入执行入口；原生B2/C1-C2 API另外核对原件，持久worker/C3生效闭环仍待实现，不猜CLI写接口或用job类型ID冒充实例。
+- short-title-plan / short-title-status / short-title-rows / short-title-workbooks：先读 references/native-short-title-planning.md。完整原库存与health问题、宿主审核稿和模板编译的前置阶段，当前planning-only；不能把文件/稿称导入成功，不能给商家默认人工上传。该A入口不是导入执行入口；原生B2/C1-C2 API另外核对原件，持久 worker 入口见 references/native-short-title-worker.md，完整 C3 生效闭环仍待实现，不猜CLI写接口或用job类型ID冒充实例。
 
 - ensure-shop / auth-start / auth-status / auth-observe / auth-cancel / auth-recover / auth-restart：独立店铺连接和同会话扫码OAuth。严格先读 references/shop-connection.md；只保存公开taskId，不导出私有授权页面；失联不重启，原unknown只读恢复。当前Windows新授权已实现但真实商家链路尚未实测，macOS新授权因官方secret argv风险禁用。
 - sku-material-shop-audit / sku-material-shop-status / sku-material-shop-rows：全店在售商品与全部兄弟SKU、原生信息健康分/素材的完整来源核对；分页摘要不会冒充全店，不以有分值的SKU当库存，未取得分值不补0。先读 references/native-shop-material-audit.md。
@@ -78,6 +78,6 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 
 health-list 读取官方命名的“商品信息健康分”及 improvementList；与京麦页面 commodity-score 的等价性未实测，不断言相同或不同。素材空间保存、SKU 专属绑定、平台审核和分数重算不能互相替代。原生缺失槽位审计/绑定先读 references/native-sku-materials.md。
 
-- short-title-import-plan / short-title-import-approve / short-title-import-status / short-title-import-rows：先读 references/native-short-title-import.md；原生execute/recover API会真实写入，必须本次精确root批准。CLI没有worker/execute商家闭环，当前不能称完整导入或标题生效；unknown只查原件不重传、不推进。C1/C2 collect_results只读获取原实例结果、完整逐行处理回执，状态/--view results可分页；先读 references/native-short-title-results.md，rowResultsVerified不是实际title/audit/health通过或retry许可。
+- short-title-import-plan / short-title-import-approve / short-title-import-status / short-title-import-rows：先读 references/native-short-title-import.md；原生execute/recover API会真实写入，必须本次精确root批准。CLI 持久 worker 已接入，先读 references/native-short-title-worker.md；启动只读、精确批准后原进程执行，当前仍不能称完整标题生效；unknown只查原件不重传、不推进。C1/C2 collect_results只读获取原实例结果、完整逐行处理回执，状态/--view results可分页；先读 references/native-short-title-results.md，rowResultsVerified不是实际title/audit/health通过或retry许可。
 
-原范围实际短标题/health 回读与持久化证据已接入部分原生来源 API；完整正式审核/门户/health、确认失败子计划和持久 worker 仍待完成，不称整店生效。Agent 用法与历史 effects 分页见 `references/native-short-title-effects.md`。
+原范围实际短标题/health 回读与持久化证据已接入部分原生来源 API；持久 worker 已接入；完整正式审核/门户/health 与确认失败子计划仍待完成，不称整店生效。Agent 用法与历史 effects 分页见 `references/native-short-title-effects.md`。

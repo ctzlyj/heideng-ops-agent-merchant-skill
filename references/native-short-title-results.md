@@ -23,7 +23,7 @@
 
 独立append-only observation、receipt哈希链与head三方核对。丢原observation、篡改、断前缀、孤立文件或head矛盾阻断，不能以变更文件名/source/新计划绕过。只有原observation完整、确定receipt/head可重算的中断可在同根锁下恢复账本；没有原表或证据时不伪造其结果，更不重发写任务。
 
-每次新观测保留历史；新状态pending/unknown不重投。已有upload被接受而尚未尝试create时，结果读取不导航、不销毁original live binding。browser仍持install.lock，本线程真实witness才可复用；即便处理结果完整也不释放update/rollback门禁，C3/worker的完整证明仍待实现。
+每次新观测保留历史；新状态pending/unknown不重投。已有upload被接受而尚未尝试create时，结果读取不导航、不销毁original live binding。browser仍持install.lock，本线程真实witness才可复用；即便处理结果完整也不释放update/rollback门禁，持久 worker 已接入（见 native-short-title-worker.md），完整 C3 证明仍待实现。
 
 currentTaskAnchorMatched只证明本次读取的原task tuple匹配；currentResultSourceVerified还必须存在经过核验的原生结果源hash、对应GET/bytes与已解析结果证明。缺URL、pending或GET失败不标来源已验证，currentResultReadBatches注明本次读取范围；status仍只返回历史原件。
 

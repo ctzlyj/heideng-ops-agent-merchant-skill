@@ -17,7 +17,7 @@ root=home/'.heideng-merchant';c,s,p,src,m,r=fixtures.ShortTitleImportsTests().ma
 with patch('heideng_merchant.cli.OfficialClient',return_value=c),patch('heideng_merchant.cli.ShortTitleImports',return_value=m):
  command=lambda name,*args:cli.run(cli.parser().parse_args(['--home',str(home),name,*map(str,args)]))
  assert command('short-title-import-plan','--plan-id',p['planId'],'--source-id',src['sourceId'])['importId']==r['importId']
- a=command('short-title-import-approve','--import-id',r['importId'],'--fingerprint',r['fingerprint'],'--confirm');assert a['approvalCurrentlyValid'] and not a['CLIWorkerIntegrated'] and not a['imported']
+ a=command('short-title-import-approve','--import-id',r['importId'],'--fingerprint',r['fingerprint'],'--confirm');assert a['approvalCurrentlyValid'] and a['CLIWorkerIntegrated'] and not a['imported']
 f,b=fixtures.ShortTitleImportsTests().browser(root,m,r);f.driver.context.page.fault='create-timeout'
 try:
  out=m.execute(r['importId'],b);assert out['status']=='unknown' and not out['imported'];assert f.driver.context.page.uploads==1 and f.driver.context.page.creates==1
@@ -26,7 +26,7 @@ try:
 finally:b.close()
 assert distribution.busy(root);assert not c.posts
 raw=''.join(x.read_text() for x in root.rglob('*.json'));assert 'synthetic-only-private' not in raw and '?token=' not in raw
-print(json.dumps({'status':'passed','installedModulePaths':True,'nativeFileUploadCalls':1,'nativeCreateCalls':1,'lostCreateAckReadOnlyRecovered':True,'noReplay':True,'unknownAndSubmittedBlockUpdates':True,'actualBrowserLaunched':False,'realMerchantCalls':0,'paidModels':0,'imported':False,'CLIWorkerIntegrated':False}))
+print(json.dumps({'status':'passed','installedModulePaths':True,'nativeFileUploadCalls':1,'nativeCreateCalls':1,'lostCreateAckReadOnlyRecovered':True,'noReplay':True,'unknownAndSubmittedBlockUpdates':True,'actualBrowserLaunched':False,'realMerchantCalls':0,'paidModels':0,'imported':False,'CLIWorkerIntegrated':True,'NativeWorkerExercised':False}))
 '''
 def main():
  archive=ROOT/'dist/heideng-ops-agent-merchant-0.1.0.zip';sha=file_sha(archive);base=ROOT/'.agent-work/short-title-import-audit';base.mkdir(parents=True,exist_ok=True)

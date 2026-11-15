@@ -68,7 +68,7 @@ else:
  raise AssertionError('same-shop pending title must quarantine other writes')
 for file in state.rglob('*.json'):
  assert 'synthetic-only-private' not in file.read_text(encoding='utf-8-sig')
-print(json.dumps({'status':'passed','installedModulePaths':True,'nativeUploadCalls':1,'nativeCreateCalls':1,'originalResultGets':2,'lostCreateAckRecoveredWithoutReplay':True,'fullOriginalRowResult':True,'pendingNeverRetransmits':True,'failureNotRetryAuthorized':True,'updateGateStillBusy':True,'sameShopOtherWritesQuarantined':True,'qualifiedNativeMethods':True,'actualBrowserLaunched':False,'realMerchantCalls':0,'paidModels':0,'actualTitlesVerified':False,'healthVerified':False,'imported':False,'CLIWorkerIntegrated':False}))
+print(json.dumps({'status':'passed','installedModulePaths':True,'nativeUploadCalls':1,'nativeCreateCalls':1,'originalResultGets':2,'lostCreateAckRecoveredWithoutReplay':True,'fullOriginalRowResult':True,'pendingNeverRetransmits':True,'failureNotRetryAuthorized':True,'updateGateStillBusy':True,'sameShopOtherWritesQuarantined':True,'qualifiedNativeMethods':True,'actualBrowserLaunched':False,'realMerchantCalls':0,'paidModels':0,'actualTitlesVerified':False,'healthVerified':False,'imported':False,'CLIWorkerIntegrated':True,'NativeWorkerExercised':False}))
 '''
 
 def main():

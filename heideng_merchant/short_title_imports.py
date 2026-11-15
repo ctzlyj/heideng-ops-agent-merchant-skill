@@ -66,7 +66,7 @@ class ShortTitleImports:
  def status(self,import_id):
   p=self.record(import_id);ev=evidence(self.state,p);rows=batch_rows(p,ev);now=self.clock();active=any(a['approvedAt']<=now<a['expiresAt'] for a in ev[0].values());states={r['state'] for r in rows};submitted=sum(r['state']=='submitted' for r in rows)
   status='unknown' if any(x.startswith('unknown') for x in states) else 'non-success-unverified' if any(x.endswith('non-success') for x in states) else 'submitted-awaiting-verification' if submitted==len(rows) else 'uploaded-awaiting-create' if 'uploaded-awaiting-create' in states else 'partial-submitted' if submitted else 'approved' if active else 'prepared'
-  result={'importId':import_id,'fingerprint':p['fingerprint'],'status':status,'proposedRowCount':len(p['scope']['changes']),'approvedRowCount':len(p['scope']['changes']) if ev[0] else 0,'batchCount':len(rows),'submittedBatchCount':submitted,'unknownBatchCount':sum(r['state'].startswith('unknown') for r in rows),'approvalCurrentlyValid':active,'executionApiAvailable':True,'CLIWorkerIntegrated':False,'imported':False,'actualTitlesVerified':False,'healthVerified':False,'rowResultsVerified':False,'taskListComplete':False,'runtimeVersion':p['scope']['runtimeVersion']}
+  result={'importId':import_id,'fingerprint':p['fingerprint'],'status':status,'proposedRowCount':len(p['scope']['changes']),'approvedRowCount':len(p['scope']['changes']) if ev[0] else 0,'batchCount':len(rows),'submittedBatchCount':submitted,'unknownBatchCount':sum(r['state'].startswith('unknown') for r in rows),'approvalCurrentlyValid':active,'executionApiAvailable':True,'CLIWorkerIntegrated':True,'imported':False,'actualTitlesVerified':False,'healthVerified':False,'rowResultsVerified':False,'taskListComplete':False,'runtimeVersion':p['scope']['runtimeVersion']}
   from .short_title_result_state import read_log,summary
   result.update(summary(p,read_log(self.state,p,ev[3])[0]))
   if result['rowResultsVerified']:result['status']='processing-completed-awaiting-title-verification'
@@ -121,9 +121,12 @@ class ShortTitleImports:
   now=self.clock();values=[a for a in approvals(self.state,p).values() if a['approvedAt']<=now<a['expiresAt']]
   if not values or p['scope']['runtimeVersion']!=VERSION:raise SafetyError('valid-current-native-import-approval-required')
   return max(values,key=lambda a:a['approvedAt'])
+ def _worker_checkpoint(self):
+  witness=getattr(self.plans.ops,'worker_witness',None)
+  if witness is not None:witness.checkpoint()
  def _attempt(self,p,batch,phase,proof,*,install_guard=None):
-  approval=self._approval(p);health=self._current(p,health=True,batch=batch,install_guard=install_guard);proof={**proof,**health};p=self.record(p['importId']);evidence(self.state,p);artifact=p['scope']['artifacts'][batch-1];now=self.clock();check_preflight(proof,_source_record(self.state,None,p['scope']['sourceId'])['scope']['template']['sha256']);a={'context':{'importId':p['importId'],'fingerprint':p['fingerprint'],'shop':p['scope']['shop'],'batch':batch,'phase':phase,'artifactSha256':artifact['sha256'],'rowsSha256':artifact['rowsSha256'],'attemptId':uuid.uuid4().hex},'approvalId':approval['approvalId'],'startedAt':now,'deadline':min(now+30,approval['expiresAt']),'preflight':proof};_once(event_path(self.state,'short-title-import-attempts',p['importId'],batch,phase),a);return a
- def _ack(self,p,batch,phase,a,result):check_result(result,phase);_once(event_path(self.state,'short-title-import-acks',p['importId'],batch,phase),{'context':a['context'],'attemptSha256':digest(a),'result':result})
+  approval=self._approval(p);health=self._current(p,health=True,batch=batch,install_guard=install_guard);proof={**proof,**health};p=self.record(p['importId']);evidence(self.state,p);artifact=p['scope']['artifacts'][batch-1];now=self.clock();check_preflight(proof,_source_record(self.state,None,p['scope']['sourceId'])['scope']['template']['sha256']);a={'context':{'importId':p['importId'],'fingerprint':p['fingerprint'],'shop':p['scope']['shop'],'batch':batch,'phase':phase,'artifactSha256':artifact['sha256'],'rowsSha256':artifact['rowsSha256'],'attemptId':uuid.uuid4().hex},'approvalId':approval['approvalId'],'startedAt':now,'deadline':min(now+30,approval['expiresAt']),'preflight':proof};_once(event_path(self.state,'short-title-import-attempts',p['importId'],batch,phase),a);self._worker_checkpoint();return a
+ def _ack(self,p,batch,phase,a,result):check_result(result,phase);_once(event_path(self.state,'short-title-import-acks',p['importId'],batch,phase),{'context':a['context'],'attemptSha256':digest(a),'result':result});self._worker_checkpoint()
  def _anchor(self,p,batch,browser):
   ev=evidence(self.state,p);key=(batch,'create');at=ev[1].get(key);upload=ev[2].get((batch,'upload'));ack=ev[2].get(key)
   if not at or not upload or upload['result']['outcome']!='accepted' or key in ev[3] or ack and ack['result']['instanceEvidence']=='contradictory':return False
@@ -131,7 +134,7 @@ class ShortTitleImports:
   if len(candidates)!=1 or wanted is not None and candidates[0]['instanceId']!=wanted:return False
   if stored is None:
    stored={'context':at['context'],'attemptSha256':digest(at),'uploadAckSha256':digest(upload),'observedAt':self.clock(),'observed':observed};_once(event_path(self.state,'short-title-import-observations',p['importId'],batch,'create'),stored)
-  row=candidates[0];anchor={'context':at['context'],'attemptSha256':digest(at),'uploadAckSha256':digest(upload),'instanceId':row['instanceId'],'objectSha256':sha,'startedAt':row['startedAt'],'observedAt':stored['observedAt'],'taskPageSha256':observed['taskPageSha256'],'identitySha256':observed['identitySha256'],'observationSha256':digest(stored)};_once(event_path(self.state,'short-title-import-anchors',p['importId'],batch,'create'),anchor);return True
+  row=candidates[0];anchor={'context':at['context'],'attemptSha256':digest(at),'uploadAckSha256':digest(upload),'instanceId':row['instanceId'],'objectSha256':sha,'startedAt':row['startedAt'],'observedAt':stored['observedAt'],'taskPageSha256':observed['taskPageSha256'],'identitySha256':observed['identitySha256'],'observationSha256':digest(stored)};_once(event_path(self.state,'short-title-import-anchors',p['importId'],batch,'create'),anchor);self._worker_checkpoint();return True
  def recover(self,import_id,browser):
   with FileLock(path(self.state,'short-title-imports',import_id,suffix='.lock')):
    p=self.record(import_id);self._browser(p,browser);self._current(p,readonly=True);rows=batch_rows(p,evidence(self.state,p))
@@ -142,25 +145,35 @@ class ShortTitleImports:
      break
     if row['state'] not in ('submitted','not-started'):break
    return self.status(import_id)
- def execute(self,import_id,browser):
+ def execute(self,import_id,browser,*,stop_requested=None):
+  browser.stop_requested=stop_requested or (lambda:False)
   with FileLock(path(self.state,'short-title-imports',import_id,suffix='.lock')):
    p=self.record(import_id);self._browser(p,browser);self._approval(p);self._current(p);reason=None;stage='preflight'
    for row in batch_rows(p,evidence(self.state,p)):
+    if stop_requested is not None and stop_requested():reason='worker-stop-requested-no-next-native-action';break
     batch=row['batch'];state=row['state'];artifact=p['scope']['artifacts'][batch-1]
     if state=='submitted':continue
     if state.startswith('unknown'):reason='original-unknown-attempt-recovery-only';break
     if state.endswith('non-success'):reason='native-non-success-response-needs-reconciliation';break
     try:
      if state=='not-started':
-      stage='preflight';proof=browser.preflight();a=self._attempt(p,batch,'upload',proof,install_guard=browser.install_lock);stage='upload';browser.grant(a);result=browser.upload(artifact,a);self._ack(p,batch,'upload',a,result)
+      stage='preflight';proof=browser.preflight()
+      if stop_requested is not None and stop_requested():reason='worker-stop-requested-no-next-native-action';break
+      a=self._attempt(p,batch,'upload',proof,install_guard=browser.install_lock);stage='upload'
+      if stop_requested is not None and stop_requested():reason='worker-stop-requested-no-next-native-action';break
+      browser.grant(a);result=browser.upload(artifact,a);self._ack(p,batch,'upload',a,result)
       if result['outcome']!='accepted':reason='upload-outcome-needs-original-reconciliation';break
+     if stop_requested is not None and stop_requested():reason='worker-stop-requested-no-next-native-action';break
      ev=evidence(self.state,p);upload=ev[2][batch,'upload'];proof=ev[1][batch,'upload']['preflight']
      if not browser.can_create(artifact,upload['result']['uploadedObjectSha256']):reason='original-live-upload-binding-not-restored';break
-     stage='create';a=self._attempt(p,batch,'create',proof,install_guard=browser.install_lock);browser.grant(a);result=browser.create(artifact,a);self._ack(p,batch,'create',a,result)
+     stage='create';a=self._attempt(p,batch,'create',proof,install_guard=browser.install_lock)
+     if stop_requested is not None and stop_requested():reason='worker-stop-requested-no-next-native-action';break
+     browser.grant(a);result=browser.create(artifact,a);self._ack(p,batch,'create',a,result)
      if result['outcome']!='accepted':reason='native-non-success-response-needs-reconciliation';break
      stage='anchor'
      if not self._anchor(p,batch,browser):reason='original-task-source-anchor-not-verified';break
     except Exception:
+     if stop_requested is not None and stop_requested():reason='worker-stop-requested-no-next-native-action';break
      reason={'preflight':'current-browser-source-or-template-not-verified','upload':'upload-outcome-unknown-inspect-original-attempt','create':'creation-outcome-unknown-query-original-task','anchor':'original-task-source-anchor-not-verified'}[stage];break
    result=self.status(import_id)
    if reason:result['stoppedReason']=reason

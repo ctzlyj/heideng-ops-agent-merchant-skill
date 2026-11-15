@@ -59,21 +59,27 @@ class ShortTitleSourceBrowser:
   self.state=Path(state).absolute();safe_join(self.state,'browser');self.plans=ShortTitlePlans(self.state,client);self.plan=self.plans.plan(plan_id);self.session_id=_id(session_id or uuid.uuid4().hex[:24]);self.binding=_owner(self.state,self.session_id,self.plan)
   if not self.plan['scope']['changes']:raise SafetyError('reviewed-short-title-rows-required-before-browser-source')
   if channel not in (None,'chrome','msedge'):raise SafetyError('system-browser-channel-required')
-  self.factory=factory;self.clock=clock or time.time;self.channel=channel or ('msedge' if os.name=='nt' else 'chrome');self.headless=headless;self.controller=self.context=self.page=self.lock=self.install_lock=None;self.owns_lifecycle=False;self.requests={};self.phase=None;self.capture_started=0;self.launch_unknown=False;self.epoch=0;self.proof=None;self.foreign=False;self.stage='not-opened';self.root=safe_join(self.state,'browser/short-title/'+self.session_id);self.owner_path=safe_join(self.state,'browser/short-title/'+self.session_id+'/owner.json');self.lifecycle_path=safe_join(self.state,'browser/short-title/'+self.session_id+'/lifecycle.json')
+  self.factory=factory;self.clock=clock or time.time;self.channel=channel or ('msedge' if os.name=='nt' else 'chrome');self.headless=headless;self.controller=self.context=self.page=self.lock=self.install_lock=None;self.owns_lifecycle=False;self.borrowed_install_guard=False;self.requests={};self.phase=None;self.capture_started=0;self.launch_unknown=False;self.epoch=0;self.proof=None;self.foreign=False;self.stage='not-opened';self.root=safe_join(self.state,'browser/short-title/'+self.session_id);self.owner_path=safe_join(self.state,'browser/short-title/'+self.session_id+'/owner.json');self.lifecycle_path=safe_join(self.state,'browser/short-title/'+self.session_id+'/lifecycle.json')
  def _lifecycle(self,status):atomic_json(self.lifecycle_path,{'sessionId':self.session_id,'status':status})
  def _validate_owner(self):
   if read_json(self.owner_path)!=self.binding:raise SafetyError('task-owned-short-title-browser-owner-changed')
  def _open_allowed(self):
   if safe_join(self.state,'short-title-browser-sources/'+self.session_id+'.json').exists():raise SafetyError('browser-source-capture-already-completed')
- def open(self):
+ def open(self,*,install_guard=None):
   if self.controller is not None:raise SafetyError('task-owned-short-title-browser-already-open')
   if self.root.exists() and not self.owner_path.exists():raise SafetyError('unowned-browser-profile-not-adopted')
   if self.owner_path.exists():
    self._validate_owner()
    if read_json(self.lifecycle_path,{}).get('status')!='closed':raise SafetyError('owned-browser-not-confirmed-closed-no-reopen')
+  if install_guard is not None:
+   if not isinstance(install_guard,FileLock):raise SafetyError('existing-same-owner-install-guard-required')
+   install_guard.require_owned(self.state/'install.lock')
   self._open_allowed()
   try:
-   interlock=FileLock(safe_join(self.state,'install.lock'),timeout=0);interlock.__enter__();self.install_lock=interlock
+   if install_guard is None:
+    interlock=FileLock(safe_join(self.state,'install.lock'),timeout=0);interlock.__enter__();self.install_lock=interlock;self.borrowed_install_guard=False
+   else:
+    install_guard.require_owned(self.state/'install.lock');self.install_lock=install_guard;self.borrowed_install_guard=True
    lock=FileLock(safe_join(self.state,'browser/short-title/'+self.session_id+'/owner.lock'));lock.__enter__();self.lock=lock
    if self.owner_path.exists():
     self._validate_owner()
@@ -86,13 +92,13 @@ class ShortTitleSourceBrowser:
     from playwright.sync_api import sync_playwright
     factory=sync_playwright
    else:factory=self.factory
-   self.controller=factory().start();self.launch_unknown=True;self.context=self.controller.chromium.launch_persistent_context(str(profile),channel=self.channel,headless=self.headless,accept_downloads=True,service_workers='block',env=clean_environment(self.root));self.launch_unknown=False;self.page=self.context.new_page();self.page.on('request',self._request);self.page.on('response',self._response);self.stage='login';self._lifecycle('open');self.page.goto('https://jingmai.jd.com/',wait_until='domcontentloaded',timeout=30000)
+   self.controller=factory().start();self.launch_unknown=True;self.context=self.controller.chromium.launch_persistent_context(str(profile),channel=self.channel,headless=self.headless,accept_downloads=True,service_workers='block',env=clean_environment(self.root));self.launch_unknown=False;self.page=self.context.new_page();self.page.on('request',self._request);self.page.on('response',self._response);self.epoch+=1;self.proof=None;self.foreign=False;self.requests={};self.capture_started=self.clock()*1000;self.phase='login';self.stage='login';self._lifecycle('open');self.page.goto('https://jingmai.jd.com/',wait_until='domcontentloaded',timeout=30000)
   except Exception:
    try:self.close()
    except SafetyError:raise SafetyError('owned-browser-cleanup-unknown-no-reopen') from None
    raise SafetyError('task-owned-browser-open-failed') from None
  def _request(self,request):
-  if self.stage!='capturing':return
+  if self.stage not in ('login','capturing'):return
   try:
    if request.frame is not self.page.main_frame or request.frame.page is not self.page or request.resource_type not in ('xhr','fetch') or not source_url(request.url):return
    stamp=request.timing['startTime']
@@ -106,7 +112,7 @@ class ShortTitleSourceBrowser:
    return bool(record and record['request'] is request and record['epoch']==self.epoch and (phase is None or record['phase']==phase) and request.frame is self.page.main_frame and request.frame.page is self.page and source_url(request.frame.url))
   except Exception:return False
  def _response(self,response):
-  if self.stage!='capturing':return
+  if self.stage not in ('login','capturing'):return
   try:
    if not source_url(response.url) or not self._fresh(response):return
    raw,data=response_bytes(response,self.page);found,foreign=identity_observation(data,self.binding['shop']);self.foreign=self.foreign or foreign
@@ -115,6 +121,14 @@ class ShortTitleSourceBrowser:
  def poll(self):
   if self.page is None or self.page.is_closed():raise SafetyError('task-owned-browser-closed')
   self.page.wait_for_timeout(50)
+ def authentication_status(self):
+  # Observe login passively in this owned page; never navigate to poll a scan.
+  if self.page is None or self.page.is_closed():raise SafetyError('task-owned-browser-closed')
+  self._validate_owner()
+  if self.install_lock is not None:self.install_lock.require_owned(self.state/'install.lock')
+  if self.stage!='login':raise SafetyError('owned-login-observation-stage-required')
+  ready=self.proof is not None and not self.foreign and self.proof['captureEpoch']==self.epoch
+  return {'status':'identity-mismatch' if self.foreign else 'identity-observed' if ready else 'awaiting-login','currentIdentityVerified':ready,'approvalReady':False,'writeExecutionAvailable':False}
  def _identity(self):
   if self.proof is None or self.foreign or self.proof['captureEpoch']!=self.epoch:raise SafetyError('current-same-object-pop-shop-identity-required')
   return dict(self.proof)
@@ -170,6 +184,8 @@ class ShortTitleSourceBrowser:
   if self.owns_lifecycle:
    self._validate_owner();self._lifecycle('close-unknown' if self.launch_unknown else 'closed');self.owns_lifecycle=False
   if self.lock is not None:self.lock.__exit__(None,None,None);self.lock=None
-  if self.install_lock is not None:self.install_lock.__exit__(None,None,None);self.install_lock=None
+  if self.install_lock is not None:
+   if not self.borrowed_install_guard:self.install_lock.__exit__(None,None,None)
+   self.install_lock=None;self.borrowed_install_guard=False
   self.stage='closed'
   if self.launch_unknown:raise SafetyError('owned-browser-launch-cleanup-unconfirmed-no-reopen')

@@ -73,6 +73,6 @@ Agent先取得全部在售商品、完整兄弟SKU和素材来源，再把已有
 
 ### 短标题原生导入与处理结果API（B2/C1-C2研发）
 
-已接入精确root批准、原抽屉上传/创建实例、独立回执与查询恢复API，以及原任务结果文件的只读获取、完整逐行处理结果和独立观察/回执/head校验。CLI仍只有准备/批准/历史分页（结果用 --view results）；持久worker/商家execute入口和C3实际短标题/审核/health/门户回读仍必须实现。rowResultsVerified只说明原完整批次处理结果，不是标题生效或重试批准；unknown、审核延迟不重投。详见 references/native-short-title-import.md 与 references/native-short-title-results.md。
+已接入精确root批准、原抽屉上传/创建实例、独立回执与查询恢复API，以及原任务结果文件的只读获取、完整逐行处理结果和独立观察/回执/head校验。CLI 已有持久 worker 的 start/精确 approve/execute/recover/results/effects/status/command-status/stop 与确认关闭后的 readonly resume；用法见 references/native-short-title-worker.md。C3 完整正式审核/health/门户回读仍必须补齐。rowResultsVerified只说明原完整批次处理结果，不是标题生效或重试批准；unknown、审核延迟不重投。详见 references/native-short-title-import.md 与 references/native-short-title-results.md。
 
-原范围实际短标题/health 回读与持久化证据已接入部分原生来源 API；完整正式审核/门户/health、确认失败子计划和持久 worker 仍待完成，不称整店生效。Agent 用法与历史 effects 分页见 `references/native-short-title-effects.md`。
+原范围实际短标题/health 回读与持久化证据已接入部分原生来源 API；持久 worker 已接入；完整正式审核/门户/health 与确认失败子计划仍待完成，不称整店生效。Agent 用法与历史 effects 分页见 `references/native-short-title-effects.md`。

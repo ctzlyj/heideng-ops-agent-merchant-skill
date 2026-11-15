@@ -12,7 +12,7 @@ class ShortTitleImportBoundaryTests(unittest.TestCase):
    home=Path(d);state=home/'.heideng-merchant';c,s,p,src,m,r=fixtures.ShortTitleImportsTests().make(state)
    def command(name,*args):return cli.run(cli.parser().parse_args(['--home',d,name,*map(str,args)]))
    with patch('heideng_merchant.cli.OfficialClient',return_value=c):
-    root=command('short-title-import-plan','--plan-id',p['planId'],'--source-id',src['sourceId']);self.assertEqual(root['importId'],r['importId']);self.assertFalse(root['imported']);a=command('short-title-import-approve','--import-id',r['importId'],'--fingerprint',r['fingerprint'],'--confirm');self.assertTrue(a['approvalCurrentlyValid']);self.assertFalse(a['CLIWorkerIntegrated']);self.assertEqual(command('short-title-import-status','--import-id',r['importId'])['proposedRowCount'],1);self.assertEqual(command('short-title-import-rows','--import-id',r['importId'])['total'],1)
+    root=command('short-title-import-plan','--plan-id',p['planId'],'--source-id',src['sourceId']);self.assertEqual(root['importId'],r['importId']);self.assertFalse(root['imported']);a=command('short-title-import-approve','--import-id',r['importId'],'--fingerprint',r['fingerprint'],'--confirm');self.assertTrue(a['approvalCurrentlyValid']);self.assertTrue(a['CLIWorkerIntegrated']);self.assertEqual(command('short-title-import-status','--import-id',r['importId'])['proposedRowCount'],1);self.assertEqual(command('short-title-import-rows','--import-id',r['importId'])['total'],1)
    self.assertFalse(c.posts)
  def test_prepared_root_idle_but_unknown_submitted_and_orphans_block_updates(self):
   with tempfile.TemporaryDirectory() as d:

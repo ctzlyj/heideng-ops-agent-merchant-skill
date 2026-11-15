@@ -1,6 +1,6 @@
-# 短标题原生执行API（worker/C3生效闭环仍待实现）
+# 短标题原生执行 API（持久 worker 已接入，完整 C3 待完成）
 
-本API会真实触发原商家抽屉file.upload和createImportJob；部署仅私有研发，未执行真实商家链路，不是最终商家自动导入上线。商家不手工上传；Agent可在同进程原生浏览器内执行。CLI目前只有root准备/批准/历史状态/分页，持久worker/execute入口与C1/C2原实例完整逐行处理结果已接入只读API，C3实际短标题/审核/health/门户回读与确认失败专属修复仍必须随后实现。
+本API会真实触发原商家抽屉file.upload和createImportJob；部署仅私有研发，未执行真实商家链路，不是最终商家自动导入上线。商家不手工上传；Agent可在同进程原生浏览器内执行。CLI 持久 worker/execute 入口见 native-short-title-worker.md；C1/C2 原实例完整逐行处理结果已接入只读 API，C3实际短标题/审核/health/门户回读与确认失败专属修复仍必须随后实现。
 
 ## 原件与动作
 
@@ -19,4 +19,4 @@
 - 只存非私密公开字段与hash：不存原JSON/DOM/请求正文/签名URL/Cookie/设备信息。responseSha256是已完成的浏览器body；压缩后Content-Length不是解码body的线长证明。原图片HTTP字节证明逻辑不改变。
 - 对真实平台type/schema/pagination/template/redirect、真实结果文件/原title来源、其他操作员并发修改的服务端CAS/类目/规模验收与分发许可尚未完成，不冒称已获商业化或全平台等价性。
 
-这些限制不是export-only替代，B2/C+worker依然是完整商家版目标的必须部分。生图、生视频来源等用户确认，内部版与个人Skill只读。
+这些限制不是export-only替代，完整 C3 与真实商家验收依然是商家版目标的必须部分。生图、生视频来源等用户确认，内部版与个人Skill只读。

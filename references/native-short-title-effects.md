@@ -22,4 +22,4 @@ Agent 在同一原生商家会话调用 `ShortTitleImports.collect_effects(impor
 
 ## 仍需完成
 
-正式审核/完整健康材料/门户原来源、确认失败行且当前确需修复的子计划及新批准、持续 owned worker 与 merchant execute 生命周期、完整 terminal 门禁和真实商家验收。C3 partial 不释放其他同店写入、更新或回滚。所有本轮验收是合成来源，未运行真实浏览器、jdo/OAuth/API、商家写入或付费模型。
+正式审核/完整健康材料/门户原来源、确认失败行且当前确需修复的子计划及新批准（持久 owned worker 与 merchant execute 已接入，见 native-short-title-worker.md）、完整 terminal 门禁和真实商家验收。C3 partial 不释放其他同店写入、更新或回滚。所有本轮验收是合成来源，未运行真实浏览器、jdo/OAuth/API、商家写入或付费模型。
