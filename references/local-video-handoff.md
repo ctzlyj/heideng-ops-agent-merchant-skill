@@ -8,7 +8,7 @@
 2. 实际查看全片、检查商品/文字/服装等一致性，并播放音轨或让商家试听。技术解码不是视觉验收，也不识别台词或证明商品身份。没有视觉能力或无法试听时继续pending，不填确认值。
 3. 从返回 `video` 获取视频sha256、coverSha256、listingFingerprint。视觉和声音已确实确认后，Agent在本地写review：同名三个hash，以及visualPass/voiceConfirmed布尔值。可保留旧technicalPass字段但它不参与技术判定。
 4. 同一 `attach-video` 带 `--review` 保存确认。更换封面、视频或商品manifest需重新确认，旧hash不能沿用。视频/封面原字节不转码、不改图。
-5. 上传/绑定之前运行 `video-preflight --manifest …`：重新解码并核对原文件、封面、商品上下文和确认。`locally-reviewed`/bindable仅代表本地就绪，不是原生视频上传/保存、SKU绑定或审核成功。本轮原生上传与素材42绑定尚未接入，不能借通用task-plan绕过素材证明guard。
+5. 上传/绑定之前运行 `video-preflight --manifest …`：重新解码并核对原文件、封面、商品上下文和确认。`locally-reviewed`/bindable仅代表本地就绪，不是原生视频上传/保存、SKU绑定或审核成功。原生上传/保存按native-video-delivery.md的已批准会话执行；素材42绑定尚未接入，不能借通用task-plan绕过素材证明guard。
 
 工具：`video-runtime-status`离线检查；`video-runtime-prepare`仅安装公开解码依赖；`probe-video --video …`报告技术证据；`attach-video`进入manifest；`video-preflight`独立复查。
 

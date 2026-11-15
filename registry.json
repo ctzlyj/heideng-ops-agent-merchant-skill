@@ -222,12 +222,18 @@
         "video-runtime-prepare",
         "probe-video",
         "attach-video",
-        "video-preflight"
+        "video-preflight",
+        "video-delivery-plan",
+        "video-delivery-approve",
+        "video-delivery-execute",
+        "video-delivery-status"
       ],
       "reference": "references/local-video-handoff.md",
       "localTechnicalQA": "full-H264-AAC-original-decode-and-static-cover-verification",
-      "nativeVideoDelivery": "pending-implementation-and-live-contract-verification",
-      "visualAndVoiceReview": "requires-real-inspection-bound-to-video-cover-and-listing-hashes"
+      "nativeVideoDelivery": "allocation-transfer-save-and-original-field-readback-offline-tested-live-contract-and-merchant-unverified",
+      "visualAndVoiceReview": "requires-real-inspection-bound-to-video-cover-and-listing-hashes",
+      "nativeVideoBinding": "pending-implementation",
+      "nativeDeliveryReference": "references/native-video-delivery.md"
     }
   ],
   "videoUpstream": {

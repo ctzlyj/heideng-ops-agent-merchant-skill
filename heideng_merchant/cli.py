@@ -23,6 +23,7 @@ from .video_source import VideoSource
 from .video_runtime import VideoRuntime
 from .video_probe import probe_video
 from .video_handoff import preflight_video
+from .video_delivery import VideoDelivery
 from .catalog import load_catalog,route
 from .updates import ReleaseUpdates,github_json
 from .workflows import read_rows,diagnose_rows,compare_exact_specs,prepare_listing,material_audit,package_snapshot,attach_video
@@ -102,6 +103,11 @@ def parser():
  compare=sub.add_parser('compare');compare.add_argument('--source',required=True);compare.add_argument('--specs',required=True);compare.add_argument('--output',required=True)
  listing=sub.add_parser('prepare-listing');listing.add_argument('--product',required=True);listing.add_argument('--source-root',required=True);listing.add_argument('--output',required=True)
  collect=sub.add_parser('package-snapshot');collect.add_argument('--snapshot',required=True);collect.add_argument('--output',required=True)
+ vd=sub.add_parser('video-delivery-plan');vd.add_argument('--profile',required=True);vd.add_argument('--manifest',required=True);vd.add_argument('--zone-id',required=True);vd.add_argument('--name')
+ va=sub.add_parser('video-delivery-approve');va.add_argument('--session-id',required=True);va.add_argument('--fingerprint',required=True);va.add_argument('--confirm',action='store_true');va.add_argument('--ttl-seconds',type=int,default=900)
+ for name in ('video-delivery-execute','video-delivery-status'):
+  vr=sub.add_parser(name);vr.add_argument('--session-id',required=True)
+  if name=='video-delivery-status':vr.add_argument('--refresh',action='store_true')
  vp=sub.add_parser('probe-video');vp.add_argument('--video',required=True)
  vf=sub.add_parser('video-preflight');vf.add_argument('--manifest',required=True)
  video=sub.add_parser('attach-video');video.add_argument('--manifest',required=True);video.add_argument('--video',required=True);video.add_argument('--cover');video.add_argument('--review')
@@ -190,6 +196,10 @@ def run(args):
   result=compare_exact_specs(read_rows(args.source),_json_file(args.specs));atomic_json(Path(args.output),result);return result
  if command=='prepare-listing':return prepare_listing(read_input_json(args.product)[0],args.source_root,args.output)
  if command=='package-snapshot':return package_snapshot(_json_file(args.snapshot),args.output)
+ if command=='video-delivery-plan':return VideoDelivery(state,client).prepare(args.profile,args.manifest,args.zone_id,name=args.name)
+ if command=='video-delivery-approve':return VideoDelivery(state,client).approve(args.session_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)
+ if command=='video-delivery-execute':return VideoDelivery(state,client).execute(args.session_id)
+ if command=='video-delivery-status':return VideoDelivery(state,client).status(args.session_id,refresh=args.refresh)
  if command=='video-runtime-status':return VideoRuntime(state).status()
  if command=='video-runtime-prepare':return VideoRuntime(state).ensure()
  if command=='probe-video':return probe_video(state,args.video)

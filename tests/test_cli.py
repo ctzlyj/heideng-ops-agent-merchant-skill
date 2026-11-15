@@ -29,3 +29,9 @@ class VideoCliTests(unittest.TestCase):
    manifest=Path(d)/'manifest.json';manifest.write_text('{"merchantPackageSchemaVersion":1}')
    p=subprocess.run([sys.executable,'scripts/merchant.py','--home',d,'video-preflight','--manifest',str(manifest)],capture_output=True,text=True,encoding='utf-8')
    self.assertEqual(p.returncode,2);self.assertEqual(json.loads(p.stdout)['error'],'video-handoff-not-reviewed-for-current-listing')
+
+class VideoDeliveryCliTests(unittest.TestCase):
+ def test_session_commands_are_agent_available_without_generation_provider(self):
+  from heideng_merchant import cli
+  for command,args in (('video-delivery-plan',['--profile','merchant-demo','--manifest','sample.json','--zone-id','owned']),('video-delivery-approve',['--session-id','0'*24,'--fingerprint','0'*64,'--confirm']),('video-delivery-execute',['--session-id','0'*24]),('video-delivery-status',['--session-id','0'*24,'--refresh'])):
+   self.assertEqual(cli.parser().parse_args([command,*args]).command,command)

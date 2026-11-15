@@ -159,9 +159,11 @@ class OfficialClient:
    if not cached or cached[0]!=execution['sourceSha256']:
     raw=self.download(BASE+execution['sourcePath']);validate_source(raw,execution);self._verified_source=(execution['sourceSha256'],raw)
   return execution
- def _run_stdin(self,profile,operation,execution,authorization_expires_at=None,expected_shop=None):
+ def _run_stdin(self,profile,operation,execution,authorization_expires_at=None,expected_shop=None,response_mode=None):
   from .official_transport import MAX_ENVELOPE_BYTES,publish_response
   env=self._environment();envelope={'schemaVersion':1,'profile':profile,'operation':operation,'execution':execution,'source':self._verified_source[1].decode('utf-8-sig'),'writeAuthorized':operation['method']!='GET','approvalExpiresAt':authorization_expires_at,'expectedShop':expected_shop}
+  if response_mode is not None:
+   envelope['responseMode']=response_mode;envelope['writeAuthorized']=True
   raw=json.dumps(envelope,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode('utf-8')
   if len(raw)>MAX_ENVELOPE_BYTES:raise SafetyError('official-stdin-envelope-too-large')
   options={'env':env,'input':raw,'capture_output':True,'timeout':90,'cwd':env['HOME']}
@@ -171,11 +173,18 @@ class OfficialClient:
   try:result=json.loads(process.stdout or b'{}')
   except (ValueError,TypeError,UnicodeError):raise SafetyError('official-stdin-response-invalid-or-unknown') from None
   if process.returncode!=0 or not isinstance(result,dict) or result.get('ok') is not True or result.get('execution')!=execution:raise SafetyError('official-stdin-outcome-unknown-check-original-task')
+  if response_mode=='video-upload-grant':
+   from .video_transfer import UploadGrant
+   grant=result.get('grant')
+   if not isinstance(grant,dict) or set(grant)!={'jdVideoId','uploadUrl'}:raise SafetyError('official-confidential-grant-outcome-unknown')
+   return UploadGrant(grant['jdVideoId'],grant['uploadUrl'])
   response=publish_response(result.get('response'),operation)
   return {**response,'_merchantExecution':execution} if isinstance(response,dict) else {'data':response,'_merchantExecution':execution}
  def invoke(self,profile,url,*,method='GET',params=None,body=None,skill_id='jdo-seller-info',write_authorized=False,expected_execution=None,authorization_expires_at=None,expected_shop=None):
   from .official_transport import normalize_operation,invoke_args,validate_expected_shop,matches_shop,publish_response
   op=normalize_operation(profile,{'url':url,'method':method,'params':{} if params is None else params,'body':body,'skillId':skill_id},write_authorized=write_authorized)
+  from .video_contract import guarded_video_route
+  if op['method']=='GET' and guarded_video_route(op['url'],'GET'):raise SafetyError('native-video-allocation-requires-confidential-session')
   execution=self.plan_execution(op,profile=profile)
   if expected_execution is not None and execution!=expected_execution:raise SafetyError('official-execution-contract-changed-prepare-new-approval')
   if op['method']!='GET':
@@ -185,6 +194,23 @@ class OfficialClient:
   if execution['transport']=='official-source-stdin':return self._run_stdin(profile,op,execution,authorization_expires_at,expected_shop)
   result=publish_response(self._run(invoke_args(profile,op)),op)
   return {**result,'_merchantExecution':execution} if isinstance(result,dict) else result
+ def allocate_video_upload(self,profile,params,*,write_authorized=False,expected_execution=None,authorization_expires_at=None,expected_shop=None):
+  from .video_contract import ALLOC,SKILL,native_id
+  from .result_verification import resource_id
+  from .official_transport import normalize_operation,validate_expected_shop
+  if write_authorized is not True or authorization_expires_at is None or expected_execution is None:raise SafetyError('approved-confidential-video-allocation-required')
+  if not isinstance(params,dict) or set(params) not in ({'zoneId','fileName','fileSize','videoType'},{'zoneId','fileName','fileSize','videoType','jdVideoId','breakPointFlag'}):raise SafetyError('exact-native-video-allocation-fields-required')
+  resource_id(params['zoneId'])
+  if type(params['videoType']) is not int or params['videoType']!=1 or type(params['fileSize']) is not int or not 0<params['fileSize']<=500*1024*1024 or not isinstance(params['fileName'],str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}\.mp4',params['fileName']):raise SafetyError('native-merchant-video-allocation-input-invalid')
+  if 'jdVideoId' in params:
+   native_id(params['jdVideoId'])
+   if params['breakPointFlag'] is not True:raise SafetyError('known-original-video-id-renewal-required')
+  shop=validate_expected_shop(expected_shop,profile)
+  if isinstance(authorization_expires_at,bool) or not isinstance(authorization_expires_at,(int,float)) or not math.isfinite(authorization_expires_at) or authorization_expires_at<=time.time():raise SafetyError('native-video-approval-expired-before-allocation')
+  operation=normalize_operation(profile,{'url':ALLOC,'method':'GET','params':params,'skillId':SKILL},write_authorized=True)
+  execution=self.plan_execution(operation,profile=profile)
+  if execution!=expected_execution or execution['transport']!='official-source-stdin':raise SafetyError('native-video-allocation-execution-contract-changed')
+  return self._run_stdin(profile,operation,execution,authorization_expires_at,shop,'video-upload-grant')
  def identity(self,profile):
   return identity_from_response(self.invoke(profile,'/rest/sp-seller/v0/venderinfo',params={'scopeSet':'baseInfo'},skill_id='jdo-seller-info'))
  def initialize(self,profile,*,vender_id=None,shop_name=None):

@@ -14,12 +14,17 @@ class BoundedCapture(io.StringIO):
   return super().write(value)
 
 def execute_envelope(envelope,state,*,namespace_hook=None):
- if not isinstance(envelope,dict) or set(envelope)!={'schemaVersion','profile','operation','execution','source','writeAuthorized','approvalExpiresAt','expectedShop'} or envelope['schemaVersion']!=1:raise SafetyError('invalid-official-stdin-envelope')
+ if not isinstance(envelope,dict) or set(envelope)-{'responseMode'}!={'schemaVersion','profile','operation','execution','source','writeAuthorized','approvalExpiresAt','expectedShop'} or envelope['schemaVersion']!=1:raise SafetyError('invalid-official-stdin-envelope')
  state=Path(state).resolve();home=safe_join(state,'cli-home')
  if os.name!='nt' or os.environ.get('JDO_CREDENTIAL_BACKEND')!='windows-credential-manager' or Path(os.environ.get('HOME','')).resolve()!=home or Path(os.environ.get('JDO_CLI_HOME','')).resolve()!=home/'.jdo-cli':raise SafetyError('official-stdin-native-credential-environment-required')
  if any(k in os.environ for k in ('JDO_APP_KEY','JDO_APP_SECRET','JDO_ACCESS_TOKEN','JDO_OAUTH_TOKEN_BASE_URL','JDO_ACCOUNT_IDENTITY','JDO_PIN')):raise SafetyError('ambient-official-credential-overrides-refused')
  profile=envelope['profile'];op=normalize_operation(profile,envelope['operation'],write_authorized=envelope['writeAuthorized'] is True)
- expected_shop=validate_expected_shop(envelope['expectedShop'],profile) if op['method']!='GET' else None
+ confidential=envelope.get('responseMode')=='video-upload-grant'
+ if 'responseMode' in envelope and not confidential:raise SafetyError('unreviewed-official-response-mode')
+ if confidential:
+  from .video_contract import ALLOC,SKILL
+  if op['url']!=ALLOC or op['method']!='GET' or op['skillId']!=SKILL or envelope['writeAuthorized'] is not True or envelope['approvalExpiresAt'] is None:raise SafetyError('approved-native-video-allocation-only')
+ expected_shop=validate_expected_shop(envelope['expectedShop'],profile) if op['method']!='GET' or confidential else None
  deadline=envelope['approvalExpiresAt']
  if deadline is not None and (isinstance(deadline,bool) or not isinstance(deadline,(int,float)) or not math.isfinite(deadline)):raise SafetyError('invalid-approval-deadline')
  execution=envelope['execution']
@@ -46,10 +51,10 @@ def execute_envelope(envelope,state,*,namespace_hook=None):
     value=namespace.get(name)
     if isinstance(value,str) and value:secrets.add(value)
    if namespace_hook is not None:namespace_hook(namespace)
-   original_auth=namespace['get_auth_context'];original_refresh=namespace['refresh_auth_context'];original_request=namespace['execute_request_with_retry'];original_open=namespace.get('urlopen_with_ssl');business_writing=False
-   if op['url'] in ('/rest/sp-product/v0/product-applies','/rest/sp-product/v0/sku-materials/batch') and not callable(original_open):raise SafetyError('official-publication-network-boundary-not-compatible')
+   original_auth=namespace['get_auth_context'];original_refresh=namespace['refresh_auth_context'];original_request=namespace['execute_request_with_retry'];original_open=namespace.get('urlopen_with_ssl');business_writing=False;checking_identity=False
+   if (confidential or op['url'] in ('/rest/sp-product/v0/product-applies','/rest/sp-product/v0/sku-materials/batch','/rest/sp-product/v0/media-zones/{zoneId}/videos')) and not callable(original_open):raise SafetyError('official-publication-network-boundary-not-compatible')
    def auth(*a,**k):
-    nonlocal frozen_context
+    nonlocal frozen_context,checking_identity
     if frozen_context is not None:return frozen_context
     result=original_auth(*a,**k);collect(result)
     if expected_shop is None:return result
@@ -61,13 +66,15 @@ def execute_envelope(envelope,state,*,namespace_hook=None):
     args=copy.copy(a[0]);args.method='GET';args.url='/rest/sp-seller/v0/venderinfo';args.params=json.dumps({'scopeSet':'baseInfo'});args.body=None;args.skill_id='jdo-seller-info';args.path_params=None
     identity_out=BoundedCapture()
     try:
+     checking_identity=True
      with contextlib.redirect_stdout(identity_out):namespace['cmd_invoke'](args)
+     checking_identity=False
      identity_response=json.loads(identity_out.getvalue())
      from heideng_merchant.official import identity_from_response
      from heideng_merchant.verification import business_payload
      business_payload(identity_response)
      if not matches_shop(identity_from_response(identity_response),expected_shop):raise SafetyError('live-authorized-shop-mismatch')
-    finally:identity_out.close()
+    finally:checking_identity=False;identity_out.close()
     return result
    def refresh(context,*a,**k):
     collect(context)
@@ -96,7 +103,7 @@ def execute_envelope(envelope,state,*,namespace_hook=None):
     nonlocal business_writing
     # Preserve official signing/networking; forbid any second business write,
     # even a broad auth-marker response. Proactive OAuth refresh still works.
-    writing=str(http_method).upper()!='GET'
+    writing=str(http_method).upper()!='GET' or confidential and not checking_identity
     if writing and deadline is not None and time.time()>=deadline:raise SafetyError('approval-expired-before-official-request')
     previous=business_writing;business_writing=writing
     try:return original_request(factory,timeout,http_method,refresh_callback=None if writing else refresh_callback,retry_safe=False if writing else retry_safe)
@@ -109,6 +116,9 @@ def execute_envelope(envelope,state,*,namespace_hook=None):
     if error.code not in (None,0):raise SafetyError('official-invoke-outcome-unknown') from None
   result=json.loads(out.getvalue())
   if not isinstance(result,(dict,list)) or not result:raise SafetyError('official-invoke-response-missing')
+  if confidential:
+   from .video_transfer import extract_grant
+   return {'ok':True,'grant':extract_grant(result,secrets),'execution':execution}
   return {'ok':True,'response':publish_response(result,op,secrets),'execution':execution}
  except Exception:
   # Neither stderr nor exception text is evidence of a safe retry; discard it.

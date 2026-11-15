@@ -57,3 +57,21 @@ Produces `video-delivery` 原始文件证据、批准范围和不可重放的阶
 - 视频type1/type42和两个视频ID不可串用；不破坏已存在视频及其他素材。
 
 执行记录：Task1首次RED、独立审查4项原问题的主流程RED/修复/独立窄复查已完成；代码提交5d78ff4bca628a4f92fed024a6ad0ed57b3b7df1。当前393项隔离测试和10项安装/源码边界smoke，以及实际GitHub克隆、新HOME、相同包SHA与干净clone均已验收。中间整店摘要断言失败和公开依赖下载超时及各自重跑保留在验收记录，未宣称前者根因修复。Task2–3未完成，Task4本轮仅覆盖Task1私有开发交付，不能据此宣称已上线原生视频链路或整个目标完成。
+# Task2工程裁决与接口（追加）
+
+- 裁决：上传地址分配虽然为GET，按不可重放的有副作用动作处理。准备阶段只查zone/元数据卡，不分配地址；批准后使用冻结店铺上下文、最终deadline检查、禁止任何自动请求重试的官方stdin路径。
+- 裁决：签名上传URL只能由官方分配响应进入专用confidential grant；不能由用户配置或generic task提供；不可JSON/pickle序列化，repr不含URL。子进程stdout仅为受控捕获IPC，绝不作为CLI输出/日志。只返回原jdVideoId和非敏感证明字段。
+- 裁决：multipart完整发送+HTTP2xx只记录“收到了传输响应”，storageVerified=false；继续保存后以原videoId/jdVideoId查询原素材，分别核对metadata、转码和审核。不把2xx或目标值当成unknown解锁依据，不宣称远端视频原字节验证。
+- 裁决：允许官方分配给当前已批准店铺的公开HTTPS目标；禁止用户URL、私人/本机/混合DNS地址、代理、重定向和把JD认证header带给上传端。固定解析的公开IP、原host TLS/SNI及单次连接；绝对deadline贯穿发送/读取。
+- Interfaces：`VideoDelivery.prepare(profile,manifest,zone,name=None)`、`approve(sessionId,fingerprint,confirmed=False,ttl_seconds=900)`、`execute(sessionId)`、`status(sessionId,refresh=False)`；`OfficialClient.allocate_video_upload(...)`专用原地址接口；`UploadGrant`单次消费；`transfer_video(grant,path,sha,size,deadline)`有界multipart。
+- Session的allocate/transfer/save各阶段调用前持久化，分别保留独立原始非敏感回执；未知阶段只能只读查询原ID并报告，不重新分配/传输/保存，不自动清unknown。即使多阶段已有目标状态也不构造伪原始回执。
+- generic task禁止直接调用地址分配或视频写接口；所有同店业务写入也检查未知/未完成video session，不能换入口绕过。素材42绑定proof仍为Task3，不能通过generic素材入口替代。
+
+## Task2复核记录（续接）
+
+- 中间验收：426项隔离测试、12项安装/官方源码边界smoke通过，72个归档文件（含manifest）；仅为修复前中间包，不用于最终交付证明。
+- 已复现并修复：完成save后倒退journal并删attempt可二次save；保留或删除journal中的save hash均复现。裁决：独立receipt/anchor与attempt/journal必须完整链接；任何已有阶段证明均在dispatch前阻止重复执行。新增两项RED→GREEN回归。
+- 独立窄复核确认原deadline/readback问题及上述save重放已修复，但指出原隔离问题仍有缺口：每条孤立证据必须有完整、合法且一致的shop owner，不能忽略无owner记录或把shop={}视作另店。已用全部四个证据树的合成记录复现；未完成修复和最终重验前不得交付。
+- Task3尚未实现；Task2上传/保存验收不能冒充SKU绑定、真实OAuth、真实网络上传或商业许可。
+- 上述owner缺口已完成RED→GREEN修复：全部四个证据树的空/缺失owner、default Profile、不完整或非法ID、空店名、混合无owner+另店owner均拒绝；完整一致另店证据仍允许本店继续。37项视频上传/保存专项回归通过，独立最终窄复核与431项最终包矩阵仍待结果；后续验收报告为最终依据。
+- 独立最终窄复核已关闭：5项目标回归（含非法owner子例）、5项原残余精确检查、3项_start直接重放guard检查均通过；没有剩余发现。该结论不代替最终431项/12smoke包矩阵或真实平台验收。

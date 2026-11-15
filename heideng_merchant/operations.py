@@ -28,6 +28,8 @@ def _operation(value):
  if 'body' in value:
   if method=='GET' or not isinstance(value['body'],(dict,list)):raise SafetyError('invalid-operation-body')
   result['body']=value['body']
+ from .video_contract import guarded_video_route
+ if guarded_video_route(result['url'],method):raise SafetyError('native-video-allocation-or-save-requires-approved-confidential-session')
  if not re.fullmatch('[a-z0-9-]+',str(result['skillId'])):raise SafetyError('invalid-skill-id')
  digest(result)
  return result
@@ -134,7 +136,9 @@ class Operations:
     if planning is not None:task['planningEvidence']=planning
     if material_planning is not None:task['materialPlanningEvidence']=material_planning
     atomic_json(path,task);return task
- def _assert_resolved(self,shop,exclude=None,resolved_uploads=()):
+ def _assert_resolved(self,shop,exclude=None,resolved_uploads=(),exclude_video_session=None):
+  from .video_delivery import assert_video_resolved
+  assert_video_resolved(self.state,shop,exclude_video_session)
   for entry in (self.state/'tasks').glob('*.json'):
    old=read_json(safe_join(self.state,'tasks/'+entry.name),{});subject=old.get('scope',{}).get('shop',{})
    same=subject.get('profile')==shop['profile'] or all(str(subject.get(k,''))==str(shop[k]) for k in ('venderId','shopId'))

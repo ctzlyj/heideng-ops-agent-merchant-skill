@@ -32,7 +32,7 @@ version: 0.1.0
 - material-audit：保留所有SKU，按199个SPU拆批，列缺口；优先复用用户已有合规素材，新增图片生成等待来源。
 - prepare-listing：真实实拍、用户卖点、真实类目和全部规格→独立listing-package；保留所有SKU，不为未上架产品造京东链接。
 - package-snapshot：把宿主在商品原生上下文实际采集的SKU顺序、每SKU到手价和素材整理为包。采集前读 references/collection.md；不把静态搜索价当真实到手价。
-- attach-video：用户已有视频/封面进入manifest；独立全帧/音轨解码、真实封面、视频/封面/商品上下文hash及实际视觉/试听确认齐全才bindable；技术检查不由布尔标志替代。上传前video-preflight复核。见references/local-video-handoff.md；本地就绪≠原生上传/绑定已完成，不调用生成模型。
+- attach-video：用户已有视频/封面进入manifest；独立全帧/音轨解码、真实封面、视频/封面/商品上下文hash及实际视觉/试听确认齐全才bindable；技术检查不由布尔标志替代。上传前video-preflight复核。见references/local-video-handoff.md；本地就绪≠原生上传/绑定已完成；原生已有视频上传/保存使用video-delivery-plan/approve/execute/status批准会话，见references/native-video-delivery.md。SKU绑定尚未接入，不调用生成模型。
 - official-doc：按官方版本策略SHA读取指定协议。先审阅接口字段/语义；能力新变更时查官方当前metadata，不套旧版参数。
 - task-plan / task-approve / task-execute / task-status / task-readback：业务操作的身份、范围、写入授权、去重、unknown与回查。官方CLI调用必须显式非default Profile、vender身份和目标店名/venderId一致。
 
