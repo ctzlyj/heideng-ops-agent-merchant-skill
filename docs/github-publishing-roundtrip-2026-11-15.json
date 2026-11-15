@@ -1,0 +1,129 @@
+{
+  "status": "passed",
+  "observedDate": "2026-11-15",
+  "repository": "ctzlyj/heideng-ops-agent-merchant-skill",
+  "branch": "codex/merchant-foundation",
+  "actualGitHubClone": true,
+  "sourceCommit": "77aef1668d29650589c24d888ae81fa78e7bc2c3",
+  "archiveSha256": "896cbea1e58514f1f04e86aa2a8da052562c94f3c2d512f9c0587fb1e0b03b7c",
+  "rebuildHashMatches": true,
+  "audit": {
+    "releaseAudit": "passed",
+    "version": "0.1.0",
+    "fileCount": 53,
+    "personalPaths": 0,
+    "credentialPatterns": 0,
+    "unknownFiles": 0,
+    "scope": "audited-release-only-not-third-party-runtime-or-live-shop"
+  },
+  "freshVenvAndPublicPsutil": true,
+  "freshHomeInstall": true,
+  "installedOnboarding": true,
+  "suiteTests": 256,
+  "cleanDetachedCloneAfterTests": true,
+  "formalRelease": false,
+  "realMerchantWrites": "not-run",
+  "realMerchantAuthorization": "not-run",
+  "paidModelCalls": 0,
+  "publicationSmoke": {
+    "status": "passed",
+    "archiveSha256": "896cbea1e58514f1f04e86aa2a8da052562c94f3c2d512f9c0587fb1e0b03b7c",
+    "install": "fresh verified ZIP / fresh HOME / real -I -B command processes",
+    "imageDecoder": "real isolated Pillow",
+    "sourceSkuCount": 1000,
+    "allSourceProductFieldsPreserved": true,
+    "validationPostCount": 4,
+    "knownPublicationPostCount": 1,
+    "unknownSeparateIntentPostCount": 1,
+    "mediaPostCount": 1,
+    "sameSourcePackageCannotDuplicateOnNewValidationNonce": true,
+    "copiedPackageKeepsCreationIntentAndCannotDuplicate": true,
+    "flatSameValidationAndPublicationBody": true,
+    "approvalBeforeBothPosts": true,
+    "unknownNotReplayed": true,
+    "onlineEffective": false,
+    "allSkuOnlineVerified": false,
+    "productImagesOnlineVerified": false,
+    "dispatch": "file-fake native API; transport_for selection real, not real official stdin dispatch",
+    "realMerchantAuthorization": "not-run",
+    "realMerchantWrites": "not-run",
+    "paidModelCalls": 0,
+    "networkBoundary": "merchant command socket connects disabled, public decoder setup before commands"
+  },
+  "schemaAndPriceRegression": {
+    "status": "passed",
+    "archiveSha256": "896cbea1e58514f1f04e86aa2a8da052562c94f3c2d512f9c0587fb1e0b03b7c",
+    "install": "fresh verified ZIP/fresh HOME/installed CLI -I -B",
+    "decoder": "real isolated Pillow",
+    "schemaSkuCount": 64,
+    "imageSlotCount": 65,
+    "entireSchemaAndUnknownComponentsPreserved": true,
+    "skuMappingVerified": false,
+    "productSchemaSubmissionCount": 0,
+    "productBound": false,
+    "remotePixelsVerified": false,
+    "priceSkuCount": 1000,
+    "knownPricePatchCount": 1,
+    "unknownPricePatchCount": 1,
+    "unknownDoesNotReplay": true,
+    "officialStdinSelection": "real transport_for helper; dispatch is file-fake, not real official stdin request",
+    "realMerchantAPI": "not-run",
+    "realOAuth": "not-run",
+    "paidModelCalls": 0,
+    "networkBoundary": "merchant command socket connects disabled; public Pillow setup only before commands"
+  },
+  "materialRegression": {
+    "status": "passed",
+    "install": "fresh verified ZIP / fresh HOME",
+    "python": "real -I/-B subprocesses",
+    "pillow": {
+      "Pillow": "13.0.0"
+    },
+    "decoder": "real Pillow, original valid 256x256 PNG bytes",
+    "largestImageBytes": 196992,
+    "base64NotInCommandOutput": true,
+    "approvalBeforeUpload": true,
+    "nativeFlatBody": true,
+    "knownPostCount": 1,
+    "unknownIntentPostCount": 1,
+    "unknownDoesNotUseFilenameMatchOrUnlock": true,
+    "storageVsProductBinding": "separate, no product bind performed",
+    "remotePixelsVerified": false,
+    "merchantAPI": "file-fake; command main socket connect blocked, image child local-only decoder not OS firewall",
+    "realMerchantAPI": "not-run",
+    "realMerchantWrites": "not-run",
+    "modelCalls": 0,
+    "archiveSha256": "896cbea1e58514f1f04e86aa2a8da052562c94f3c2d512f9c0587fb1e0b03b7c"
+  },
+  "auditedOfficialSourceSyntheticBoundary": {
+    "status": "passed",
+    "officialSourceSha256": "abcc6fe5a354d14c4a9b99a221d0b682759d77e8200fc3922f0c1ce32e86a0b2",
+    "officialVersion": "0.3.7",
+    "sourcePersisted": false,
+    "binary": "synthetic receipt stub; not executed",
+    "auth": "synthetic in-memory only",
+    "http": "synthetic final boundary, socket blocked",
+    "sourceSkuCount": 1000,
+    "realOAuth": "not-run",
+    "realMerchantWrites": "not-run",
+    "cases": [
+      {
+        "expiredAfterSigning": false,
+        "success": true,
+        "syntheticHttpMethods": [
+          "GET",
+          "POST"
+        ],
+        "signaturesComputed": 2
+      },
+      {
+        "expiredAfterSigning": true,
+        "success": false,
+        "syntheticHttpMethods": [
+          "GET"
+        ],
+        "signaturesComputed": 2
+      }
+    ]
+  }
+}

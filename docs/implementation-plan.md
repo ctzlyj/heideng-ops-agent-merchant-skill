@@ -84,3 +84,8 @@ Ruling：无法无损往返的模板数字拒绝而非自建JSON序列化体系�
 
 ## 检查点9计划：全SKU新品原生校验/提交
 按native-new-product-plan-2026-11-15.md实施。新取得官方组件/销售属性指南纠正了此前缓存缺少03文件与编辑SKU身份的资料缺口；不使用pre info、不触发真实商家授权。完整新品流水线而不是只做本地listing-package；目标仍保留全部商家能力与正式交付要求。
+
+
+检查点9本地终验：四项 P1 有界评审已修复，补测 TLS fallback 的底层重复 launch 并阻断；256 项 fresh HOME/禁 socket 全套通过，53 文件包审核通过。安装后全 1000 SKU 新品流程完成 4 次合成校验、1 次已知新品受理、1 次另一明确意图的 unknown（不重放），复制源包仍返回原创建任务；素材/旧 schema/1000 SKU 价格回归通过。真实 SHA 审核官方 0.3.7 源码的 parser/signing/native入口配合合成授权与 HTTP 验证通过，签名后过期只发生身份 GET，不发生业务 POST。此处全部为离线/契约等级，真实商家授权、写入和模型生成仍未运行。代码 commit 77aef1668d29650589c24d888ae81fa78e7bc2c3 已私有推送；真正 GitHub 回拉验收结果随后补入独立证据。未创建正式 Release，0.1.0 仍是非发行开发检查点。
+
+检查点9 GitHub 回测终验：实际 clone 77aef1668d29650589c24d888ae81fa78e7bc2c3、fresh venv/公开依赖、重建 SHA 一致、53 文件审核、fresh HOME/onboarding/256 项全套及新品/schema+价/素材/真实官方源合成 HTTP 四组 smoke 通过，克隆工作树干净。证据见 native-publishing-verification-2026-11-15 与 github-publishing-roundtrip-2026-11-15。继续既有商品完整编辑、图片绑定和线上全字段验证，不把本次离线新品受理当全部上线完成。
