@@ -1,0 +1,207 @@
+{
+  "date": "2026-11-16",
+  "checkpointCommit": "fb730f1026250ceb4a946135b7fc14a29e6923a9",
+  "scope": "anonymous-public-source-discovery-not-authenticated-schema-or-runtime-acceptance",
+  "policySha256": "acd1914caceebb8c00e24d98ee587fbaddefe3ab75f74eabd2fe782398e1c424",
+  "stableVersionAtObservation": "0.3.7",
+  "skillVersionAtObservation": "6",
+  "additionalOfficialDocs": [
+    {
+      "path": "cli/skills/jdo-api-830/SKILL.md",
+      "sha256": "f481a9c489f151abbc5bf5a92e889ec243fbf5f9168db583815ac601179eda67",
+      "bytes": 8872
+    },
+    {
+      "path": "cli/skills/jdo-api-830/references/api-catalog.md",
+      "sha256": "215a0d83c2bd5ef1ccf1103fc3d31bddbe9124486b9b00052b58da19aa0dda2d",
+      "bytes": 22326
+    },
+    {
+      "path": "cli/skills/jdo-product-manual/SKILL.md",
+      "sha256": "b01f73c709cfe1254e35a3acb292f03d9eb36b27debe8b03fff106aef4cf59cf",
+      "bytes": 14814
+    },
+    {
+      "path": "cli/skills/jdo-product-manual/references/api-reference.md",
+      "sha256": "6404940d38374f06bd9596424c2764a814d4fec98318508e10e7fff7ce4f7e35",
+      "bytes": 7908
+    },
+    {
+      "path": "cli/skills/jdo-support-data/SKILL.md",
+      "sha256": "3102acbd7b4b531ae413ccc54413316bc85f2107109fcc240a9e1e5ca07b2a3d",
+      "bytes": 13584
+    },
+    {
+      "path": "cli/skills/jdo-support-service/SKILL.md",
+      "sha256": "8cf4dfc47bf35ce36eaaeb02d63bb6d2cec3ac0618103687b85c9cc6c4ae49c8",
+      "bytes": 15392
+    }
+  ],
+  "publicPages": [
+    {
+      "publicPageHost": "wares-jdm.jd.com",
+      "anonymous": true,
+      "authHeaders": false,
+      "followedRedirect": false,
+      "status": 200,
+      "sha256": "e6f4393b01024106aa2c92fe72e4893afed82962d08c686852acba04dad2f859",
+      "bytes": 28104,
+      "contentType": "text/html;charset=utf-8",
+      "hasShortTitleTerm": false,
+      "hasLoginTerm": true
+    },
+    {
+      "publicPageHost": "jos.jd.com",
+      "anonymous": true,
+      "authHeaders": false,
+      "followedRedirect": false,
+      "status": 200,
+      "sha256": "c0964b8d66965aba4c0d02a2892dc9be4918744e3f147b1e467958b3096a6871",
+      "bytes": 6440,
+      "contentType": "text/html; charset=utf-8",
+      "hasShortTitleTerm": false,
+      "hasLoginTerm": true
+    }
+  ],
+  "staticSources": [
+    {
+      "host": "storage.360buyimg.com",
+      "path": "/shop-pageframe/micro-app/ware-shop-static-plus/prod/1.0.149-master.b287d3c/js/vendors.537a2fae.js",
+      "anonymous": true,
+      "status": 200,
+      "sha256": "b55fdb556228a7e2c7053d495daa3c249028800d502b85f4f623f732e65a8a32",
+      "bytes": 6954212,
+      "shortTitleOccurrences": 0
+    },
+    {
+      "host": "storage.360buyimg.com",
+      "path": "/shop-pageframe/micro-app/ware-shop-static-plus/prod/1.0.149-master.b287d3c/js/app.5ab6f37c.js",
+      "anonymous": true,
+      "status": 200,
+      "sha256": "911f9e7c988aa5a54693b09c8bdfe2f5745213f0448cb684a47cd2efb952fbe4",
+      "bytes": 454306,
+      "shortTitleOccurrences": 38
+    },
+    {
+      "host": "jos.jd.com",
+      "path": "/static/js/0.6ac5e71f.chunk.js",
+      "anonymous": true,
+      "status": 200,
+      "sha256": "3bc9fce27ecade2883d1da18ee5e376e97865e566708bfb867635ff0c16ab9b1",
+      "bytes": 173986,
+      "shortTitleOccurrences": 0
+    },
+    {
+      "host": "jos.jd.com",
+      "path": "/static/js/1.e1f3c1cb.chunk.js",
+      "anonymous": true,
+      "status": 200,
+      "sha256": "cc6af4ba9914f80209be52dcad027a555970bff3860835d21379349b8fee1d86",
+      "bytes": 183118,
+      "shortTitleOccurrences": 0
+    },
+    {
+      "host": "jos.jd.com",
+      "path": "/static/js/platformdetail.6876e9f1.chunk.js",
+      "anonymous": true,
+      "status": 200,
+      "sha256": "afc87bcfe6dc9153b6aea76f1b27d1d37c596b0a3e702538e3260a90dd293de9",
+      "bytes": 422122,
+      "shortTitleOccurrences": 0
+    }
+  ],
+  "sourceDerivedChunks": [
+    {
+      "chunkId": "969",
+      "chunkName": "WareList",
+      "parentSourceSha256": "911f9e7c988aa5a54693b09c8bdfe2f5745213f0448cb684a47cd2efb952fbe4",
+      "anonymous": true,
+      "path": "/shop-pageframe/micro-app/ware-shop-static-plus/prod/1.0.149-master.b287d3c/js/WareList.4678602f.js",
+      "status": 200,
+      "sha256": "7a26992c1d8e279b3d0197805c05b2cd39ca81d50bbc7c68f6803796762bbc16",
+      "bytes": 1965757,
+      "shortTitleOccurrences": 65
+    },
+    {
+      "chunkId": "7618",
+      "chunkName": "SettingSlogan",
+      "parentSourceSha256": "911f9e7c988aa5a54693b09c8bdfe2f5745213f0448cb684a47cd2efb952fbe4",
+      "anonymous": true,
+      "path": "/shop-pageframe/micro-app/ware-shop-static-plus/prod/1.0.149-master.b287d3c/js/SettingSlogan.e7db20a0.js",
+      "status": 200,
+      "sha256": "64f6f78cb7eadb6d4d100d923dd287bdd14a6a8760e8acf2927d36a16b1a0c0c",
+      "bytes": 4427,
+      "shortTitleOccurrences": 0
+    },
+    {
+      "chunkId": "8099",
+      "chunkName": "HealthScorePanel",
+      "parentSourceSha256": "911f9e7c988aa5a54693b09c8bdfe2f5745213f0448cb684a47cd2efb952fbe4",
+      "anonymous": true,
+      "path": "/shop-pageframe/micro-app/ware-shop-static-plus/prod/1.0.149-master.b287d3c/js/HealthScorePanel.5b30a01f.js",
+      "status": 200,
+      "sha256": "cae5aa22b5fc7890fe33ded39c33e8d7a280d233710bf74a1911a7a8034a5db8",
+      "bytes": 1132053,
+      "shortTitleOccurrences": 0
+    },
+    {
+      "chunkId": "8634",
+      "chunkName": "MediaManagement",
+      "parentSourceSha256": "911f9e7c988aa5a54693b09c8bdfe2f5745213f0448cb684a47cd2efb952fbe4",
+      "anonymous": true,
+      "path": "/shop-pageframe/micro-app/ware-shop-static-plus/prod/1.0.149-master.b287d3c/js/MediaManagement.3b66a14d.js",
+      "status": 200,
+      "sha256": "cf063803b87e1537d75a7fab3e1c2933d6656387c8d155cb26d00ae52cb67ec3",
+      "bytes": 3708,
+      "shortTitleOccurrences": 0
+    }
+  ],
+  "catalogCandidates": [
+    {
+      "apiName": "GET.sp-product.v0.sku-materials",
+      "catalogRow": 77,
+      "verifiedSchema": false,
+      "formalShortTitleModerationVerified": false
+    },
+    {
+      "apiName": "GET.sp-product.v0.violating-products._productId",
+      "catalogRow": 80,
+      "verifiedSchema": false,
+      "formalShortTitleModerationVerified": false
+    }
+  ],
+  "staticCandidates": [
+    {
+      "path": "/dsm/dsm.wareshopv2.material.MaterialReadService.acquireShortTitles",
+      "publicMethod": "POST",
+      "responseSchemaObserved": false,
+      "merchantInvocationAuthorized": false
+    },
+    {
+      "path": "/dsm/dsm.wareshopv2.ware.list.checkBatchUpdateShortTitle",
+      "publicMethod": "POST",
+      "responseSchemaObserved": false,
+      "merchantInvocationAuthorized": false
+    },
+    {
+      "path": "/dsm/dsm.product.manage.SkuInfoWriteViewService.batchUpdateShortTitle",
+      "publicMethod": "POST",
+      "operation": "write-not-moderation-proof",
+      "merchantInvocationAuthorized": false
+    }
+  ],
+  "portalFieldCandidate": "skuList[].skuFeatureMap.shortTitle",
+  "portalCurrentProof": false,
+  "infoRequiresAuthenticatedCredentials": "confirmed-by-previously-downloaded-public-cli-source-cmd_info",
+  "nativeInfoInvoked": false,
+  "dedicatedFormalContractFound": false,
+  "nativeEndpointGuessesUsed": false,
+  "generationEndpointsInvoked": false,
+  "authHeadersOrCookiesUsed": false,
+  "realMerchantCalls": 0,
+  "paidModels": 0,
+  "downloadedOriginalsDistributed": false,
+  "runtimeCodeChangedByDiscovery": false,
+  "C3Complete": false,
+  "goalComplete": false
+}
