@@ -28,7 +28,7 @@
 - [x] 2. Implement strict material contract and read-only audit. Preserve full supported query scope; honest completeness and information-health terminology.
 - [x] 3. Integrate mandatory Operations prepare/execute/readback guard and deterministic batch service. One scope approval, per-chunk ledger, never replay unknown or already started tasks.
 - [x] 4. CLI/Skill/registry instructions; user-facing natural language examples and evidence limitations.
-- [ ] 5. Isolated full suite, fresh-HOME installed 1000-SKU smoke and previous regressions, archive audit, private push and actual GitHub-clone roundtrip. Record hashes and failures honestly.
+- [x] 5. Isolated full suite, fresh-HOME installed 1000-SKU smoke and previous regressions, archive audit, private push and actual GitHub-clone roundtrip. Record hashes and failures honestly.
 
 ## Review focus
 - Upload response modified/rehashed: full original image-byte evidence plus exact ID/url readback.
@@ -43,3 +43,6 @@
 - Official cmd_info primary source proves the exact open-metadata GET route. Actual card method/path/schema is queried and fingerprinted; only the tested limited JSON Schema shape is accepted. No real merchant card queried.
 - Three independent findings reproduced RED (four tests), fixed and narrowly rechecked; source gate separately tested.
 - Local verification: 352 isolated tests, eight fresh-install/source-boundary smokes, archive audit. Actual GitHub roundtrip remains to record after private push.
+
+## Actual GitHub follow-through
+Completed actual GitHub clone of code commit 43dfb9962f369595ac7b0f2d45dba322e6328eee, fresh venv/public dependency, identical archive SHA 812ed0eff49f9489235adbedddd8a13ec09fa4911380c47f0e60646f664b5144, fresh HOME installation/onboarding, 352 isolated tests and all eight smokes. Detached source remains clean. Full objective remains active; no real merchant authorization/writes/model spend or formal release.
