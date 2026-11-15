@@ -20,6 +20,8 @@
 - [x] Implement focused read-only orchestrator/capture and summary/page interfaces.
 - [x] CLI, Skill/registry/Chinese workflow docs and agent-facing examples.
 - [x] Fresh-HOME installed 8191-SKU flow, full isolated suite, previous eight regressions, archive audit.
-- [ ] One bounded independent review, fix verified issues; private push, actual GitHub clone rebuild/install/full matrix and evidence. Full goal stays active.
+- [x] One bounded independent review, fix verified issues; private push, actual GitHub clone rebuild/install/full matrix and evidence. Full goal stays active.
 
 Independent review findings reproduced and fixed: suppress foreign-parent advice; incomplete census cannot infer outside-catalog membership; full captured scope vs filtered pagination separated. Seven focused recheck tests passed. Main also corrected a swallowed-assertion test and verified an install lease throughout collection. Actual GitHub roundtrip remains to record after push.
+
+Actual GitHub clone of cfe919bf635582d829e0f30d9f18d0915ead5256 rebuilt archive 72763ad3e73f4c00f86755b824649dac0695b33c41606f537cdef82fad892c3d, installed in fresh HOME/venv, passed373 tests and all9 smokes, and kept detached source clean. Full goal remains active; no real merchant auth/writes/models/public Release.
