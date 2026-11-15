@@ -126,7 +126,7 @@
       "scope": "audited-release-only-not-third-party-runtime-or-live-shop"
     }
   },
-  "pinnedGitHubFreshCloneComplete": false,
+  "pinnedGitHubFreshCloneComplete": true,
   "internal": {
     "auditedVersion": "1.5.4",
     "head": "13692b759bd52e35c3670cf8fad5330e1bf2b576",
@@ -140,5 +140,144 @@
   "C3Complete": false,
   "realMerchantCalls": 0,
   "paidModels": 0,
-  "goalComplete": false
+  "goalComplete": false,
+  "pinnedGitHub": {
+    "commit": "dc4590a29e8f2d110849080bf2c913bfb5efc5d9",
+    "fullRegression": {
+      "discovered": 745,
+      "testsRun": 745,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1392.719,
+      "sourceUnchanged": true,
+      "realMerchantCalls": 0,
+      "paidModels": 0,
+      "C3Complete": false,
+      "goalComplete": false
+    },
+    "fullGreen": true,
+    "freshRemoteClone": true,
+    "shortPathFixtureMaximumCharacters": 223,
+    "originalDeepPathAttempt": {
+      "terminalExit": -1,
+      "passed": false,
+      "cause": "three-independently-reproduced-Windows-MAX_PATH-test-fixture-errors",
+      "sourceModified": false,
+      "shortPathRecheckMethods": 2,
+      "shortPathRecheckCases": 3,
+      "shortPathRecheckSeconds": 3.575
+    },
+    "installedScenarios": {
+      "worker": {
+        "archiveSha256": "323cc61a0145d8c425f2af7620f126e1ac679f8265d56e37816aad78d4f00cd9",
+        "freshHomeInstall": true,
+        "result": {
+          "status": "passed",
+          "installedModules": true,
+          "defaultManagedInstallVerifier": true,
+          "actualLoopbackIPC": true,
+          "ownerThreadNativeActions": true,
+          "nativeUploadCalls": 1,
+          "nativeCreateCalls": 1,
+          "duplicateExecuteNotReplayed": true,
+          "realBrowser": false,
+          "realMerchantCalls": 0,
+          "paidModels": 0,
+          "C3Complete": false,
+          "goalComplete": false
+        },
+        "goalComplete": false
+      },
+      "effects": {
+        "status": "passed",
+        "archiveSha256": "323cc61a0145d8c425f2af7620f126e1ac679f8265d56e37816aad78d4f00cd9",
+        "freshHomeInstall": true,
+        "result": {
+          "status": "passed",
+          "installedModulePaths": true,
+          "nativeUploadCalls": 1,
+          "nativeCreateCalls": 1,
+          "originalSiblingRows": 5,
+          "originalTargetRows": 1,
+          "oldObservationRetained": true,
+          "missingReceiptRecovered": true,
+          "CLIHistoricalRows": true,
+          "newC2PrefixPreservesHistory": true,
+          "pendingNeverRetransmits": true,
+          "actualTitleNativeFieldRead": true,
+          "formalAuditVerified": false,
+          "healthVerified": false,
+          "portalVerified": false,
+          "imported": false,
+          "retryAuthorized": false,
+          "CLIWorkerIntegrated": true,
+          "NativeWorkerExercised": false,
+          "actualBrowserLaunched": false,
+          "realMerchantCalls": 0,
+          "paidModels": 0,
+          "goalComplete": false
+        },
+        "C3Complete": false,
+        "merchantAutomaticImportComplete": false,
+        "goalComplete": false
+      },
+      "import": {
+        "status": "passed",
+        "archiveSha256": "323cc61a0145d8c425f2af7620f126e1ac679f8265d56e37816aad78d4f00cd9",
+        "freshHomeInstall": true,
+        "businessAndBrowser": "synthetic",
+        "automaticMerchantCLIImportComplete": false,
+        "result": {
+          "status": "passed",
+          "installedModulePaths": true,
+          "nativeFileUploadCalls": 1,
+          "nativeCreateCalls": 1,
+          "lostCreateAckReadOnlyRecovered": true,
+          "noReplay": true,
+          "unknownAndSubmittedBlockUpdates": true,
+          "actualBrowserLaunched": false,
+          "realMerchantCalls": 0,
+          "paidModels": 0,
+          "imported": false,
+          "CLIWorkerIntegrated": true,
+          "NativeWorkerExercised": false
+        },
+        "goalComplete": false
+      },
+      "results": {
+        "status": "passed",
+        "archiveSha256": "323cc61a0145d8c425f2af7620f126e1ac679f8265d56e37816aad78d4f00cd9",
+        "freshHomeInstall": true,
+        "result": {
+          "status": "passed",
+          "installedModulePaths": true,
+          "nativeUploadCalls": 1,
+          "nativeCreateCalls": 1,
+          "originalResultGets": 2,
+          "lostCreateAckRecoveredWithoutReplay": true,
+          "fullOriginalRowResult": true,
+          "pendingNeverRetransmits": true,
+          "failureNotRetryAuthorized": true,
+          "updateGateStillBusy": true,
+          "sameShopOtherWritesQuarantined": true,
+          "qualifiedNativeMethods": true,
+          "actualBrowserLaunched": false,
+          "realMerchantCalls": 0,
+          "paidModels": 0,
+          "actualTitlesVerified": false,
+          "healthVerified": false,
+          "imported": false,
+          "CLIWorkerIntegrated": true,
+          "NativeWorkerExercised": false
+        },
+        "merchantAutomaticImportComplete": false,
+        "goalComplete": false
+      }
+    },
+    "packageByteIdenticalToLocal": true,
+    "packageSourceFiles": 113
+  },
+  "fullCurrentCodeVerified": true,
+  "merchantComplete": false
 }
