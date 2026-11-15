@@ -18,15 +18,15 @@
 ### Task 1: 当次浏览器源与安全传输
 Files: heideng_merchant/short_title_browser_contract.py、short_title_browser.py；tests/test_short_title_browser.py。
 Interfaces: ShortTitleSourceBrowser(state,client,plan_id,*,session_id=None,factory=None,clock=None,channel=None,headless=False).open()/poll()/capture()/close()。合成factory只用于测试，生产通过公开Playwright。open建立任务自有persistent_context，capture只操作原抽屉的唯一模板link和queryByPage响应；不上传/创建任务。
-- [ ] RED：模块缺失及同店完整对象/当次新响应/独立profile/精确source URL/任务类型非实例/抽屉唯一入口/下载匹配、体积/不安全模板/脱敏/关闭失败测试。
-- [ ] 实现、GREEN：原件中只有来源哈希和公开明确字段；下载文件名由Agent生成，不采用远端suggested_filename。无法确认POP类型/模板link/任务结构时具体拒绝，不猜平台值。
+- [x] RED：模块缺失及同店完整对象/当次新响应/独立profile/精确source URL/任务类型非实例/抽屉唯一入口/下载匹配、体积/不安全模板/脱敏/关闭失败测试。
+- [x] 实现、GREEN：原件中只有来源哈希和公开明确字段；下载文件名由Agent生成，不采用远端suggested_filename。无法确认POP类型/模板link/任务结构时具体拒绝，不猜平台值。
 Expected: focused unittest所有持久方法通过，0真实网络/业务写入。
 
 ### Task 2: 独立原件冻结及安装回归
 Files: 同上；references/native-short-title-browser-source.md；tests/smoke_short_title_browser.py。
 Interfaces: capture保存sourceId/sessionId/原planFingerprint/同店/当次网络原件哈希及templateSha/解析核对，status()只历史核对，不能称当前身份/导入/全任务列表完整。read_source(state,client,source_id)拒绝错文件名、源hash/模板篡改、profile owner丢失/隔离失效。未完成的浏览器资源不标记closed，也不释放为可重开。
-- [ ] RED→GREEN：原库存前后漂移不留可用source、source/模板篡改、重复capture不覆写、错误会话/原计划不采纳。
-- [ ] 有界独立review，主复现任何Important，验证之后私有代码交付；新HOME安装新smoke及原短标题/整店/更新门禁回归；全套/包审计/GitHub验收证据另存。
+- [x] RED→GREEN：原库存前后漂移不留可用source、source/模板篡改、重复capture不覆写、错误会话/原计划不采纳。
+- [x] 有界独立review，主复现任何Important，验证之后私有代码交付；新HOME安装新smoke及原短标题/整店/更新门禁回归；全套/包审计/GitHub验收证据另存。
 Expected: source-captured不等于approval-ready/imported；B2/C保持未完成。
 
 ## Pre-flight rulings
@@ -38,3 +38,5 @@ Task1→Task2：当次network proof不是写许可；source记录绑定完整原
 Task2 Ruling：原update_gate未识别新浏览器生命周期，主4方法RED后增加short_title_browser_gate.py与update_gate首入口钩子，4方法GREEN；纳入本次集成审查。源完整不等于浏览器已确认关闭；原锁和闭合原件都需检查。原smoke fixture把安装后已有state当不存在，exist_ok修正并保留失败日志；业务断言未修改。
 
 独立6 Important主复现RED后修复：未打开close擦除launch隔离、旧/别frame请求贴新epoch及旧任务响应、重复JSON丢异店、深层异常丢异店、未核验vendorId替代literal venderId、probe与open/版本切换竞态。新增7方法：core25+gate5=30，当前完整focused GREEN。request开始事件与main_frame/phase/time绑定、歧义JSON和解析异常fail closed；共享install.lock持有完整会话/切换，仅资源owner能写closed。并发busy纯摘要不作为写许可；实际install/rollback强互斥，版本操作已持锁时阻止重开而允许安全版本操作完成，反向已有浏览器持锁阻止版本操作。
+
+B1最终本地与实际GitHub同ad0d573代码569+5均通过，归档及完整证据见docs/short-title-browser-source-verification-2026-11-15.md；此为B1内部adapter完成，不是B2/C或完整商家导入完成。
