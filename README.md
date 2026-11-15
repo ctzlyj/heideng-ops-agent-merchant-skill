@@ -58,3 +58,7 @@ python -m unittest discover -s tests -v
 ## 已有视频的本地交接
 
 Agent可独立全帧/音轨解码MP4、检查真实封面并绑定视频/封面/商品hash；视觉和声音须实际验收，不能凭`technicalPass=true`提升可绑定状态。运行时仅按需从公开PyPI安装，不生成/付费调用。详见`references/local-video-handoff.md`。本地就绪不等于原生上传、SKU绑定或平台审核成功，原生上传/保存的受批准会话已接入（见`references/native-video-delivery.md`），SKU绑定已接入私有研发适配（见`references/native-video-binding.md`），仅经离线/合成验证，真实平台未实测，真实商家链路另获批准才实测。
+
+### 视频会话与更新安全
+
+独立上传会话和 SKU 绑定的原始尝试、回执及批准均纳入更新门禁。有 unknown、未决阶段、孤立/损坏证据时，安装和回滚不会先清理恢复现场。新视频计划保存运行时版本；更新后的旧未执行计划不会发起业务写入。只有尚无任何业务尝试的本地计划，在明确取消原范围后，Agent 才可保留取消证明并重新规划。不能取消远端未知结果来重提；详见 `references/native-video-delivery.md`。以上边界由合成链路验证，不等于真实商家上线验收。

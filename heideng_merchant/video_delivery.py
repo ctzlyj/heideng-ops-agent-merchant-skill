@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json,math,os,re,time,uuid
 from pathlib import Path
+from . import VERSION
 from .operations import Operations,digest,_same_identity
 from .safety import SafetyError,read_json,atomic_json,safe_join,file_sha,redact
 from .state import FileLock
@@ -28,10 +29,57 @@ def _once(path,value):
     except FileExistsError:raise SafetyError('native-video-original-record-already-exists') from None
 
 
+def _valid_time(value):
+    return type(value) in (int,float) and math.isfinite(value) and value>0
+
+
+def _session_scope(scope):
+    required={'schemaVersion','shop','manifestPath','video','zoneId','allocation','saveData','cards','originPolicy','limits','generationCalls','executions'}
+    optional=set(scope)-required if isinstance(scope,dict) else set()
+    if not isinstance(scope,dict) or not required<=set(scope) or optional not in (set(),{'runtimeVersion','planNonce'}) or type(scope['schemaVersion']) is not int or scope['schemaVersion']!=1:raise SafetyError('native-video-original-scope-incomplete')
+    if optional and (not isinstance(scope['runtimeVersion'],str) or not re.fullmatch(r'\d+\.\d+\.\d+',scope['runtimeVersion']) or not isinstance(scope['planNonce'],str) or not re.fullmatch('[a-f0-9]{32}',scope['planNonce'])):raise SafetyError('native-video-plan-version-proof-invalid')
+    shop=scope['shop'];video=scope['video'];allocation=scope['allocation'];saved=scope['saveData']
+    if not isinstance(shop,dict) or set(shop)!={'profile','venderId','shopId','shopName'} or any(not isinstance(v,str) or not v.strip() for v in shop.values()):raise SafetyError('native-video-original-shop-incomplete')
+    validate_profile(shop['profile']);native_id(shop['venderId']);native_id(shop['shopId'])
+    if not isinstance(scope['manifestPath'],str) or not scope['manifestPath'] or not isinstance(video,dict) or video.get('bindable') is not True or any(not isinstance(video.get(k),str) or not re.fullmatch('[a-f0-9]{64}',video[k]) for k in ('sha256','coverSha256','listingFingerprint')) or not isinstance(video.get('technicalEvidence'),dict) or type(video['technicalEvidence'].get('bytes')) is not int or video['technicalEvidence']['bytes']<=0:raise SafetyError('native-video-original-source-proof-incomplete')
+    from .video_probe import validate_evidence
+    validate_evidence(video['technicalEvidence'],video['sha256'],video['technicalEvidence']['bytes'])
+    if not isinstance(scope['zoneId'],str) or not scope['zoneId'] or allocation!={'zoneId':scope['zoneId'],'fileName':video['sha256']+'.mp4','fileSize':video['technicalEvidence']['bytes'],'videoType':1}:raise SafetyError('native-video-original-allocation-scope-invalid')
+    if not isinstance(saved,dict) or set(saved)!={'videoName','videoDesc','videoType','videoSize'} or not isinstance(saved['videoName'],str) or not saved['videoName'].strip() or len(saved['videoName'])>18 or saved['videoDesc']!='商品主图展示' or type(saved['videoType']) is not int or saved['videoType']!=1 or saved['videoSize']!=allocation['fileSize']:raise SafetyError('native-video-original-save-scope-invalid')
+    cards=scope['cards'];executions=scope['executions']
+    if not isinstance(cards,dict) or set(cards)!={ALLOC,VIDEOS,'read'} or any(not isinstance(c,dict) or not isinstance(c.get('inputSchema'),dict) for c in cards.values()) or not isinstance(executions,dict) or set(executions)!={ALLOC,VIDEOS} or any(not isinstance(e,dict) or e.get('transport')!='official-source-stdin' for e in executions.values()):raise SafetyError('native-video-original-contract-incomplete')
+    if scope['originPolicy']!='official-issued-public-https-only-no-redirect-no-auth-headers' or scope['limits']!={'newAllocation':1,'knownIdRenewal':1,'fullTransfer':1,'save':1} or type(scope['generationCalls']) is not int or scope['generationCalls']!=0 or redact(scope)!=scope:raise SafetyError('native-video-original-policy-invalid')
+
+
+def _session_evidence(state,value):
+    ident=value['sessionId'];fingerprint=value['fingerprint'];shop=value['scope']['shop'];attempted=False
+    fields={'attempts':{'stage','startedAt','approvalSha256'},'receipts':{'stage','receipt'},'anchors':{'stage','originalReceiptSha256'},'approvals':{'approvalId','approval'}}
+    for kind,extra in fields.items():
+        folder='video-session-'+kind+'/'+ident;root=safe_join(state,folder)
+        if not root.exists():continue
+        if not root.is_dir():raise SafetyError('native-video-unreviewed-evidence-layout')
+        for entry in root.iterdir():
+            path=safe_join(state,folder+'/'+entry.name)
+            if not path.is_file() or path.suffix!='.json' or (not re.fullmatch('[a-f0-9]{32}',path.stem) if kind=='approvals' else path.stem not in STAGES):raise SafetyError('native-video-unreviewed-evidence-entry')
+            record=read_json(path)
+            if not isinstance(record,dict) or set(record)!={'sessionId','fingerprint','shop'}|extra or record['sessionId']!=ident or record['fingerprint']!=fingerprint or record['shop']!=shop or redact(record)!=record:raise SafetyError('native-video-unreviewed-evidence-record')
+            if kind=='approvals':
+                approval=record['approval']
+                if record['approvalId']!=path.stem or not isinstance(approval,dict) or set(approval)!={'confirmed','fingerprint','expiresAt'} or approval['confirmed'] is not True or approval['fingerprint']!=fingerprint or not _valid_time(approval['expiresAt']):raise SafetyError('native-video-unreviewed-approval-record')
+            else:
+                attempted=True
+                if record['stage']!=path.stem:raise SafetyError('native-video-unreviewed-evidence-stage')
+                if kind=='attempts' and (not _valid_time(record['startedAt']) or not isinstance(record['approvalSha256'],str) or not re.fullmatch('[a-f0-9]{64}',record['approvalSha256'])):raise SafetyError('native-video-unreviewed-attempt-record')
+                if kind=='receipts' and not isinstance(record['receipt'],dict):raise SafetyError('native-video-unreviewed-receipt-record')
+                if kind=='anchors' and (not isinstance(record['originalReceiptSha256'],str) or not re.fullmatch('[a-f0-9]{64}',record['originalReceiptSha256'])):raise SafetyError('native-video-unreviewed-anchor-record')
+    return attempted
+
+
 def _load(state,session_id):
     value=read_json(_path(state,session_id))
     if not isinstance(value,dict) or value.get('sessionId')!=session_id or digest(value.get('scope'))!=value.get('fingerprint') or value['fingerprint'][:24]!=session_id:raise SafetyError('native-video-session-scope-changed')
-    if value.get('status') not in ACTIVE|{'prepared','ready','rejected'} or not isinstance(value.get('receipts'),dict):raise SafetyError('native-video-session-state-invalid')
+    if value.get('status') not in ACTIVE|{'prepared','ready','rejected','cancelled'} or not isinstance(value.get('receipts'),dict):raise SafetyError('native-video-session-state-invalid')
+    _session_scope(value['scope']);attempted=_session_evidence(state,value)
     if 'approval' in value:
         approval_id=value.get('approvalId')
         if not isinstance(approval_id,str) or not re.fullmatch('[a-f0-9]{32}',approval_id):raise SafetyError('original-native-video-parent-approval-required')
@@ -51,7 +99,11 @@ def _load(state,session_id):
         if marker is not None:
             if marker.get('sessionId')!=session_id or marker.get('fingerprint')!=value['fingerprint'] or marker.get('stage')!=stage or marker.get('approvalSha256')!=value.get('approvalSha256') or marker.get('shop')!=value['scope']['shop']:raise SafetyError('native-video-original-attempt-marker-changed')
             if stage not in value['receipts']:missing.append(stage)
+    cancellation=read_json(safe_join(state,'video-session-cancellations/'+session_id+'.json'))
+    if cancellation is not None or value['status']=='cancelled':
+        if value['status']!='cancelled' or missing or value['receipts'] or not isinstance(cancellation,dict) or set(cancellation)!={'sessionId','fingerprint','shop','cancelledAt'} or not _valid_time(cancellation['cancelledAt']) or cancellation['sessionId']!=session_id or cancellation['fingerprint']!=value['fingerprint'] or cancellation['shop']!=value['scope']['shop'] or digest(cancellation)!=value.get('cancellationSha256'):raise SafetyError('original-unattempted-video-cancellation-required')
     if missing:value.update(status='unknown',unknownStage=missing[0])
+    if value['status']=='prepared' and attempted:value.update(status='unknown',unknownStage='original-stage-state-contradiction')
     needed={'allocated':{'allocate'},'transferred':{'allocate','transfer'},'saved':{'allocate','transfer','save'},'ready':{'allocate','transfer','save'},'rejected':{'allocate','transfer','save'}}
     if not needed.get(value['status'],set())<=set(value['receipts']):raise SafetyError('native-video-stage-original-receipts-incomplete')
     return value
@@ -126,6 +178,9 @@ class VideoDelivery:
 
     def _check(self,session,*,media=True):
         scope=session['scope'];shop=scope['shop'];approval=session.get('approval',{})
+        try:live=(Path(__file__).resolve().parents[1]/'VERSION').read_text(encoding='utf-8-sig').strip()
+        except OSError:raise SafetyError('native-video-runtime-version-unavailable') from None
+        if scope.get('runtimeVersion')!=VERSION or live!=VERSION:raise SafetyError('native-video-runtime-changed-rebuild-unattempted-plan-and-approval')
         if approval.get('confirmed') is not True or approval.get('fingerprint')!=session['fingerprint'] or isinstance(approval.get('expiresAt'),bool) or not isinstance(approval.get('expiresAt'),(int,float)) or not math.isfinite(approval['expiresAt']) or approval['expiresAt']<=time.time():raise SafetyError('native-video-exact-unexpired-parent-approval-required')
         if not _same_identity(self.client.identity(shop['profile']),shop):raise SafetyError('native-video-approved-shop-changed')
         self.ops._assert_resolved(shop,exclude_video_session=session['sessionId'])
@@ -144,7 +199,7 @@ class VideoDelivery:
             if not isinstance(name,str) or not name.strip() or name!=name.strip() or len(name)>18 or any(ord(c)<32 for c in name) or redact(name)!=name:raise SafetyError('native-video-approved-name-required')
             allocation={'zoneId':selected['zoneId'],'fileName':video['sha256']+'.mp4','fileSize':video['technicalEvidence']['bytes'],'videoType':1};validate_input(cards[ALLOC],allocation)
             save_data={'videoName':name,'videoDesc':'商品主图展示','videoType':1,'videoSize':allocation['fileSize']}
-            scope={'schemaVersion':1,'shop':shop,'manifestPath':str(manifest.resolve()),'video':video,'zoneId':selected['zoneId'],'allocation':allocation,'saveData':save_data,'cards':cards,'originPolicy':'official-issued-public-https-only-no-redirect-no-auth-headers','limits':{'newAllocation':1,'knownIdRenewal':1,'fullTransfer':1,'save':1},'generationCalls':0}
+            scope={'schemaVersion':1,'runtimeVersion':VERSION,'shop':shop,'manifestPath':str(manifest.resolve()),'video':video,'zoneId':selected['zoneId'],'allocation':allocation,'saveData':save_data,'cards':cards,'originPolicy':'official-issued-public-https-only-no-redirect-no-auth-headers','limits':{'newAllocation':1,'knownIdRenewal':1,'fullTransfer':1,'save':1},'generationCalls':0}
             sample=self._body(scope,'1');validate_input(cards[VIDEOS],{'zoneId':scope['zoneId']},sample)
             query_sample={'zoneId':scope['zoneId'],'videoType':1,'scopeSet':['BASE'],'page':1,'pageSize':10,'videoIdSet':[id_value(cards['read']['inputSchema']['properties']['videoIdSet'].get('items',{}),'1')]};validate_input(cards['read'],query_sample)
             if listing_fingerprint(read_json(manifest))!=video['listingFingerprint']:raise SafetyError('native-video-manifest-changed-during-planning')
@@ -154,10 +209,11 @@ class VideoDelivery:
             intent=digest({'shop':shop,'sourceSha256':video['sha256'],'listingFingerprint':video['listingFingerprint']})
             for p in sorted((self.state/'video-sessions').glob('*.json')):
                 old=_load(self.state,p.stem)
-                if old.get('intent')==intent:
-                    old_scope={k:v for k,v in old['scope'].items() if k!='manifestPath'};new_scope={k:v for k,v in scope.items() if k!='manifestPath'}
+                if old.get('intent')==intent and old['status']!='cancelled':
+                    old_scope={k:v for k,v in old['scope'].items() if k not in ('manifestPath','planNonce','runtimeVersion')};new_scope={k:v for k,v in scope.items() if k not in ('manifestPath','planNonce','runtimeVersion')}
                     if old_scope!=new_scope:raise SafetyError('preserve-original-native-video-intent-no-reallocation')
                     return self._public(old)
+            scope['planNonce']=uuid.uuid4().hex
             fingerprint=digest(scope);session={'sessionId':fingerprint[:24],'fingerprint':fingerprint,'intent':intent,'scope':scope,'status':'prepared','createdAt':time.time(),'receipts':{}}
             _once(_path(self.state,session['sessionId']),session);return self._public(session)
 
@@ -169,6 +225,14 @@ class VideoDelivery:
             record={'sessionId':session_id,'fingerprint':fingerprint,'approvalId':session['approvalId'],'approval':session['approval'],'shop':session['scope']['shop']}
             _once(safe_join(self.state,'video-session-approvals/'+session_id+'/'+session['approvalId']+'.json'),record);session['approvalSha256']=digest(record)
             self._save(session);return self._public(session)
+
+    def cancel(self,session_id,fingerprint,*,confirmed=False):
+        initial=_load(self.state,session_id)
+        with FileLock(self.state/'install.lock'),FileLock(_path(self.state,session_id,suffix='.lock')),FileLock(self.state/('shop-'+initial['scope']['shop']['venderId']+'.lock')):
+            session=_load(self.state,session_id)
+            if confirmed is not True or fingerprint!=session['fingerprint'] or session['status']!='prepared' or session['receipts'] or any(self._marker(session,stage).exists() for stage in STAGES) or any(safe_join(self.state,folder+'/'+session_id+'/'+stage+'.json').exists() for folder in ('video-session-receipts','video-session-anchors') for stage in STAGES):raise SafetyError('only-exact-unattempted-native-video-plan-can-be-cancelled')
+            record={'sessionId':session_id,'fingerprint':fingerprint,'shop':session['scope']['shop'],'cancelledAt':time.time()}
+            _once(safe_join(self.state,'video-session-cancellations/'+session_id+'.json'),record);session.update(status='cancelled',cancellationSha256=digest(record));self._save(session);return self._public(session)
 
     def _grant(self,session,renew=False):
         scope=session['scope'];shop=scope['shop'];params=dict(scope['allocation']);original=self._receipt(session,'allocate');stage='renew' if renew else 'allocate'
@@ -193,7 +257,7 @@ class VideoDelivery:
         initial=_load(self.state,session_id)
         with FileLock(self.state/'install.lock'),FileLock(_path(self.state,session_id,suffix='.lock')),FileLock(self.state/('shop-'+initial['scope']['shop']['venderId']+'.lock')):
             session=_load(self.state,session_id)
-            if session['status']=='unknown' or session['status'] in ('allocating','transferring','saving'):raise SafetyError('native-video-original-outcome-unknown-no-replay')
+            if session['status']=='unknown' or session['status'] in ('allocating','transferring','saving','cancelled'):raise SafetyError('native-video-original-outcome-unknown-no-replay')
             if session['status'] in ('saved','ready','rejected'):return self._refresh(session)
             self._check(session);grant=None
             if session['status']=='prepared':grant=self._grant(session)
@@ -254,7 +318,7 @@ class VideoDelivery:
         self._save(session);return self._public(session,refreshed=True)
 
     def status(self,session_id,*,refresh=False):
-        with FileLock(_path(self.state,session_id,suffix='.lock')):
+        with FileLock(self.state/'install.lock'),FileLock(_path(self.state,session_id,suffix='.lock')):
             session=_load(self.state,session_id)
             if refresh and session['status'] in ('saved','ready','rejected'):return self._refresh(session)
             if refresh and session['status']=='unknown' and self._receipt(session,'allocate'):
@@ -265,4 +329,4 @@ class VideoDelivery:
 
     def _public(self,session,*,refreshed=False):
         allocation=self._receipt(session,'allocate');saved=self._receipt(session,'save');metadata=session.get('metadata') or {}
-        return {'sessionId':session['sessionId'],'fingerprint':session['fingerprint'],'status':session['status'],'unknownStage':session.get('unknownStage'),'videoId':saved['videoId'] if saved else None,'jdVideoId':allocation['jdVideoId'] if allocation else None,'storageVerified':refreshed and session.get('metadataVerified') is True,'metadataHistoricallyVerified':session.get('metadataVerified') is True,'observedAt':session.get('observedAt'),'remoteOriginalBytesVerified':False,'transcodeReady':refreshed and metadata.get('status') in (2,4),'auditApproved':refreshed and metadata.get('status')==4,'auditStatus':metadata.get('status') if refreshed else None,'cachedAuditStatus':metadata.get('status'),'videoName':session['scope']['saveData']['videoName'],'approvalExpiresAt':session.get('approval',{}).get('expiresAt'),'generationCalls':0,'skuBinding':'not-performed'}
+        return {'sessionId':session['sessionId'],'fingerprint':session['fingerprint'],'runtimeVersion':session['scope'].get('runtimeVersion'),'status':session['status'],'unknownStage':session.get('unknownStage'),'videoId':saved['videoId'] if saved else None,'jdVideoId':allocation['jdVideoId'] if allocation else None,'storageVerified':refreshed and session.get('metadataVerified') is True,'metadataHistoricallyVerified':session.get('metadataVerified') is True,'observedAt':session.get('observedAt'),'remoteOriginalBytesVerified':False,'transcodeReady':refreshed and metadata.get('status') in (2,4),'auditApproved':refreshed and metadata.get('status')==4,'auditStatus':metadata.get('status') if refreshed else None,'cachedAuditStatus':metadata.get('status'),'videoName':session['scope']['saveData']['videoName'],'approvalExpiresAt':session.get('approval',{}).get('expiresAt'),'generationCalls':0,'skuBinding':'not-performed'}

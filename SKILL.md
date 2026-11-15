@@ -32,7 +32,7 @@ version: 0.1.0
 - material-audit：保留所有SKU，按199个SPU拆批，列缺口；优先复用用户已有合规素材，新增图片生成等待来源。
 - prepare-listing：真实实拍、用户卖点、真实类目和全部规格→独立listing-package；保留所有SKU，不为未上架产品造京东链接。
 - package-snapshot：把宿主在商品原生上下文实际采集的SKU顺序、每SKU到手价和素材整理为包。采集前读 references/collection.md；不把静态搜索价当真实到手价。
-- attach-video：用户已有视频/封面进入manifest；独立全帧/音轨解码、真实封面、视频/封面/商品上下文hash及实际视觉/试听确认齐全才bindable；技术检查不由布尔标志替代。上传前video-preflight复核。见references/local-video-handoff.md；本地就绪≠原生上传/绑定已完成；原生已有视频上传/保存使用video-delivery-plan/approve/execute/status批准会话，见references/native-video-delivery.md。SKU绑定使用video-binding-preview/plan/approve/execute/status独立批准，见references/native-video-binding.md；当前仅经离线/合成验证，真实平台未实测，不调用生成模型。
+- attach-video：用户已有视频/封面进入manifest；独立全帧/音轨解码、真实封面、视频/封面/商品上下文hash及实际视觉/试听确认齐全才bindable；技术检查不由布尔标志替代。上传前video-preflight复核。见references/local-video-handoff.md；本地就绪≠原生上传/绑定已完成；原生已有视频上传/保存使用video-delivery-plan/approve/execute/status/cancel批准会话，见references/native-video-delivery.md。SKU绑定使用video-binding-preview/plan/approve/execute/status独立批准，见references/native-video-binding.md；当前仅经离线/合成验证，真实平台未实测，不调用生成模型。
 - official-doc：按官方版本策略SHA读取指定协议。先审阅接口字段/语义；能力新变更时查官方当前metadata，不套旧版参数。
 - task-plan / task-approve / task-execute / task-status / task-readback：业务操作的身份、范围、写入授权、去重、unknown与回查。官方CLI调用必须显式非default Profile、vender身份和目标店名/venderId一致。
 
@@ -52,7 +52,7 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 
 ## 安装与更新
 
-入口 install.py；官方依赖由Agent按需要自动补齐，商家不用另找仓库。启动时或显式做更新发现，候选下载/SHA/兼容检查通过且无进行中/unknown任务、无用户修改才切换；失败恢复，禁止静默降级。后台不扫码、不弹窗、不建未经请求的定时任务。
+入口 install.py；官方依赖由Agent按需要自动补齐，商家不用另找仓库。启动时或显式做更新发现，候选下载/SHA/兼容检查通过且无进行中/unknown任务、无用户修改才切换；失败恢复，禁止静默降级。后台不扫码、不弹窗、不建未经请求的定时任务。原生视频与绑定独立证据也纳入空闲门禁；unknown/丢失证据时恢复清理、安装和回滚都不得进行。新视频计划冻结运行时版本；只有明确取消且无业务尝试的本地计划可保留取消证明后重新规划，不能取消unknown。详见 references/native-video-delivery.md。
 
 每轮简报已完成、真实证据、未验证部分、输出绝对路径；媒体生成、官方授权、店铺线上生效分别描述，不能编造。
 

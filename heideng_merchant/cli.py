@@ -113,6 +113,7 @@ def parser():
   if name=='video-binding-status':vb.add_argument('--refresh',action='store_true')
  vd=sub.add_parser('video-delivery-plan');vd.add_argument('--profile',required=True);vd.add_argument('--manifest',required=True);vd.add_argument('--zone-id',required=True);vd.add_argument('--name')
  va=sub.add_parser('video-delivery-approve');va.add_argument('--session-id',required=True);va.add_argument('--fingerprint',required=True);va.add_argument('--confirm',action='store_true');va.add_argument('--ttl-seconds',type=int,default=900)
+ vc=sub.add_parser('video-delivery-cancel');vc.add_argument('--session-id',required=True);vc.add_argument('--fingerprint',required=True);vc.add_argument('--confirm',action='store_true')
  for name in ('video-delivery-execute','video-delivery-status'):
   vr=sub.add_parser(name);vr.add_argument('--session-id',required=True)
   if name=='video-delivery-status':vr.add_argument('--refresh',action='store_true')
@@ -211,6 +212,7 @@ def run(args):
  if command=='video-binding-status':return VideoBindingService(state,client).status(args.plan_id,refresh=args.refresh)
  if command=='video-delivery-plan':return VideoDelivery(state,client).prepare(args.profile,args.manifest,args.zone_id,name=args.name)
  if command=='video-delivery-approve':return VideoDelivery(state,client).approve(args.session_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)
+ if command=='video-delivery-cancel':return VideoDelivery(state,client).cancel(args.session_id,args.fingerprint,confirmed=args.confirm)
  if command=='video-delivery-execute':return VideoDelivery(state,client).execute(args.session_id)
  if command=='video-delivery-status':return VideoDelivery(state,client).status(args.session_id,refresh=args.refresh)
  if command=='video-runtime-status':return VideoRuntime(state).status()

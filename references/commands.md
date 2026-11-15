@@ -68,3 +68,5 @@ publish-categories、publish-brands、publish-context；publish-validation-plan 
 原生 SKU 缺失素材槽位：sku-material-audit、sku-material-plan、sku-material-approve、sku-material-execute、sku-material-status。先读 references/native-sku-materials.md；计划一次范围批准，各50SKU块逐一留账/回读，不重绑旧槽位、不替 unknown 重提。
 
 全店在售来源审计：sku-material-shop-audit / sku-material-shop-status / sku-material-shop-rows。默认查询一次完整原生health来源，信息分和素材源的完整性独立记录，摘要不输出数千ID；全明细在原指纹捕获文件与分页接口，详见 references/native-shop-material-audit.md。
+
+原生已有视频计划的本地取消：video-delivery-cancel --session-id --fingerprint --confirm。仅明确取消且尚无业务尝试时可用，保留原计划和独立取消证明；unknown/allocated等不可取消，不删除状态或换ID重提。运行时版本与更新门禁见 references/native-video-delivery.md。

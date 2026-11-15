@@ -225,6 +225,7 @@
         "video-preflight",
         "video-delivery-plan",
         "video-delivery-approve",
+        "video-delivery-cancel",
         "video-delivery-execute",
         "video-delivery-status",
         "video-binding-preview",
@@ -239,7 +240,9 @@
       "visualAndVoiceReview": "requires-real-inspection-bound-to-video-cover-and-listing-hashes",
       "nativeVideoBinding": "receipt-bound-type42-full-sku-binding-offline-tested-live-contract-and-merchant-unverified",
       "nativeDeliveryReference": "references/native-video-delivery.md",
-      "nativeBindingReference": "references/native-video-binding.md"
+      "nativeBindingReference": "references/native-video-binding.md",
+      "nativeSessionUpdatePolicy": "fail-closed-original-evidence-before-recovery-and-version-switch",
+      "localCancellation": "exact-confirmed-unattempted-only-retain-original-proof"
     }
   ],
   "videoUpstream": {

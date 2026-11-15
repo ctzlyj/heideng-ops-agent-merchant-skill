@@ -111,9 +111,8 @@ def _remove_owned(path,target,kind):
   shutil.rmtree(p)
 
 def busy(state):
- for p in (Path(state)/'tasks').glob('*.json'):
-  if read_json(p,{}).get('status') in ('submitting','unknown','submitted','running'):return True
- return False
+ from .update_gate import busy as update_busy
+ return update_busy(state)
 
 def _replace_directory(source,target):
  """Retry only an unchanged local directory switch under transient Windows locks.
@@ -153,6 +152,7 @@ def install_archive(archive,target,state,*,expected_sha):
  if not re.fullmatch('[0-9a-f]{64}',str(expected_sha)) or file_sha(archive)!=expected_sha:raise SafetyError('archive-sha256-mismatch')
  manifest,raw=validate_archive(archive)
  with FileLock(state/'install.lock'):
+  if busy(state):raise SafetyError('active-task-update-or-recovery-deferred')
   _recover(target,state)
   if target.exists():
    current=verify_install(target)
@@ -182,6 +182,7 @@ def install_archive(archive,target,state,*,expected_sha):
 def rollback(target,state):
  target=_target(target);state=Path(state)
  with FileLock(state/'install.lock'):
+  if busy(state):raise SafetyError('active-task-rollback-or-recovery-deferred')
   _recover(target,state)
   if busy(state):raise SafetyError('active-task-rollback-deferred')
   info=read_json(state/'install-history.json',{})
