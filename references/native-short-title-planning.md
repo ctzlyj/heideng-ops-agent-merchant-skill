@@ -14,3 +14,5 @@
 ## 仍必须完成的下一阶段
 
 当次任务自有浏览器同店身份/模板来源、精确根批准、仅短标题抽屉上传/创建实际实例ID、独立attempt/ack/anchor与unknown只查不重传、逐行结果及仅确认失败行补导、原范围回读和更新门禁。参见docs中的short-title-import-design/plan；这些不是可选范围。jobId任务类型不能当实际实例ID，行接受/文件生成不等于生效或分数刷新。真实商家/当前页面接口、许可与模型来源均不由本阶段合成测试证明。
+
+已开发B1内部浏览器source adapter，见 references/native-short-title-browser-source.md；尚无CLI/worker/上传批准，不能称自动导入已可用。
