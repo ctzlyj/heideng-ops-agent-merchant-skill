@@ -38,7 +38,11 @@ def changes_for_audit(record,changes,slots):
   pid=positive(raw['productId']);sku=positive(raw.get('skuId'));row=items.get(sku)
   if row is None or row['onSale'] is not True or row['productId']!=pid or raw.get('slot') not in slots:raise SafetyError('shop-material-change-outside-approved-sale-scope')
   kind,order=SLOTS[raw['slot']]
-  if f'{kind}:{order}' in record['scope']['sources']['materials']['contents'][sku]:raise SafetyError('existing-shop-material-slot-preserved-not-repaired')
+  key=f'{kind}:{order}';content=record['scope']['sources']['materials']['contents'][sku].get(key)
+  if raw.get('action')=='repair':
+   from .sku_material_repair import repair_allowed
+   if not repair_allowed(content,record['scope']['sources']['materials']['audit'][sku].get(key)):raise SafetyError('existing-rejected-or-approved-empty-slot-required')
+  elif content is not None:raise SafetyError('existing-shop-material-slot-preserved-not-repaired')
   groups.setdefault(pid,[]).append({k:v for k,v in raw.items() if k!='productId'})
  result=[]
  for pid,rows in sorted(groups.items(),key=lambda x:int(x[0])):result.extend({'productId':pid,**r} for r in changes_checked(rows))
@@ -82,6 +86,7 @@ def contract(ops,scope,*,live=False,dispatch=False):
  if scope['shop']!=record['scope']['shop'] or proof['intentHash']!=outer['intentHash']:raise SafetyError('shop-material-child-original-scope-mismatch')
  children=changes_for_audit(record,[{'productId':proof['productId'],**r} for r in proof['changes']],sorted(SLOTS))
  if {r['skuId'] for r in children}!=set(proof['skuIds']) or proof['baseline']!={sku:record['scope']['sources']['materials']['contents'][sku] for sku in proof['skuIds']} or proof['siblingSkuIds']!=identifiers([r['skuId'] for r in record['scope']['sources']['siblings'][proof['productId']]['items']]):raise SafetyError('shop-material-child-original-audit-proof-mismatch')
+ if proof.get('version')==2 and proof.get('baselineAudit')!={sku:record['scope']['sources']['materials']['audit'][sku] for sku in proof['skuIds']}:raise SafetyError('shop-material-child-original-audit-status-proof-mismatch')
  if dispatch:
   from .shop_material_execution_state import require_dispatch
   require_dispatch(ops,scope)

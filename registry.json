@@ -71,6 +71,7 @@
       "shopAudit": "full-on-sale-product-and-all-sibling-SKU-census-native-health-material-coverage-offline-tested-not-real-shop-verified",
       "shopAuditReference": "references/native-shop-material-audit.md",
       "shopExecutionReference": "references/native-shop-material-execution.md",
+      "shopRepairReference": "references/native-shop-material-repair.md",
       "shopMaterialExecution": "original-whole-on-sale-audit-ready-assets-one-parent-approval-per-product-50-SKU-chunks-synthetic-tested-not-real-shop-verified",
       "shopExecutionLimits": "ready missing slots only; complete awaiting/pending/rejected/empty coverage; no inferred score improvement"
     },

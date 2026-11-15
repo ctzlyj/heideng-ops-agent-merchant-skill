@@ -27,8 +27,11 @@ class ShopMaterialExecution:
     siblings,_=census(self.ops,shop['profile'],pid);baseline={sku:record['scope']['sources']['materials']['contents'][sku] for sku in skus};observed=read_materials(self.client,shop,skus,caps['GET']['inputSchema'])
     if observed['contents']!=baseline:raise SafetyError('original-shop-material-slots-changed-during-plan')
     proof={'version':1,'intentHash':ih,'capabilities':caps,'productId':pid,'siblingSkuIds':siblings,'skuIds':skus,'baseline':baseline,'changes':rows,'sources':{tid:sources[tid] for tid in sorted({r['uploadTaskId'] for r in rows if 'uploadTaskId' in r})}}
+    from .sku_material_repair import repair_fields,check_live_audit
+    proof.update(repair_fields(self.ops,baseline,{sku:record['scope']['sources']['materials']['audit'][sku] for sku in skus},rows));check_live_audit(proof,observed)
     live_product(self.ops,{'skuMaterialInput':proof,'shop':shop},record);body,_=body_from_proof(self.ops,shop,proof);drafts.append((proof,body))
-   tasks=[]
+   from .sku_material_repair import finalize_proofs
+   drafts=finalize_proofs(self.ops,shop,[proof for proof,body in drafts]);tasks=[]
    from .shop_material_execution_state import root_preparation
    with root_preparation(self.ops,ih,shop) as preparing:
     for proof,body in drafts:
@@ -70,16 +73,18 @@ class ShopMaterialExecution:
    if t['status'] in ('submitted','verified'):t=self.ops.verify_materials(t['taskId'])
    if t['status']!='verified' or t.get('materialFieldsVerified') is not True:break
  def coverage(self,plan):
-  i=plan['scope']['intent'];record=source_context(self.ops,i['auditId'],i['auditFingerprint']);ready={(r['skuId'],r['slot']) for r in i['changes']};result=[]
+  from .sku_material_repair import is_empty
+  i=plan['scope']['intent'];record=source_context(self.ops,i['auditId'],i['auditFingerprint']);ready={(r['skuId'],r['slot']):r.get('action','fill') for r in i['changes']};result=[]
   for row in record['scope']['items']:
    if row['onSale'] is not True:continue
    sku=row['skuId'];contents=record['scope']['sources']['materials']['contents'][sku];audit=record['scope']['sources']['materials']['audit'][sku]
    for slot in i['targetSlots']:
     kind,order=SLOTS[slot];key=f'{kind}:{order}';material=contents.get(key);evidence=audit.get(key,{})
     if material is None:state='ready' if (sku,slot) in ready else 'awaiting-material'
+    elif ready.get((sku,slot))=='repair':state='ready-repair'
     else:
      values=material['textMaterial']['contents'] if kind==1002 else material['imageMaterial']['skuImages'];state='existing-content' if values and (kind!=1002 or any(v.strip() for v in values)) else 'existing-empty'
-    result.append({'productId':row['productId'],'skuId':sku,'slot':slot,'state':state,'originalAuditStatus':evidence.get('status')})
+    result.append({'productId':row['productId'],'skuId':sku,'slot':slot,'state':state,'originalAuditStatus':evidence.get('status'),'originalAuditReason':evidence.get('reason'),'originalEmpty':material is not None and is_empty(material),'originalContentSha256':digest(material) if material is not None else None})
   return result
  def status(self,plan_id,*,refresh=False):
   plan=self.plan(plan_id);chunks=[]
@@ -87,9 +92,9 @@ class ShopMaterialExecution:
    t=self.ops.task(ref['taskId'])
    if refresh and t['status'] in ('submitted','verified','unknown'):t=self.ops.verify_materials(t['taskId'])
    chunks.append({'taskId':t['taskId'],'status':t['status'],'materialFieldsVerified':t.get('materialFieldsVerified') is True,'auditApproved':t.get('materialAuditApproved') is True,'productId':t['scope']['skuMaterialInput']['productId'],'skuCount':len(t['scope']['skuMaterialInput']['skuIds'])})
-  rows=self.coverage(plan);i=plan['scope']['intent'];audit=source_context(self.ops,i['auditId'],i['auditFingerprint'])['scope'];sale=[r for r in audit['items'] if r['onSale'] is True];all_ready=bool(chunks) and all(r['status']=='verified' and r['materialFieldsVerified'] for r in chunks);awaiting=sum(r['state']=='awaiting-material' for r in rows);empty=sum(r['state']=='existing-empty' for r in rows)
+  rows=self.coverage(plan);i=plan['scope']['intent'];audit=source_context(self.ops,i['auditId'],i['auditFingerprint'])['scope'];sale=[r for r in audit['items'] if r['onSale'] is True];all_ready=bool(chunks) and all(r['status']=='verified' and r['materialFieldsVerified'] for r in chunks);awaiting=sum(r['state']=='awaiting-material' for r in rows);empty=sum(r['state']=='existing-empty' or (r['state']=='ready-repair' and r['originalEmpty']) for r in rows)
   issues=sum(r['originalAuditStatus'] not in (None,4) or r['state'].startswith('existing') and r['originalAuditStatus'] is None for r in rows);observation=plan.get('catalogObservation',{})
-  return {'planId':plan_id,'fingerprint':plan['fingerprint'],'runtimeVersion':plan['scope']['runtimeVersion'],'auditId':i['auditId'],'auditFingerprint':i['auditFingerprint'],'productCount':len(audit['products']),'onSaleSkuCount':len(sale),'offSaleSiblingCount':len(audit['items'])-len(sale),'targetSlots':i['targetSlots'],'readyChangeCount':len(i['changes']),'awaitingMaterialCount':awaiting,'existingEmptySlotCount':empty,'existingRejectedSlotCount':sum(r['originalAuditStatus']==5 for r in rows),'existingPendingSlotCount':sum(r['originalAuditStatus']==3 for r in rows),'chunkCount':len(chunks),'verifiedChunkCount':sum(r['status']=='verified' and r['materialFieldsVerified'] for r in chunks),'allReadyChangesVerified':all_ready,'allTargetSlotsHaveContent':not awaiting and not empty and (all_ready or not chunks),'noWorkInTargetScope':not i['changes'] and not awaiting and not empty and not issues,'existingUnknownAuditSlotCount':sum(r['state'].startswith('existing') and r['originalAuditStatus'] not in (3,4,5) for r in rows),'currentCatalogScopeVerified':False,'catalogHistoricallyMatched':observation.get('matched') is True,'catalogObservationReason':observation.get('reason'),'catalogObservedAt':observation.get('at'),'originalOutcomeUnknown':any(r['status'] in ('unknown','submitting') for r in chunks),'auditApprovedForWrittenChanges':all_ready and all(r['auditApproved'] for r in chunks),'approvalExpiresAt':plan.get('approval',{}).get('expiresAt'),'historicalAuditCapture':True,'transactionSnapshot':False,'scoreRecalculated':False,'generationCalls':0,'summaryOnly':True,'rowsCommand':'shop-material-rows'}
+  return {'planId':plan_id,'fingerprint':plan['fingerprint'],'runtimeVersion':plan['scope']['runtimeVersion'],'auditId':i['auditId'],'auditFingerprint':i['auditFingerprint'],'productCount':len(audit['products']),'onSaleSkuCount':len(sale),'offSaleSiblingCount':len(audit['items'])-len(sale),'targetSlots':i['targetSlots'],'readyChangeCount':len(i['changes']),'readyRepairCount':sum(r.get('action')=='repair' for r in i['changes']),'verifiedRepairCount':sum(sum(row.get('action')=='repair' for row in self.ops.task(ref['taskId'])['scope']['skuMaterialInput']['changes']) for ref in plan['scope']['tasks'] if self.ops.task(ref['taskId'])['status']=='verified' and self.ops.task(ref['taskId']).get('materialFieldsVerified') is True),'awaitingMaterialCount':awaiting,'existingEmptySlotCount':empty,'existingRejectedSlotCount':sum(r['originalAuditStatus']==5 for r in rows),'existingPendingSlotCount':sum(r['originalAuditStatus']==3 for r in rows),'chunkCount':len(chunks),'verifiedChunkCount':sum(r['status']=='verified' and r['materialFieldsVerified'] for r in chunks),'allReadyChangesVerified':all_ready,'allTargetSlotsHaveContent':not awaiting and not any(r['state']=='existing-empty' for r in rows) and (all_ready or not chunks),'noWorkInTargetScope':not i['changes'] and not awaiting and not empty and not issues,'existingUnknownAuditSlotCount':sum(r['state'].startswith('existing') and r['originalAuditStatus'] not in (3,4,5) for r in rows),'currentCatalogScopeVerified':False,'catalogHistoricallyMatched':observation.get('matched') is True,'catalogObservationReason':observation.get('reason'),'catalogObservedAt':observation.get('at'),'originalOutcomeUnknown':any(r['status'] in ('unknown','submitting') for r in chunks),'auditApprovedForWrittenChanges':all_ready and all(r['auditApproved'] for r in chunks),'approvalExpiresAt':plan.get('approval',{}).get('expiresAt'),'historicalAuditCapture':True,'transactionSnapshot':False,'scoreRecalculated':False,'generationCalls':0,'summaryOnly':True,'rowsCommand':'shop-material-rows'}
  def rows(self,plan_id,*,page=1,page_size=50,view='coverage'):
   if type(page) is not int or not 1<=page<=1000000 or type(page_size) is not int or not 1<=page_size<=200 or view not in ('coverage','chunks'):raise SafetyError('bounded-shop-material-row-page-required')
   plan=self.plan(plan_id)

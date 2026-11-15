@@ -169,6 +169,9 @@ def changes_checked(changes):
  for row in changes:
   if not isinstance(row,dict) or row.get('slot') not in SLOTS or row.get('review')!='passed':raise SafetyError('known-slot-and-host-content-review-required')
   kind,order=SLOTS[row['slot']];required={'skuId','slot','review','text' if kind==1002 else 'uploadTaskId'}
+  if 'action' in row:
+   if row['action']!='repair':raise SafetyError('explicit-native-material-repair-action-required')
+   required.add('action')
   if set(row)!=required:raise SafetyError('native-material-text-or-original-upload-only')
   sku=positive(row['skuId']);key=(sku,row['slot'])
   if key in seen:raise SafetyError('native-material-change-duplicate')
@@ -200,21 +203,24 @@ def upload_source(ops,shop,task_id):
  return {'url':jfs(first['imgUrl']),'imageId':first['imgId'],'originalSha256':descriptor['sha256'],'receiptSha256':task['resultReceiptSha256']}
 
 def body_from_proof(ops,shop,proof):
- if not isinstance(proof,dict) or set(proof)!={'version','productId','siblingSkuIds','skuIds','baseline','changes','sources','capabilities','intentHash'} or proof['version']!=1 or isinstance(proof['version'],bool):raise SafetyError('complete-native-material-source-proof-required')
+ keys={'version','productId','siblingSkuIds','skuIds','baseline','changes','sources','capabilities','intentHash'}
+ if not isinstance(proof,dict) or type(proof.get('version')) is not int or proof['version'] not in (1,2) or set(proof)!=(keys|({'baselineAudit','repairSources','repairOriginals'} if proof['version']==2 else set())):raise SafetyError('complete-native-material-source-proof-required')
  if not isinstance(proof['intentHash'],str) or not re.fullmatch('[a-f0-9]{64}',proof['intentHash']):raise SafetyError('native-material-parent-intent-required')
  product=positive(proof['productId']);siblings=identifiers(proof['siblingSkuIds']);skus=identifiers(proof['skuIds'],BATCH);changes=changes_checked(proof['changes'])
  if not set(skus)<=set(siblings) or set(proof['baseline'])!=set(skus) or set(row['skuId'] for row in changes)!=set(skus):raise SafetyError('native-material-proof-sku-scope-mismatch')
  sources={tid:upload_source(ops,shop,tid) for tid in sorted({r['uploadTaskId'] for r in changes if 'uploadTaskId' in r})}
  if sources!=proof['sources']:raise SafetyError('native-material-original-source-changed')
+ from .sku_material_repair import validate_repairs
  expected=copy.deepcopy(proof['baseline']);rows={sku:[] for sku in skus}
  for sku,slots in proof['baseline'].items():
   if not isinstance(slots,dict):raise SafetyError('native-material-baseline-slot-map-required')
   for key,content in slots.items():
    nkey,normalized,_=normalize(content,sku,{31,32,33,36,1002})
    if nkey!=key or hash_value(normalized)!=hash_value(content):raise SafetyError('native-material-baseline-not-canonical')
+ validate_repairs(ops,proof,sources)
  for row in changes:
   sku=row['skuId'];kind,order=SLOTS[row['slot']];key=f'{kind}:{order}'
-  if key in expected[sku]:raise SafetyError('existing-material-slot-not-automatically-overwritten')
+  if key in expected[sku] and row.get('action')!='repair':raise SafetyError('existing-material-slot-not-automatically-overwritten')
   material={'skuId':int(sku),'materialType':kind,'order':order}
   if kind==1002:material['textMaterial']={'contents':[row['text']]}
   else:material['imageMaterial']={'imgType':1,'replaceType':1,'skuImages':[{'index':1,'imgUrl':sources[row['uploadTaskId']]['url']}]}
@@ -242,6 +248,9 @@ def contract(ops,scope,*,live=False,dispatch=False):
   return None
  if op['url']!=WRITE or op['method']!='POST' or op['skillId']!=SKILL or op['params']!={} or any(k in scope for k in ('verification','precondition','onlineVerification','resultVerification','nativeListingInput')):raise SafetyError('canonical-native-material-binding-required-no-delete')
  if proof is None:raise SafetyError('native-material-source-proof-required')
+ if dispatch and proof.get('version')==2:
+  from .sku_material_repair import validate_scope_originals
+  validate_scope_originals(ops,scope)
  body,expected=body_from_proof(ops,scope['shop'],proof)
  if hash_value(body)!=hash_value(op.get('body')):raise SafetyError('native-material-approved-body-mismatch')
  if live:
@@ -249,4 +258,6 @@ def contract(ops,scope,*,live=False,dispatch=False):
   if siblings!=proof['siblingSkuIds']:raise SafetyError('native-material-sibling-census-changed')
   snapshot=read_materials(ops.client,scope['shop'],proof['skuIds'],proof['capabilities']['GET']['inputSchema'])
   if hash_value(snapshot['contents'])!=hash_value(proof['baseline']):raise SafetyError('native-material-original-slots-changed')
+  from .sku_material_repair import check_live_audit,validate_repairs
+  check_live_audit(proof,snapshot);validate_repairs(ops,proof,proof['sources'],live=True)
  return expected

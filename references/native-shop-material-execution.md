@@ -7,7 +7,7 @@
 1. 取得原auditId/fingerprint，要求库存、兄弟SKU和素材来源完整稳定。健康分未请求/缺失/无效独立报告，不造0、不按分数缩小范围。
 2. Agent从原商品和用户合规素材中整理 ready changes 文件：每项含 productId、skuId、slot、review=passed，加原已核验 uploadTaskId 或真实 text。图片沿用native-materials.md的独立上传批准/回执/图片ID证明。不得凭URL冒充已上传图，不把测试中的review当真实商品验收。
 3. shop-material-plan --audit-id <原ID> [--changes <Agent生成的文件>] [--target-slots <明确槽位逗号列表>]。默认全部支持槽位 white/scene1/scene2/selling/transparent/point1/point2/point3，缺模型不能静默只做文字。只有用户明确限定目标时才传target-slots。没有ready变化也保留全店余缺报告，不创建业务任务或虚构已处理数量。
-4. 本阶段只补真正缺失槽位，不覆盖旧非空/空/驳回/待审素材。报告 awaitingMaterialCount、existingEmptySlotCount、existingRejectedSlotCount、existingPendingSlotCount、existingUnknownAuditSlotCount；驳回/空槽修复与短标题是后续步骤。部分可用范围的成功不等于全部店铺维护成功。
+4. 默认填缺只补真正缺失槽位，不自动覆盖已有素材。需要修复时先读 native-shop-material-repair.md，显式action=repair准备现有驳回或通过但空槽的新图/文字；待审、未知和合格非空内容仍不得覆盖。报告 awaitingMaterialCount、existingEmptySlotCount、existingRejectedSlotCount、existingPendingSlotCount、existingUnknownAuditSlotCount；修复计数与补缺分开，短标题仍是后续步骤。部分可用范围的成功不等于全部店铺维护成功。
 
 ## 一次批准、逐块执行
 
@@ -15,7 +15,7 @@
 
 shop-material-approve --plan-id <ID> --fingerprint <原指纹> --confirm [--ttl-seconds 900]，仅当前明确范围。独立根批准原件保存，同一deadline传给每个子任务及官方签名/最终HTTP边界。不能靠task-approve给子任务延期或绕过根批准。
 
-shop-material-execute --plan-id <ID>：开始时复核完整在售目录，每块复核其父商品当前仍在售（已支持productIdList过滤）、完整兄弟SKU/状态、原缺失槽、当前原生卡和上传来源，再通过Operations和官方京麦CLI执行。每块保存原attempt/ack/anchor及对应根批准，原字段读回后才推进下一块。实际子派发只能通过根runner在完整目录复核后建立的运行时能力；task-execute不能作为绕过整店检查的另一入口，也不接受持久化布尔标志来伪造已复核。
+shop-material-execute --plan-id <ID>：开始时复核完整在售目录，每块复核其父商品当前仍在售（已支持productIdList过滤）、完整兄弟SKU/状态、原槽内容、修复目标审核状态/理由与旧图原字节、当前原生卡和上传来源，再通过Operations和官方京麦CLI执行。每块保存原attempt/ack/anchor及对应根批准，原字段读回后才推进下一块。实际子派发只能通过根runner在完整目录复核后建立的运行时能力；task-execute不能作为绕过整店检查的另一入口，也不接受持久化布尔标志来伪造已复核。
 
 unknown、已开始未决、原件缺失/矛盾、非法owner、同店原证明伪装另店、链接或未知格式证据时拒绝重提；不推进剩余块，不换Profile、意图或transport。根/子/原审计/index的精确双向关联也纳入安装更新门禁，恢复清理不先删证据。保留根而子证明丢失、或attempt仍在而journal身份/指纹/根证明被改写，都须停止其他同店新写入。根文件本身丢失但批准/index/原子journal仍留时也不得换根；一律复核这些反向链接。只有本次合法准备调用刚创建的零attempt子ID可在根尚未落盘时短暂存在，历史孤立证明不能获得例外。
 

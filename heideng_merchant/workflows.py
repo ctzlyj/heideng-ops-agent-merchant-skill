@@ -119,7 +119,7 @@ def material_audit(rows):
  batches=[{'spuCount':len(entries[i:i+199]),'products':entries[i:i+199]} for i in range(0,len(entries),199)]
  return {'spuCount':len(groups),'skuCount':len(ids),'batches':batches,'writes':0,'generation':'awaiting-provider-if-new-images-needed','next':'reuse-valid-existing-assets-or-prepare-host-copy; official-upload-only-after-approval'}
 
-def _asset_download(url):
+def _asset_download(url,*,require_complete=False):
  parsed=urllib.parse.urlsplit(url);host=parsed.hostname or ''
  if parsed.scheme!='https' or parsed.username or parsed.password or parsed.port not in (None,443) or not re.fullmatch(r'(?:img\d+|m|storage)\.360buyimg\.com',host):raise SafetyError('public-jd-cdn-asset-required')
  if parsed.query or parsed.fragment:raise SafetyError('signed-or-query-asset-needs-host-session-download')
@@ -128,7 +128,20 @@ def _asset_download(url):
  for record in socket.getaddrinfo(host,443):
   if not ipaddress.ip_address(record[4][0]).is_global:raise SafetyError('private-asset-destination')
  try:
-  with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect()).open(url,timeout=60) as response:raw=response.read(64*1024*1024+1)
+  with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect()).open(url,timeout=60) as response:
+   length=None
+   if require_complete:
+    if response.status!=200 or response.headers.get('Content-Encoding','identity').lower()!='identity' or response.headers.get('Content-Range'):raise SafetyError('complete-original-asset-response-required')
+    declared=response.headers.get('Content-Length')
+    if len(response.headers.get_all('Content-Length',[]))>1:raise SafetyError('ambiguous-original-asset-length')
+    if declared is not None:
+     if not re.fullmatch('[0-9]{1,10}',declared):raise SafetyError('complete-original-asset-length-required')
+     length=int(declared)
+     if not 1<=length<=64*1024*1024:raise SafetyError('bounded-original-asset-length-required')
+    elif getattr(response,'chunked',False) is not True:raise SafetyError('original-asset-completeness-unprovable')
+   raw=response.read(64*1024*1024+1)
+   if require_complete and (length is not None and len(raw)!=length):raise SafetyError('incomplete-original-asset-response')
+   if require_complete and getattr(response,'chunked',False) and getattr(response,'chunk_left',None) is not None:raise SafetyError('incomplete-original-chunked-response')
  except Exception:raise SafetyError('asset-download-failed-no-auto-retry') from None
  if len(raw)>64*1024*1024:raise SafetyError('asset-too-large')
  return raw

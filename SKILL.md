@@ -25,7 +25,7 @@ version: 0.1.0
 
 - ensure-shop / auth-start / auth-status / auth-observe / auth-cancel / auth-recover / auth-restart：独立店铺连接和同会话扫码OAuth。严格先读 references/shop-connection.md；只保存公开taskId，不导出私有授权页面；失联不重启，原unknown只读恢复。当前Windows新授权已实现但真实商家链路尚未实测，macOS新授权因官方secret argv风险禁用。
 - sku-material-shop-audit / sku-material-shop-status / sku-material-shop-rows：全店在售商品与全部兄弟SKU、原生信息健康分/素材的完整来源核对；分页摘要不会冒充全店，不以有分值的SKU当库存，未取得分值不补0。先读 references/native-shop-material-audit.md。
-- shop-material-plan / shop-material-approve / shop-material-execute / shop-material-status / shop-material-rows：原完整审计上的整店可用素材统一范围、逐商品50SKU分块与原件恢复。默认覆盖全部已支持槽位、缺模型只报告等待素材不静默缩范围；未知不重提/不推进，根批准不能被子批准替代。先读 references/native-shop-material-execution.md；部分成功≠整店信息分维护完成，真实商家链路未实测。
+- shop-material-plan / shop-material-approve / shop-material-execute / shop-material-status / shop-material-rows：原完整审计上的整店可用素材统一范围、逐商品50SKU分块与原件恢复。默认覆盖全部已支持槽位、缺模型只报告等待素材不静默缩范围；未知不重提/不推进，根批准不能被子批准替代。先读 references/native-shop-material-execution.md；明确驳回/空槽修复再读 references/native-shop-material-repair.md，旧状态/理由和原图字节留证，新图不能换URL复用旧字节；部分成功≠整店信息分维护完成，真实商家链路未实测。
 - sku-material-audit / sku-material-plan / sku-material-approve / sku-material-execute / sku-material-status：本店完整 SKU 和原生素材缺口审计、原上传回执或宿主审核文字的缺失槽位绑定；先读 references/native-sku-materials.md。批准整个明确计划一次，各块单独留账；unknown、内容漂移和待审/驳回旧槽位不自动重提。
 - product-list / sku-list / health-list / product-detail / price-plan / price-status：实时原生商品、完整SKU、健康分和受控京东价更新。改价前先读 references/native-products.md，绑定旧价/类目与两阶段验证；待审匹配不是线上生效，unknown不换Profile或接着执行另一写任务。
 - diagnose：用户CSV/JSON/XLSX经营广告资料的定量诊断，缺指标标记partial/unavailable，不造黄金眼/EasyBI数据。

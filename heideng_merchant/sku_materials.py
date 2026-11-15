@@ -43,7 +43,11 @@ class SkuMaterialService:
    proofs=[]
    for start in range(0,len(sku_ids),BATCH):
     group=sku_ids[start:start+BATCH];proof={'version':1,'intentHash':intent_hash,'capabilities':cards,'productId':product_id,'siblingSkuIds':siblings,'skuIds':group,'baseline':{sku:snapshot['contents'][sku] for sku in group},'changes':[r for r in changes if r['skuId'] in group],'sources':{tid:sources[tid] for tid in sorted({r['uploadTaskId'] for r in changes if r['skuId'] in group and 'uploadTaskId' in r})}}
+    from .sku_material_repair import repair_fields
+    proof.update(repair_fields(self.ops,proof['baseline'],{sku:snapshot['audit'][sku] for sku in group},proof['changes']))
     body,_=body_from_proof(self.ops,shop,proof);proofs.append((proof,body))
+   from .sku_material_repair import finalize_proofs
+   proofs=finalize_proofs(self.ops,shop,[proof for proof,body in proofs])
    # Validate every local chunk before persisting any operation task.
    for proof,body in proofs:
     task=self.ops.prepare(profile,{'url':WRITE,'method':'POST','params':{},'body':body,'skillId':SKILL},sku_material_input=proof);tasks.append({'taskId':task['taskId'],'fingerprint':task['fingerprint']})
