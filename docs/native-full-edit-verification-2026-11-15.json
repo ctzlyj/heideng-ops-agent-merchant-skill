@@ -1,0 +1,193 @@
+{
+  "status": "passed",
+  "observedDate": "2026-11-15",
+  "verificationLevel": "isolated/native-contract/synthetic-HTTP-not-live-shop",
+  "sourceCodeCommit": "c3f9dfe70ea9d26f6a43c9d5ac9dff7a1d9bdcf3",
+  "archiveSha256": "ef1c513aee7061fbdd6b6aeda35f45c7a5aed938ed9163c2d4482effb6fe9aba",
+  "offlineSuiteTests": 292,
+  "releaseAudit": {
+    "releaseAudit": "passed",
+    "version": "0.1.0",
+    "fileCount": 56,
+    "personalPaths": 0,
+    "credentialPatterns": 0,
+    "unknownFiles": 0,
+    "scope": "audited-release-only-not-third-party-runtime-or-live-shop"
+  },
+  "boundedFullEditReviewPasses": 1,
+  "importantFullEditFindings": 3,
+  "allImportantFullEditFindingsObservedRedThenGreen": true,
+  "windowsInstaller": {
+    "initialObservedFailure": {
+      "errno": 13,
+      "winerror": 5
+    },
+    "nativeNoShareDeleteMechanismReproduced": true,
+    "sameDirectoryAfterHandleReleaseRenamed": true,
+    "actualLockingProcess": "unidentified",
+    "attemptCap": 6,
+    "backoffSeconds": [
+      0.05,
+      0.1,
+      0.2,
+      0.4,
+      0.8
+    ],
+    "sourceIdentityAndAbsentDestinationRequired": true,
+    "persistentFailureKeepsRecoveryEvidence": true,
+    "noBusinessRequestReplayAdded": true,
+    "newRegressionTests": 7
+  },
+  "fullEditSmoke": {
+    "status": "passed",
+    "archiveSha256": "ef1c513aee7061fbdd6b6aeda35f45c7a5aed938ed9163c2d4482effb6fe9aba",
+    "install": "fresh verified ZIP/fresh HOME/real -I -B commands",
+    "decoder": "real isolated Pillow",
+    "skuCount": 1000,
+    "existingImageSlots": 1001,
+    "realSkuIdentityAndCompleteCodePriceStock": true,
+    "unknownBusinessBlobPreserved": true,
+    "nativeFieldDeclarationsAndAllValuesSourceBound": true,
+    "knownEditPostCount": 1,
+    "unknownSeparateEditPostCount": 1,
+    "sameIntentNewValidationNonceNoDuplicate": true,
+    "originalApplyPendingCompleteFieldsVerified": true,
+    "onlineAndPendingSeparated": true,
+    "nativeSkuReorderAcceptedWithoutWrongMapping": true,
+    "lastSkuFieldDriftRejected": true,
+    "lastSkuAttributeIdentityDriftRejected": true,
+    "inputArchivePinnedThroughoutInstall": true,
+    "unknownNotReplayedOrResolvedByTargetMatch": true,
+    "remotePixelsVerified": false,
+    "realMerchantAuthorization": "not-run",
+    "realMerchantWrites": "not-run",
+    "paidModelCalls": 0,
+    "dispatch": "file-fake API; real transport selection helper; not real official network dispatch"
+  },
+  "publicationRegression": {
+    "status": "passed",
+    "archiveSha256": "ef1c513aee7061fbdd6b6aeda35f45c7a5aed938ed9163c2d4482effb6fe9aba",
+    "install": "fresh verified ZIP / fresh HOME / real -I -B command processes",
+    "imageDecoder": "real isolated Pillow",
+    "sourceSkuCount": 1000,
+    "allSourceProductFieldsPreserved": true,
+    "validationPostCount": 4,
+    "knownPublicationPostCount": 1,
+    "unknownSeparateIntentPostCount": 1,
+    "mediaPostCount": 1,
+    "sameSourcePackageCannotDuplicateOnNewValidationNonce": true,
+    "copiedPackageKeepsCreationIntentAndCannotDuplicate": true,
+    "flatSameValidationAndPublicationBody": true,
+    "approvalBeforeBothPosts": true,
+    "unknownNotReplayed": true,
+    "onlineEffective": false,
+    "allSkuOnlineVerified": false,
+    "productImagesOnlineVerified": false,
+    "dispatch": "file-fake native API; transport_for selection real, not real official stdin dispatch",
+    "realMerchantAuthorization": "not-run",
+    "realMerchantWrites": "not-run",
+    "paidModelCalls": 0,
+    "networkBoundary": "merchant command socket connects disabled, public decoder setup before commands"
+  },
+  "schemaAndPriceRegression": {
+    "status": "passed",
+    "archiveSha256": "ef1c513aee7061fbdd6b6aeda35f45c7a5aed938ed9163c2d4482effb6fe9aba",
+    "install": "fresh verified ZIP/fresh HOME/installed CLI -I -B",
+    "decoder": "real isolated Pillow",
+    "schemaSkuCount": 64,
+    "imageSlotCount": 65,
+    "entireSchemaAndUnknownComponentsPreserved": true,
+    "skuMappingVerified": false,
+    "productSchemaSubmissionCount": 0,
+    "productBound": false,
+    "remotePixelsVerified": false,
+    "priceSkuCount": 1000,
+    "knownPricePatchCount": 1,
+    "unknownPricePatchCount": 1,
+    "unknownDoesNotReplay": true,
+    "officialStdinSelection": "real transport_for helper; dispatch is file-fake, not real official stdin request",
+    "realMerchantAPI": "not-run",
+    "realOAuth": "not-run",
+    "paidModelCalls": 0,
+    "networkBoundary": "merchant command socket connects disabled; public Pillow setup only before commands"
+  },
+  "materialRegression": {
+    "status": "passed",
+    "install": "fresh verified ZIP / fresh HOME",
+    "python": "real -I/-B subprocesses",
+    "pillow": {
+      "Pillow": "13.0.0"
+    },
+    "decoder": "real Pillow, original valid 256x256 PNG bytes",
+    "largestImageBytes": 196992,
+    "base64NotInCommandOutput": true,
+    "approvalBeforeUpload": true,
+    "nativeFlatBody": true,
+    "knownPostCount": 1,
+    "unknownIntentPostCount": 1,
+    "unknownDoesNotUseFilenameMatchOrUnlock": true,
+    "storageVsProductBinding": "separate, no product bind performed",
+    "remotePixelsVerified": false,
+    "merchantAPI": "file-fake; command main socket connect blocked, image child local-only decoder not OS firewall",
+    "realMerchantAPI": "not-run",
+    "realMerchantWrites": "not-run",
+    "modelCalls": 0,
+    "archiveSha256": "ef1c513aee7061fbdd6b6aeda35f45c7a5aed938ed9163c2d4482effb6fe9aba"
+  },
+  "auditedOfficialSourceSyntheticBoundary": {
+    "status": "passed",
+    "officialSourceSha256": "abcc6fe5a354d14c4a9b99a221d0b682759d77e8200fc3922f0c1ce32e86a0b2",
+    "officialVersion": "0.3.7",
+    "sourcePersisted": false,
+    "binary": "synthetic receipt stub; not executed",
+    "auth": "synthetic in-memory only",
+    "http": "synthetic final boundary, socket blocked",
+    "sourceSkuCount": 1000,
+    "realOAuth": "not-run",
+    "realMerchantWrites": "not-run",
+    "cases": [
+      {
+        "expiredAfterSigning": false,
+        "success": true,
+        "syntheticHttpMethods": [
+          "GET",
+          "POST"
+        ],
+        "signaturesComputed": 2
+      },
+      {
+        "expiredAfterSigning": true,
+        "success": false,
+        "syntheticHttpMethods": [
+          "GET"
+        ],
+        "signaturesComputed": 2
+      }
+    ]
+  },
+  "actualGithubCloneVerified": true,
+  "privateRepository": true,
+  "internalBaseline": {
+    "version": "1.5.4",
+    "commit": "13692b759bd52e35c3670cf8fad5330e1bf2b576",
+    "clean": true,
+    "modifiedByThisTask": false
+  },
+  "videoUpstream": {
+    "repository": "ctzlyj/jd-pop-main-video-skill",
+    "version": "0.3.0",
+    "commit": "29548089f7b71ac77ddb584caac0966a98df24ab",
+    "generationProviderEnabled": false
+  },
+  "realMerchantAuthorization": "not-run",
+  "realMerchantWrites": "not-run",
+  "paidModelCalls": 0,
+  "formalRelease": false,
+  "goalComplete": false,
+  "remaining": [
+    "rule-only/unpopulated native template general filling not universally proved",
+    "live merchant OAuth/API and online-state semantics not verified",
+    "external image/video provider selection pending user",
+    "external distribution and third-party commercial rights unconfirmed"
+  ]
+}
