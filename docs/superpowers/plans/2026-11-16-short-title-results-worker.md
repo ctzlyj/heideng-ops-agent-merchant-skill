@@ -76,10 +76,38 @@
 
 - [x] 原参考源码只读核对结果文件字段和三列，未把历史源码当本次平台实测。
 - [x] C1 task scratch 15 个合成契约方法；观察缺模块 RED，以及 URL/部分计数两个实际 RED；窄 GREEN 15。代码尚未集成，不计入 B2 601 或安装包。
-- [ ] 将 C1 候选与测试迁入商家版目标文件，补 native 原实例下载/证据绑定测试。
-- [ ] C2 同一原任务原生只读观察/下载与不可变证据，未知只读恢复。
+- [x] 将 C1 候选与测试迁入商家版目标文件，补 native 原实例下载/证据绑定合成测试（不是实际平台验收）。
+- [x] C2 同一原任务原生只读观察/下载与不可变证据，未知只读恢复 API（641全回归/安装最终验收待结束）。
 - [ ] C3 原 title/audit/health/portal 独立来源及完整行分类，不猜接口。
 - [ ] 确认失败行子计划与新范围批准，success/unknown/awaiting-review不重投。
 - [ ] Owned worker/merchant CLI execute/install.lock lifecycle 集成，崩溃和回执丢失不重传。
 - [ ] 全阶段证据门禁、installed smoke及统一完整回归/包审查/私有 GitHub fresh clone验收后对应代码commit。
 - [ ] 未授权的真实商家/外部付费/公开发布/商业化始终不自动执行；provider选择仍等用户。
+
+## 2026-11-16 C1/C2实现推进（整体目标仍未完成）
+
+C1已由scratch迁入生产模块，C2接通原实例任务页/DOM计数、jobExecFileRst来源、bounded公开HTTPS GET、逐行处理结果、独立observation/receipt/head以及历史分页。初始37窄方法通过；新HOME installed smoke已在合成source/factory中证明原create-ACK失联→只读anchor恢复→原结果文件→pending/失败不重传，未真正启动浏览器或调用商家。新代码尚待最终回归/私有交付，不把早期包当最终验收。
+
+Ruling: 使用已观察原任务签名URL的薄bounded公开GET，不让浏览器API无限缓冲结果body或仅靠下载文件名认定来源；不加Cookie/Authorization、不用环境代理、不跟redirect，不猜新REST。当前仅支持既有审计契约，真实平台模板/URL/MIME/DOM仍须授权实测。
+
+独立审查提出三项Important：整数前缀/坏重复label、既存坏head冒充缺失head、结果源标志只证明task匹配。主线程先补3方法RED（12fail/1error），随后校正完整integer token/每个label、真实文件缺失与类型区别（包括bool序列）、以及currentTaskAnchorMatched versus currentResultSourceVerified。本轮40方法已在原进程通过61.106秒；独立bounded复核10方法/45case通过10.095秒，原3项Important全部清除且12个源/测试hash不变。641全回归/7 installed smokes准备启动，未完成前不标此C代码最终验收。
+
+C3实际title/audit/health/portal独立来源、确认失败专属新批准子计划、owned worker/merchant execute lifecycle仍必须实现。旧B2验收601/6仅对应02a909d，不冒充此C代码证据。
+
+## 2026-11-16 全回归后入口和协调修正
+
+原641全套终态exit1，1150.091秒，唯一失败是catalog旧shopExecution精确描述；新40全部通过。日志保留，修改为真实新描述并补processingResultsApi/resultReference明确断言，不弱化worker=false/开放工具箱要求。
+
+只读源文档明确三个完整dsm RPC名，新增4方法RED后仅加入精确历史alias pairs（6个具体名字）、单method值和原host/path/response ownership限制。5方法（4RPC+catalog）GREEN。独立RPC sidecar9方法通过2.420秒、3hash不变，非当次真实平台验收。
+
+代码追踪发现Operations同店未决写门禁缺原生title；3方法RED复现另一prepared/approved root与其他工具可绕过旧unknown，原readonly恢复控制通过。接入same profile OR venderId+shopId隔离、精确own-root协调器排除和孤立原件检测；3guard+4RPC+catalog GREEN。需要独立guard复核及最终648全套/7smokes，之前641失败和早期C包不能冒充此新代码验收。
+
+C3、确认失败专属子计划、owned worker仍必须完成；目前不让商家真实写入，也不释放旧attempts作为“已完成”。
+
+## 同店门禁的原件复核修正
+
+独立guard审查复现2项P1：valid prepared root下坏C2 log被泛写入门禁忽略；本root删除B2历史但保留C2原件可先重复upload/create再报错。主2方法RED4fail后，把非本root及本root写入前的完整C2 log/原anchor验证放到许可和not-started判定之前。11guard/RPC/只读控制通过18.444秒，独立2项复核待结果。仅缺失原件不能变成新attempt，不削弱原只读修复。最终应650（601+49）全套/7smokes，C3/worker仍必须实现。
+
+## 最终门禁复核闭合（不代表整体goal闭合）
+
+同店2项P1独立复核5方法/11case groups通过16.382秒，4hash不变；原readonly修复/别名隔离/不同店控制保持。C2原3项、RPC和同店guard合并18源/测试文件当前hash核对相符，reviewer已关闭。最终650/7将在新的原句柄执行并冻结整个分发源/测试集合，需完整结束后才提交C代码及私有GitHub fresh clone；之前641终态失败记录保留。

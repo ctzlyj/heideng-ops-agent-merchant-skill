@@ -7,6 +7,7 @@ from .short_title_contract import identifier
 MAX_JSON=1024*1024
 MAX_TASK_ROWS=500
 INSTANCE_FIELDS=('taskId','taskInstanceId','batchJobId','jobInstanceId','jobExecId')
+RPC_METHODS={'file.upload':('file.upload','dsm.base.service.file.upload'),'batchJobService.createImportJob':('batchJobService.createImportJob','dsm.product.manage.view.batchJobService.createImportJob'),'batchJobService.queryByPage':('batchJobService.queryByPage','dsm.product.manage.view.batchJobService.queryByPage')}
 
 def sha_bytes(value):return hashlib.sha256(value).hexdigest()
 
@@ -21,7 +22,9 @@ def source_url(url,*,template=False,service=None):
  if host not in hosts and not (template and re.fullmatch(r'img[1-9][0-9]?\.360buyimg\.com',host)):return False
  if service:
   q=urllib.parse.parse_qs(p.query,keep_blank_values=True)
-  return q.get('method')==[service] and p.path in ('/api','/api/')
+  if not isinstance(service,str):return False
+  methods=q.get('method');allowed=RPC_METHODS.get(service,(service,))
+  return isinstance(methods,list) and len(methods)==1 and methods[0] in allowed and p.path in ('/api','/api/')
  return True
 
 def response_bytes(response,page,*,service=None):

@@ -7,7 +7,7 @@ class CliTests(unittest.TestCase):
   catalog=load_catalog();entries=catalog['capabilities'];ids=[row['id'] for row in entries]
   self.assertTrue(catalog['toolboxIsNotWhitelist']);self.assertEqual(len(ids),len(set(ids)))
   self.assertTrue({'shop-connection','materials','listing','image-refresh','diagnosis','collection','comparison','video','short-titles'}<=set(ids))
-  short=next(row for row in entries if row['id']=='short-titles');self.assertEqual(short['preparation'],'planning-only');self.assertEqual(short['shopExecution'],'browser-import-api-worker-and-verification-pending');self.assertTrue(short['importExecutionApi']);self.assertFalse(short['importCLIWorkerIntegrated'])
+  short=next(row for row in entries if row['id']=='short-titles');self.assertEqual(short['preparation'],'planning-only');self.assertEqual(short['shopExecution'],'browser-import-and-original-result-api-worker-and-title-verification-pending');self.assertTrue(short['importExecutionApi']);self.assertFalse(short['importCLIWorkerIntegrated']);self.assertTrue(short['processingResultsApi']);self.assertEqual(short['resultReference'],'references/native-short-title-results.md')
   self.assertEqual(route('维护这家店的短标题')['matches'][0]['id'],'short-titles')
   self.assertEqual(route('帮我看一下店铺广告诊断')['matches'][0]['id'],'diagnosis')
   self.assertEqual(route('一个清单没写的合法任务')['status'],'open-toolbox')

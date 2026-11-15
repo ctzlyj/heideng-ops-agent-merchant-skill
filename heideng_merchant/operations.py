@@ -141,7 +141,9 @@ class Operations:
     if planning is not None:task['planningEvidence']=planning
     if material_planning is not None:task['materialPlanningEvidence']=material_planning
     atomic_json(path,task);return task
- def _assert_resolved(self,shop,exclude=None,resolved_uploads=(),exclude_video_session=None):
+ def _assert_resolved(self,shop,exclude=None,resolved_uploads=(),exclude_video_session=None,exclude_native_import=None):
+  from .short_title_shop_gate import assert_resolved as assert_native_title_resolved
+  assert_native_title_resolved(self,shop,exclude_native_import)
   from .video_binding_state import assert_resolved as assert_binding_resolved
   assert_binding_resolved(self,shop,exclude)
   from .shop_material_execution_state import assert_resolved as assert_shop_material_resolved

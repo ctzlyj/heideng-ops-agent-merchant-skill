@@ -11,8 +11,10 @@ from .short_title_import_contract import project,observed_tasks
 from .short_title_import_state import evidence,event_path
 
 class ShortTitleImportBrowser(ShortTitleSourceBrowser):
- def __init__(self,manager,import_id,*,factory=None,headless=False,channel=None):
+ def __init__(self,manager,import_id,*,factory=None,headless=False,channel=None,result_transport=None):
   root=manager.record(import_id);self.manager=manager;self.import_id=import_id;self.root_fingerprint=root['fingerprint'];self.root_scope=root['scope'];self.memo=None;self.current_proof=None;self.preflight_at=0;self.pending_attempt=None
+  from .short_title_result_transport import ResultTransport
+  self.result_transport=result_transport or ResultTransport(clock=lambda:manager.clock());self._last_result_sources=[]
   super().__init__(manager.state,manager.client,root['scope']['planId'],session_id=root['scope']['sourceId'],factory=factory,clock=lambda:manager.clock(),headless=headless,channel=channel)
  def open(self):
   super().open();self.manager.live_browser=self
@@ -33,6 +35,7 @@ class ShortTitleImportBrowser(ShortTitleSourceBrowser):
   if drawer.count()!=1:raise SafetyError('unique-original-native-import-drawer-required')
   drawer.wait_for(state='visible',timeout=15000);return drawer
  def _observe(self):
+  self._last_result_sources=[]
   self._open_allowed();self.manager._current(self.manager.record(self.import_id),readonly=True);self.epoch+=1;self.proof=None;self.foreign=False;self.requests={};self.capture_started=self.clock()*1000;self.phase='navigation';self.stage='capturing';self.memo=None
   self.page.goto(WARE_LIST_URL,wait_until='domcontentloaded',timeout=30000)
   for _ in range(100):
@@ -40,7 +43,7 @@ class ShortTitleImportBrowser(ShortTitleSourceBrowser):
    self.poll()
   self._identity();self.page.locator('.batch-dropdown-link').hover();self.phase='drawer'
   with self.page.expect_response(lambda r:self._fresh(r,'drawer') and source_url(r.url,service='batchJobService.queryByPage'),timeout=20000) as loaded:self.page.get_by_text('批量设置短标题',exact=True).filter(visible=True).click()
-  raw,data=response_bytes(loaded.value,self.page,service='batchJobService.queryByPage');rows=observed_tasks(data);self._identity();drawer=self._drawer();link=drawer.get_by_role('link').filter(has_text=re.compile(r'下载.*模板|模板.*下载')).filter(visible=True)
+  raw,data=response_bytes(loaded.value,self.page,service='batchJobService.queryByPage');rows=observed_tasks(data);from .short_title_result_browser import result_sources;self._last_result_sources=result_sources(data);self._identity();drawer=self._drawer();link=drawer.get_by_role('link').filter(has_text=re.compile(r'下载.*模板|模板.*下载')).filter(visible=True)
   if link.count()!=1:raise SafetyError('unique-current-native-import-template-required')
   href=link.get_attribute('href');href=urllib.parse.urljoin(WARE_LIST_URL,href) if isinstance(href,str) else None
   if not source_url(href,template=True):raise SafetyError('public-current-native-template-link-required')

@@ -71,6 +71,6 @@ Agent先取得全部在售商品、完整兄弟SKU和素材来源，再把已有
 
 已增加完整原库存/health问题核对、宿主审核稿的规划/分页、5000行分块与安全模板中间产物。分数无效/素材读取失败不会被当成标题不存在；离线/未知/无问题完整保留，模板不从内部缓存复制。详见 `references/native-short-title-planning.md`。此阶段明确planning-only，不具备浏览器上传/创建任务/回读，不称已导入，也不要求商家默认人工上传；完整自动导入仍是下一阶段必须完成的工作。
 
-### 短标题原生导入API（B2研发）
+### 短标题原生导入与处理结果API（B2/C1-C2研发）
 
-已接入精确root批准、原抽屉上传/创建实例及独立回执/查询恢复API；目前仅合成验证与私有研发，CLI只有准备/批准/历史分页，完整持久worker和C结果/生效验证仍必须实现。不能把submitted称已更新标题；详见 references/native-short-title-import.md。
+已接入精确root批准、原抽屉上传/创建实例、独立回执与查询恢复API，以及原任务结果文件的只读获取、完整逐行处理结果和独立观察/回执/head校验。CLI仍只有准备/批准/历史分页（结果用 --view results）；持久worker/商家execute入口和C3实际短标题/审核/health/门户回读仍必须实现。rowResultsVerified只说明原完整批次处理结果，不是标题生效或重试批准；unknown、审核延迟不重投。详见 references/native-short-title-import.md 与 references/native-short-title-results.md。

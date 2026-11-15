@@ -1,6 +1,6 @@
-# 短标题B2原生执行API（完整worker/C仍待实现）
+# 短标题原生执行API（worker/C3生效闭环仍待实现）
 
-本API会真实触发原商家抽屉file.upload和createImportJob；部署仅私有研发，未执行真实商家链路，不是最终商家自动导入上线。商家不手工上传；Agent可在同进程原生浏览器内执行。CLI目前只有root准备/批准/历史状态/分页，持久worker/execute入口与C逐行结果/原标题/审核/health回读必须随后实现。
+本API会真实触发原商家抽屉file.upload和createImportJob；部署仅私有研发，未执行真实商家链路，不是最终商家自动导入上线。商家不手工上传；Agent可在同进程原生浏览器内执行。CLI目前只有root准备/批准/历史状态/分页，持久worker/execute入口与C1/C2原实例完整逐行处理结果已接入只读API，C3实际短标题/审核/health/门户回读与确认失败专属修复仍必须随后实现。
 
 ## 原件与动作
 
@@ -13,7 +13,7 @@
 
 ## 边界
 
-- submitted-awaiting-verification只证明匹配实例，不是标题生效。imported/actualTitlesVerified/rowResultsVerified/healthVerified始终false，C另实现。非成功响应也不能证明绝对没有提交；可由原任务只读证明修正关联，不自动重试。
+- submitted-awaiting-verification只证明匹配实例，不是标题生效。imported/actualTitlesVerified/healthVerified仍false。C1/C2完整原实例处理结果可令rowResultsVerified为true，但不是实际title/audit/health验证或重试批准；详见native-short-title-results.md。非成功响应也不能证明绝对没有提交；可由原任务只读证明修正关联，不自动重试。
 - 修改任一未来批次文件、原批准、attempt/dispatch/ack/observation/anchor或丢失已执行前缀不允许提前写。完成原件完整的无attempt prepared可idle；任何已尝试/unknown/submitted/孤立原件阻止安装/恢复/回滚。旧runtime根计划不自动写或混用批准。
 - browser持有共享install.lock整个会话；内联新health审计只复用实际同线程/同路径仍持有的FileLock witness，不释放或绕过互斥。普通审计仍取得install锁再audit锁。
 - 只存非私密公开字段与hash：不存原JSON/DOM/请求正文/签名URL/Cookie/设备信息。responseSha256是已完成的浏览器body；压缩后Content-Length不是解码body的线长证明。原图片HTTP字节证明逻辑不改变。

@@ -20,6 +20,9 @@ class ShortTitleImports:
   from .operations import _same_identity
   if not _same_identity(self.client.identity(p['scope']['shop']['profile']),p['scope']['shop']):raise SafetyError('native-import-current-shop-identity-mismatch')
   if readonly:return
+  from .short_title_result_state import read_log
+  read_log(self.state,p,evidence(self.state,p)[3])
+  self.plans.ops._assert_resolved(p['scope']['shop'],exclude_native_import=p['importId'])
   audit,_=source_context(self.state,self.plans.plan(p['scope']['planId'])['scope']['auditId']);current_catalog(self.plans.ops,audit,all_siblings=True)
   if health:
    from .shop_material_audit import ShopMaterialAudit
@@ -61,11 +64,34 @@ class ShortTitleImports:
  def status(self,import_id):
   p=self.record(import_id);ev=evidence(self.state,p);rows=batch_rows(p,ev);now=self.clock();active=any(a['approvedAt']<=now<a['expiresAt'] for a in ev[0].values());states={r['state'] for r in rows};submitted=sum(r['state']=='submitted' for r in rows)
   status='unknown' if any(x.startswith('unknown') for x in states) else 'non-success-unverified' if any(x.endswith('non-success') for x in states) else 'submitted-awaiting-verification' if submitted==len(rows) else 'uploaded-awaiting-create' if 'uploaded-awaiting-create' in states else 'partial-submitted' if submitted else 'approved' if active else 'prepared'
-  return {'importId':import_id,'fingerprint':p['fingerprint'],'status':status,'proposedRowCount':len(p['scope']['changes']),'approvedRowCount':len(p['scope']['changes']) if ev[0] else 0,'batchCount':len(rows),'submittedBatchCount':submitted,'unknownBatchCount':sum(r['state'].startswith('unknown') for r in rows),'approvalCurrentlyValid':active,'executionApiAvailable':True,'CLIWorkerIntegrated':False,'imported':False,'actualTitlesVerified':False,'healthVerified':False,'rowResultsVerified':False,'taskListComplete':False,'runtimeVersion':p['scope']['runtimeVersion']}
+  result={'importId':import_id,'fingerprint':p['fingerprint'],'status':status,'proposedRowCount':len(p['scope']['changes']),'approvedRowCount':len(p['scope']['changes']) if ev[0] else 0,'batchCount':len(rows),'submittedBatchCount':submitted,'unknownBatchCount':sum(r['state'].startswith('unknown') for r in rows),'approvalCurrentlyValid':active,'executionApiAvailable':True,'CLIWorkerIntegrated':False,'imported':False,'actualTitlesVerified':False,'healthVerified':False,'rowResultsVerified':False,'taskListComplete':False,'runtimeVersion':p['scope']['runtimeVersion']}
+  from .short_title_result_state import read_log,summary
+  result.update(summary(p,read_log(self.state,p,ev[3])[0]))
+  if result['rowResultsVerified']:result['status']='processing-completed-awaiting-title-verification'
+  return result
  def rows(self,import_id,*,page=1,page_size=50,view='batches'):
-  if type(page) is not int or not 1<=page<=1000000 or type(page_size) is not int or not 1<=page_size<=200 or view not in ('batches','changes'):raise SafetyError('bounded-native-import-page-required')
-  p=self.record(import_id);ev=evidence(self.state,p);rows=batch_rows(p,ev) if view=='batches' else p['scope']['changes'];start=(page-1)*page_size;items=rows[start:start+page_size]
+  if type(page) is not int or not 1<=page<=1000000 or type(page_size) is not int or not 1<=page_size<=200 or view not in ('batches','changes','results'):raise SafetyError('bounded-native-import-page-required')
+  p=self.record(import_id);ev=evidence(self.state,p);from .short_title_result_state import read_log,result_rows;latest=read_log(self.state,p,ev[3])[0];rows=result_rows(p,ev[3],latest) if view=='results' else batch_rows(p,ev) if view=='batches' else p['scope']['changes'];start=(page-1)*page_size;items=rows[start:start+page_size]
   return {'importId':import_id,'view':view,'items':items,'total':len(rows),'nextPage':page+1 if start+len(items)<len(rows) else None,'pageIsWholeScope':page==1 and len(items)==len(rows),'imported':False}
+ def collect_results(self,import_id,browser,*,batch=None):
+  from .short_title_result_state import read_log,append_observation
+  from .short_title_result_browser import observe_result
+  with FileLock(path(self.state,'short-title-imports',import_id,suffix='.lock')):
+   p=self.record(import_id);self._browser(p,browser);browser.install_lock.require_owned(self.state/'install.lock');self._current(p,readonly=True);ev=evidence(self.state,p)
+   if batch is not None and (type(batch) is not int or not 1<=batch<=len(p['scope']['chunks'])):raise SafetyError('exact-original-result-batch-required')
+   read_log(self.state,p,ev[3],repair=True)
+   if any(key[1]=='upload' and ack['result']['outcome']=='accepted' and (key[0],'create') not in ev[1] for key,ack in ev[2].items()):
+    out=self.status(import_id);out.update(currentResultSourceVerified=False,currentTaskAnchorMatched=False,stoppedReason='uncreated-original-upload-binding-preserved');return out
+   targets=[batch] if batch is not None and (batch,'create') in ev[3] else sorted(key[0] for key in ev[3]) if batch is None else []
+   if not targets:
+    out=self.status(import_id);out.update(currentResultSourceVerified=False,currentTaskAnchorMatched=False,stoppedReason='original-task-anchor-required-before-result-observation');return out
+   matched=True;result_verified=True
+   for number in targets:
+    try:observation=observe_result(browser,number)
+    except Exception:
+     out=self.status(import_id);out.update(currentResultSourceVerified=False,currentTaskAnchorMatched=False,stoppedReason='original-task-result-source-not-verified');return out
+    append_observation(self.state,p,ev[3],number,observation,self.clock());anchor=ev[3][number,'create'];task_matched=observation['source']=={'instanceId':anchor['instanceId'],'uploadedObjectSha256':anchor['objectSha256'],'startedAt':anchor['startedAt']};matched=matched and task_matched;result_verified=result_verified and task_matched and observation['download'] is not None and observation['result'] is not None and observation['download']['resultObjectSha256']==observation['resultSourceSha256']
+   out=self.status(import_id);out.update(currentTaskAnchorMatched=matched,currentResultSourceVerified=result_verified,currentResultReadBatches=targets);return out
  def _browser(self,p,browser):
   from .short_title_import_browser import ShortTitleImportBrowser
   if not isinstance(browser,ShortTitleImportBrowser) or browser.manager.state!=self.state or browser.import_id!=p['importId'] or browser.root_fingerprint!=p['fingerprint'] or browser.session_id!=p['scope']['sourceId'] or browser.page is None or browser.context is None or browser.install_lock is None or not browser.owns_lifecycle or read_json(browser.lifecycle_path,{}).get('status')!='open':raise SafetyError('original-owned-native-import-browser-required')
