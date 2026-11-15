@@ -52,3 +52,5 @@ python -m unittest discover -s tests -v
 原生模板自动编译入口见 references/native-template-compile.md：Agent 从同店原完整详情与原规则的字段声明准备全 SKU 来源基线，不让商家手填 schema/bindings/sale-sources；原始规则和编译证明保留，重复准备沿用同一编辑意图。未声明或无法证明的字段拒绝，不称所有线上模板已经实测。
 
 **信息分口径仍需实测对照**：官方目录将 health-infos 定义为“商品信息健康分”，可用原生 healthScore / improvementList 做诊断；与京麦页面 commodity-score 的逐行等价性尚未验证，不能仅凭名称断言相同或不同。已补齐原生 SKU 缺失素材槽位的审计、批准、绑定及全查询范围回读（仅合成测试）。图片空间保存、整版编辑、素材绑定、审核通过和分数重算分别记录。详见 references/native-sku-materials.md。
+
+全店在售素材/信息健康审计新增完整来源入口：在售商品→全部兄弟SKU（包含离线兄弟）→一次原生health数据集→全部支持素材→前后商品/SKU集合交叉核对。摘要只返回完整范围计数，明细保存在本地且可分页筛选；分值未知、未取到和缺失分开，不补0、不自动写店铺。仅合成/安装验证，真实权限/接口未实测。详见 references/native-shop-material-audit.md。

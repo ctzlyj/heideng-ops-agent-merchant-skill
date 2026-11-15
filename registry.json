@@ -42,7 +42,10 @@
         "material-categories",
         "material-images",
         "material-detail",
-        "sku-material-audit"
+        "sku-material-audit",
+        "sku-material-shop-audit",
+        "sku-material-shop-status",
+        "sku-material-shop-rows"
       ],
       "builtInCommands": [
         "material-upload-plan",
@@ -59,7 +62,9 @@
       "informationScoreSource": "official-health-infos-healthScore-and-improvementList-or-verified-merchant-report",
       "informationScoreBinding": "absent-native-slot-binding-reference-contract-and-offline-tested-not-live-shop-verified",
       "officialBindingSkill": "jdo-api-830",
-      "bindingReference": "references/native-sku-materials.md"
+      "bindingReference": "references/native-sku-materials.md",
+      "shopAudit": "full-on-sale-product-and-all-sibling-SKU-census-native-health-material-coverage-offline-tested-not-real-shop-verified",
+      "shopAuditReference": "references/native-shop-material-audit.md"
     },
     {
       "id": "listing",

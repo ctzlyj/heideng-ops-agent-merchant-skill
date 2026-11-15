@@ -12,6 +12,7 @@ from .product_schema import ProductSchemaService
 from .schema_edit import EditService
 from .materials import MaterialService
 from .sku_materials import SkuMaterialService
+from .shop_material_audit import ShopMaterialAudit
 from .publish_support import PublishSupport
 from .publishing import PublishService
 from .publication_contract import read_input_json
@@ -32,6 +33,9 @@ def _json_file(value):
 def parser():
  p=argparse.ArgumentParser(description='黑灯运营智能体商家版：由Agent操作，商家只描述目标')
  p.add_argument('--home');p.add_argument('--json',action='store_true');sub=p.add_subparsers(dest='command',required=True)
+ sa=sub.add_parser('sku-material-shop-audit');sa.add_argument('--profile',required=True);sa.add_argument('--threshold',type=int,default=89);sa.add_argument('--max-products',type=int,default=10000);sa.add_argument('--max-skus',type=int,default=100000);sa.add_argument('--max-pages',type=int,default=1000);sa.add_argument('--no-health',action='store_true')
+ ss=sub.add_parser('sku-material-shop-status');ss.add_argument('--audit-id',required=True)
+ sp=sub.add_parser('sku-material-shop-rows');sp.add_argument('--audit-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--include-offline',action='store_true');sp.add_argument('--only',choices=('all','low-score','gaps','pending','rejected','unscored','short-title','unobserved'),default='all')
  for name in ('sku-material-audit','sku-material-plan'):
   mp=sub.add_parser(name);mp.add_argument('--profile',required=True);mp.add_argument('--product-id',required=True)
   if name=='sku-material-audit':mp.add_argument('--include-health',action='store_true')
@@ -125,6 +129,10 @@ def run(args):
  if command=='task-plan':return ops.prepare(args.profile,_json_file(args.operation),_json_file(args.verification),precondition=_json_file(args.precondition),online_verification=_json_file(args.online_verification),result_verification=_json_file(args.result_verification))
  if command=='task-approve':return ops.approve(args.task_id,args.fingerprint,confirmed=args.confirm)
  if command=='task-execute':return ops.execute(args.task_id)
+ if command=='sku-material-shop-audit':
+  service=ShopMaterialAudit(state,client);result=service.audit(args.profile,threshold=args.threshold,max_products=args.max_products,max_skus=args.max_skus,max_pages=args.max_pages,include_health=not args.no_health);return service.summary(result['auditId'])
+ if command=='sku-material-shop-status':return ShopMaterialAudit(state,client).summary(args.audit_id)
+ if command=='sku-material-shop-rows':return ShopMaterialAudit(state,client).page(args.audit_id,page=args.page,page_size=args.page_size,include_offline=args.include_offline,only=args.only)
  if command=='sku-material-audit':return SkuMaterialService(state,client).audit(args.profile,args.product_id,include_health=args.include_health)
  if command=='sku-material-plan':return SkuMaterialService(state,client).prepare(args.profile,args.product_id,_json_file(args.changes))
  if command=='sku-material-approve':return SkuMaterialService(state,client).approve(args.plan_id,args.fingerprint,confirmed=args.confirm,ttl_seconds=args.ttl_seconds)

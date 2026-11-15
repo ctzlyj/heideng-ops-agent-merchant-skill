@@ -66,3 +66,5 @@ publish-categories、publish-brands、publish-context；publish-validation-plan 
 `schema-compile --capture-id <id>` 自动 materialize 原规则与全 SKU 来源；`schema-edit-prepare --capture-id <id>` 自动编译并建立/复用来源基线。商家不手填 JSON；详见 native-template-compile.md。两者不提交商品写入。
 
 原生 SKU 缺失素材槽位：sku-material-audit、sku-material-plan、sku-material-approve、sku-material-execute、sku-material-status。先读 references/native-sku-materials.md；计划一次范围批准，各50SKU块逐一留账/回读，不重绑旧槽位、不替 unknown 重提。
+
+全店在售来源审计：sku-material-shop-audit / sku-material-shop-status / sku-material-shop-rows。默认查询一次完整原生health来源，信息分和素材源的完整性独立记录，摘要不输出数千ID；全明细在原指纹捕获文件与分页接口，详见 references/native-shop-material-audit.md。
