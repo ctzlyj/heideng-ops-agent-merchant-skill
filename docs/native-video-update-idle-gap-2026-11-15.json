@@ -1,0 +1,1 @@
+{"status":"reproduced","scenario":"original native video transfer outcome unknown, no generic operation tasks","expectedUpdateBusy":true,"observedUpdateBusy":false,"sessionStatus":"unknown","actualUpdatesApplied":0,"realMerchantCalls":0,"sourceInspection":"distribution.busy checks only generic tasks; this probe does not mutate code/installations"}

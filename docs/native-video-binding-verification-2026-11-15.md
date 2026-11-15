@@ -24,6 +24,12 @@
 
 ## 仓库与未完成事项
 
-私有仓库 `ctzlyj/heideng-ops-agent-merchant-skill` / `codex/merchant-foundation`。实际GitHub克隆/固定代码/新venv与HOME/同归档SHA/完整套件+安装smoke/干净detach clone的往返结果随后独立记录，不能拿本地验收替代。内部只读1.5.4 / 13692b759bd52e35c3670cf8fad5330e1bf2b576未修改；视频上游审计0.3.0 / 29548089f7b71ac77ddb584caac0966a98df24ab，生成服务等待用户确认。
+私有仓库 `ctzlyj/heideng-ops-agent-merchant-skill` / `codex/merchant-foundation`。实际GitHub克隆/固定代码/新venv与HOME/同归档SHA/449项套件+13安装/官方源码smoke/干净detach clone的往返均通过，独立记录见下节。内部只读1.5.4 / 13692b759bd52e35c3670cf8fad5330e1bf2b576未修改；视频上游审计0.3.0 / 29548089f7b71ac77ddb584caac0966a98df24ab，生成服务等待用户确认。
 
 真实OAuth、当前商家动态卡、上传/绑定/平台审核及商业质量均未实测；没有真实店铺写入或付费模型。当前单商品清点上限1000SKU，更多SKU及多类目另须验收。整店批准执行、驳回修复/短标题、真实商家链路与对外许可仍未完成；整体goal继续active，不宣称正式上线。
+
+## 实际GitHub私有往返与下一安全修复
+
+已测试代码`b43d0556b0e5f93a614151f603a7b54092a5b48c`已推送。实际克隆既有私有分支，detach固定该代码，重建同SHA，隔离新venv/HOME安装与onboarding、449项完整套件和13项安装/官方源码smoke均首次通过，源checkout干净。证据见`github-native-video-binding-roundtrip-2026-11-15.json`；后续提交仅补文档，不改变测试代码或归档。
+
+另一个独立合成探针复现了整体goal尚未完成的更新安全缺口：只有原生视频transfer unknown而没有generic tasks时，`distribution.busy()`返回False。没有实际更新或真实商家调用；见`native-video-update-idle-gap-2026-11-15.json`。下一步须将独立视频会话及遗留证据纳入安装/来源更新空闲检查，不能宣称所有未知任务均已阻断更新。整店执行、驳回/短标题、真实链路、外部生成来源及分发许可仍待完成。
