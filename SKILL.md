@@ -79,3 +79,5 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 health-list 读取官方命名的“商品信息健康分”及 improvementList；与京麦页面 commodity-score 的等价性未实测，不断言相同或不同。素材空间保存、SKU 专属绑定、平台审核和分数重算不能互相替代。原生缺失槽位审计/绑定先读 references/native-sku-materials.md。
 
 - short-title-import-plan / short-title-import-approve / short-title-import-status / short-title-import-rows：先读 references/native-short-title-import.md；原生execute/recover API会真实写入，必须本次精确root批准。CLI没有worker/execute商家闭环，当前不能称完整导入或标题生效；unknown只查原件不重传、不推进。C1/C2 collect_results只读获取原实例结果、完整逐行处理回执，状态/--view results可分页；先读 references/native-short-title-results.md，rowResultsVerified不是实际title/audit/health通过或retry许可。
+
+原范围实际短标题/health 回读与持久化证据已接入部分原生来源 API；完整正式审核/门户/health、确认失败子计划和持久 worker 仍待完成，不称整店生效。Agent 用法与历史 effects 分页见 `references/native-short-title-effects.md`。

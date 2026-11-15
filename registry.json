@@ -103,7 +103,10 @@
       "importCLIWorkerIntegrated": false,
       "importReference": "references/native-short-title-import.md",
       "processingResultsApi": true,
-      "resultReference": "references/native-short-title-results.md"
+      "resultReference": "references/native-short-title-results.md",
+      "actualTitleReadApi": true,
+      "effectReference": "references/native-short-title-effects.md",
+      "C3Complete": false
     },
     {
       "id": "listing",

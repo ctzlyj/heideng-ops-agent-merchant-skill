@@ -48,7 +48,7 @@ def parser():
  sp=sub.add_parser('short-title-import-plan');sp.add_argument('--plan-id',required=True);sp.add_argument('--source-id',required=True)
  sp=sub.add_parser('short-title-import-approve');sp.add_argument('--import-id',required=True);sp.add_argument('--fingerprint',required=True);sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
  sp=sub.add_parser('short-title-import-status');sp.add_argument('--import-id',required=True)
- sp=sub.add_parser('short-title-import-rows');sp.add_argument('--import-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=['batches','changes','results'],default='batches')
+ sp=sub.add_parser('short-title-import-rows');sp.add_argument('--import-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=['batches','changes','results','effects'],default='batches')
  sp=sub.add_parser('shop-material-plan');sp.add_argument('--audit-id',required=True);sp.add_argument('--changes');sp.add_argument('--target-slots')
  sp=sub.add_parser('shop-material-approve');sp.add_argument('--plan-id',required=True);sp.add_argument('--fingerprint',required=True);sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
  for name in ('shop-material-execute','shop-material-status','shop-material-rows'):

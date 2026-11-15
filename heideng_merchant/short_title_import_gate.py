@@ -18,17 +18,20 @@ def busy(state):
   if p.is_file() and p.suffix=='.lock' and ID.fullmatch(p.stem):continue
   if not p.is_file() or p.suffix!='.json' or not ID.fullmatch(p.stem):return True
   root=record(state,None,p.stem);roots[p.stem]=root;intents.add(root['scope']['intentHash'][:24]);ev=evidence(state,root);from .short_title_result_state import read_log;read_log(state,root,ev[3])
-  if root['scope']['runtimeVersion']!=VERSION or ev[1] or ev[2] or ev[3] or ev[4] or ev[5]:return True
+  from .short_title_effect_state import read_log as effect_log
+  effect_count=effect_log(state,root,ev[3])[1]
+  if effect_count or root['scope']['runtimeVersion']!=VERSION or ev[1] or ev[2] or ev[3] or ev[4] or ev[5]:return True
   expected_files.update(row['localPath'] for row in root['scope']['artifacts'])
  for folder in ('short-title-import-approvals',*FOLDERS):
   for directory in entries(state,folder):
    if not directory.is_dir() or directory.name not in roots:return True
    if folder in FOLDERS and entries(state,folder+'/'+directory.name):return True
- for folder in ('short-title-result-observations','short-title-result-receipts'):
+ for folder in ('short-title-result-observations','short-title-result-receipts','short-title-effect-observations','short-title-effect-receipts'):
   for directory in entries(state,folder):
    if not directory.is_dir() or directory.name not in roots:return True
- for p in entries(state,'short-title-result-heads'):
-  if not p.is_file() or p.suffix!='.json' or p.stem not in roots:return True
+ for folder in ('short-title-result-heads','short-title-effect-heads'):
+  for p in entries(state,folder):
+   if not p.is_file() or p.suffix!='.json' or p.stem not in roots:return True
  for p in entries(state,'short-title-import-intents'):
   if not p.is_file() or p.suffix!='.json' or p.stem not in intents:return True
   value=read_json(p)

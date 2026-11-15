@@ -5,7 +5,7 @@ from pathlib import Path
 from .safety import SafetyError, safe_join
 from .short_title_import_state import record, evidence, ID
 
-EVENTS = ("short-title-import-attempts", "short-title-import-dispatches", "short-title-import-acks", "short-title-import-observations", "short-title-import-anchors", "short-title-import-approvals", "short-title-result-observations", "short-title-result-receipts")
+EVENTS = ("short-title-import-attempts", "short-title-import-dispatches", "short-title-import-acks", "short-title-import-observations", "short-title-import-anchors", "short-title-import-approvals", "short-title-result-observations", "short-title-result-receipts", "short-title-effect-observations", "short-title-effect-receipts")
 
 
 def _entries(state, folder):
@@ -36,15 +36,18 @@ def assert_resolved(ops, shop, exclude_import_id=None):
         history = evidence(state, original)
         from .short_title_result_state import read_log
         read_log(state, original, history[3])
+        from .short_title_effect_state import read_log as effect_log
+        effect_count=effect_log(state, original, history[3])[1]
         owner = original["scope"]["shop"]
         same = owner["profile"] == shop["profile"] or all(str(owner[key]) == str(shop[key]) for key in ("venderId", "shopId"))
-        if same and any(history[index] for index in (1, 2, 3, 4, 5)):
+        if same and (effect_count or any(history[index] for index in (1, 2, 3, 4, 5))):
             # Processing results are not C3 title/audit/health completion.
             raise SafetyError("shop-has-unresolved-native-title-import-recover-original-before-new-write")
     for folder in EVENTS:
         for directory in _entries(state, folder):
             if not directory.is_dir() or directory.name not in roots:
                 raise SafetyError("orphan-native-title-evidence-before-new-write")
-    for file in _entries(state, "short-title-result-heads"):
-        if not file.is_file() or file.suffix != ".json" or file.stem not in roots:
-            raise SafetyError("orphan-native-title-evidence-before-new-write")
+    for folder in ("short-title-result-heads", "short-title-effect-heads"):
+        for file in _entries(state, folder):
+            if not file.is_file() or file.suffix != ".json" or file.stem not in roots:
+                raise SafetyError("orphan-native-title-evidence-before-new-write")

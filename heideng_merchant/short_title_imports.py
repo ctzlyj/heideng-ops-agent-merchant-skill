@@ -21,7 +21,9 @@ class ShortTitleImports:
   if not _same_identity(self.client.identity(p['scope']['shop']['profile']),p['scope']['shop']):raise SafetyError('native-import-current-shop-identity-mismatch')
   if readonly:return
   from .short_title_result_state import read_log
-  read_log(self.state,p,evidence(self.state,p)[3])
+  anchors=evidence(self.state,p)[3];read_log(self.state,p,anchors)
+  from .short_title_effect_state import read_log as effect_log
+  effect_log(self.state,p,anchors)
   self.plans.ops._assert_resolved(p['scope']['shop'],exclude_native_import=p['importId'])
   audit,_=source_context(self.state,self.plans.plan(p['scope']['planId'])['scope']['auditId']);current_catalog(self.plans.ops,audit,all_siblings=True)
   if health:
@@ -68,10 +70,17 @@ class ShortTitleImports:
   from .short_title_result_state import read_log,summary
   result.update(summary(p,read_log(self.state,p,ev[3])[0]))
   if result['rowResultsVerified']:result['status']='processing-completed-awaiting-title-verification'
+  from .short_title_effect_state import read_log as effect_log,summary as effect_summary
+  latest_effect,count,_=effect_log(self.state,p,ev[3]);result.update(effect_summary(latest_effect,count))
+  if result['actualTitlesVerified']:result['status']='actual-titles-observed-awaiting-audit-health-portal'
   return result
  def rows(self,import_id,*,page=1,page_size=50,view='batches'):
-  if type(page) is not int or not 1<=page<=1000000 or type(page_size) is not int or not 1<=page_size<=200 or view not in ('batches','changes','results'):raise SafetyError('bounded-native-import-page-required')
-  p=self.record(import_id);ev=evidence(self.state,p);from .short_title_result_state import read_log,result_rows;latest=read_log(self.state,p,ev[3])[0];rows=result_rows(p,ev[3],latest) if view=='results' else batch_rows(p,ev) if view=='batches' else p['scope']['changes'];start=(page-1)*page_size;items=rows[start:start+page_size]
+  if type(page) is not int or not 1<=page<=1000000 or type(page_size) is not int or not 1<=page_size<=200 or view not in ('batches','changes','results','effects'):raise SafetyError('bounded-native-import-page-required')
+  p=self.record(import_id);ev=evidence(self.state,p);from .short_title_result_state import read_log,result_rows;latest=read_log(self.state,p,ev[3])[0];rows=result_rows(p,ev[3],latest) if view=='results' else batch_rows(p,ev) if view=='batches' else p['scope']['changes'];
+  if view=='effects':
+   from .short_title_effect_state import read_log as effect_log,effect_rows
+   rows=effect_rows(self.state,p,effect_log(self.state,p,ev[3])[0])
+  start=(page-1)*page_size;items=rows[start:start+page_size]
   return {'importId':import_id,'view':view,'items':items,'total':len(rows),'nextPage':page+1 if start+len(items)<len(rows) else None,'pageIsWholeScope':page==1 and len(items)==len(rows),'imported':False}
  def collect_results(self,import_id,browser,*,batch=None):
   from .short_title_result_state import read_log,append_observation
@@ -92,6 +101,19 @@ class ShortTitleImports:
      out=self.status(import_id);out.update(currentResultSourceVerified=False,currentTaskAnchorMatched=False,stoppedReason='original-task-result-source-not-verified');return out
     append_observation(self.state,p,ev[3],number,observation,self.clock());anchor=ev[3][number,'create'];task_matched=observation['source']=={'instanceId':anchor['instanceId'],'uploadedObjectSha256':anchor['objectSha256'],'startedAt':anchor['startedAt']};matched=matched and task_matched;result_verified=result_verified and task_matched and observation['download'] is not None and observation['result'] is not None and observation['download']['resultObjectSha256']==observation['resultSourceSha256']
    out=self.status(import_id);out.update(currentTaskAnchorMatched=matched,currentResultSourceVerified=result_verified,currentResultReadBatches=targets);return out
+ def collect_effects(self,import_id,browser,*,max_pages=1000):
+  from .short_title_verification import observe_original_effects
+  from .short_title_result_state import read_log as result_log
+  from .short_title_effect_state import read_log as effect_log,append_observation
+  with FileLock(path(self.state,'short-title-imports',import_id,suffix='.lock')):
+   p=self.record(import_id);self._browser(p,browser);browser.install_lock.require_owned(self.state/'install.lock');self._current(p,readonly=True);anchors=evidence(self.state,p)[3]
+   result_log(self.state,p,anchors,repair=True);effect_log(self.state,p,anchors,repair=True)
+   observed=observe_original_effects(self,import_id,browser,max_pages=max_pages)
+   self._current(p,readonly=True);self._browser(p,browser);browser.install_lock.require_owned(self.state/'install.lock')
+   sequence=append_observation(self.state,p,anchors,observed,self.clock())
+   self._browser(p,browser);browser.install_lock.require_owned(self.state/'install.lock')
+   observed.update(C3ReceiptPersisted=True,effectObservationSequence=sequence,currentEffectSourceVerified=observed['sourceDetailsStable'] and observed['currentOriginalScopeComplete'])
+   return observed
  def _browser(self,p,browser):
   from .short_title_import_browser import ShortTitleImportBrowser
   if not isinstance(browser,ShortTitleImportBrowser) or browser.manager.state!=self.state or browser.import_id!=p['importId'] or browser.root_fingerprint!=p['fingerprint'] or browser.session_id!=p['scope']['sourceId'] or browser.page is None or browser.context is None or browser.install_lock is None or not browser.owns_lifecycle or read_json(browser.lifecycle_path,{}).get('status')!='open':raise SafetyError('original-owned-native-import-browser-required')
