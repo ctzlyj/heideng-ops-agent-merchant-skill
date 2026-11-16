@@ -1,0 +1,32 @@
+{
+  "derivedFrom": "original make_plans.py local builders at 42971c041248bab27f4d627357dcc475f848eb75",
+  "urls": [
+    "https://jzt-api.jd.com/dataCenter/industry/v2/industry/brands?requestFrom=0&businessFrom=1",
+    "https://jzt-api.jd.com/dataCenter/industry/v2/industry/searchWord/hotWords?requestFrom=0&businessFrom=1",
+    "https://jzt-api.jd.com/dataCenter/industry/v2/industry/user/area?requestFrom=0&businessFrom=1",
+    "https://jzt-api.jd.com/dataCenter/industry/v2/industry/whole?requestFrom=0&businessFrom=1",
+    "https://jzt-api.jd.com/dataCenter/industry/v2/keyword/analysis/chart?requestFrom=0&businessFrom=1",
+    "https://jzt-api.jd.com/dataCenter/industry/v2/keyword/analysis/sku?requestFrom=0&businessFrom=1",
+    "https://jzt-api.jd.com/dataCenter/industry/v2/keyword/billboard?requestFrom=0&businessFrom=1",
+    "https://jzt-api.jd.com/reweb/msa/base/account/list",
+    "https://jzt-api.jd.com/reweb/msa/base/ad/list",
+    "https://jzt-api.jd.com/reweb/msa/base/campaign/list",
+    "https://jzt-api.jd.com/reweb/msa/base/group/list",
+    "https://jzt-api.jd.com/reweb/msa/orientation/commodity/list",
+    "https://jzt-api.jd.com/reweb/msa/orientation/crowd/list",
+    "https://jzt-api.jd.com/reweb/msa/orientation/keyword/list",
+    "https://jzt-api.jd.com/reweb/msa/orientation/package/list",
+    "https://szgateway.jd.com/api/lowcode/flowSource/sourceTable/table.ajax",
+    "https://szgateway.jd.com/api/lowcode/flowSummary/ad/getAdSummaryAndTrend.ajax",
+    "https://szgateway.jd.com/api/lowcode/flowSummary/getCoreSummary.ajax",
+    "https://szgateway.jd.com/api/lowcode/indexSummary/productTop.ajax",
+    "https://szgateway.jd.com/api/lowcode/indexSummary/summary.ajax",
+    "https://szgateway.jd.com/api/lowcode/indexSummary/trend.ajax",
+    "https://szgateway.jd.com/api/lowcode/industrySummary/core/summaryv2.ajax",
+    "https://szgateway.jd.com/api/lowcode/industrySummary/rank/subIndv2.ajax",
+    "https://szgateway.jd.com/api/lowcode/productDetail/table/productTable.ajax",
+    "https://szgateway.jd.com/api/lowcode/tradeSummary/summary/getSummary.ajax",
+    "https://szgateway.jd.com/api/lowcode/tradeSummary/summary/getTrend.ajax",
+    "https://szgateway.jd.com/api/squidajax/paasf/v1/searchKeywordAnalysis/offlineKeywordRank/table.ajax"
+  ]
+}

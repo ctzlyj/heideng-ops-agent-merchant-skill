@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "repository": "ctzlyj/jingmai-cli-linker",
+  "upstreamCommit": "1c438fc5419cd86f709cc4a501325782fd4a1e36",
+  "upstreamVersion": "1.0.2",
+  "license": "owner-authorized-distribution",
+  "permissionRecord": "DISTRIBUTION-PERMISSION.md",
+  "files": {
+    "app/browser_adapters.py": {
+      "upstreamSha256": "2bd421e1de07c81af5d1bc1db9e473541640a47cc75a4dfb19026c5adc780580",
+      "sha256": "42f2b365ce7376af2a206b41e889ebc9fa82f5e55d3d74c8567cf1306ba5c41f",
+      "adapted": true
+    },
+    "app/browser_auth.py": {
+      "upstreamSha256": "b8377e77716588c906337c1d3d7e4aca7e897d5fde3f9eb82c38c06ec938dbaa",
+      "sha256": "40b76f9b20a0c1ced68785c69557bfe846069074cc03f0f7e95cec82d1b06c59",
+      "adapted": true
+    },
+    "app/redaction.py": {
+      "upstreamSha256": "d93733e79f123dc45c7ebe18fc20b03be463f7f9fa298dde46751199e31caff7",
+      "sha256": "d93733e79f123dc45c7ebe18fc20b03be463f7f9fa298dde46751199e31caff7",
+      "adapted": false
+    },
+    "app/server.py": {
+      "upstreamSha256": "fdbe3a272f6ebfec99dff8340da787c830f2373944d870f6404d7878fdb7bcd8",
+      "sha256": "1e54c2de90b1aa410a3901fe40108a5c194138fb429d49a104be33ea278eff76",
+      "adapted": true
+    },
+    "app/shoplib.py": {
+      "upstreamSha256": "3302e5f77efe076313b2d18f5bc8c41eedda3164e9835c6d1a466b704c48e1b2",
+      "sha256": "e4ca24d906025ae415db0ca4ae65ef2e29a05bf1dacdfde72e3d4126c5bfdbdc",
+      "adapted": true
+    },
+    "app/static/index.html": {
+      "upstreamSha256": "3b97b3d72dd3b0d069444e4ef45f988628dcf184d1105e35bd0ae1e07b0b1516",
+      "sha256": "3b97b3d72dd3b0d069444e4ef45f988628dcf184d1105e35bd0ae1e07b0b1516",
+      "adapted": false
+    },
+    "scripts/linker.py": {
+      "upstreamSha256": "fcc261f757b6de8c3cfdfb76216d54a448777dbd2d37eac54dfdf3b6bb3e74e0",
+      "sha256": "8c3f15581a242c63f60f4db196aeaff7589bae72c07fa9e06badd1ee553a4f1e",
+      "adapted": true
+    },
+    "scripts/browser_bridge.py": {
+      "upstreamSha256": "28524bb3d45c072e82bab5bb405601f51a65ce0b5e3fae3e583b158679766cba",
+      "sha256": "28524bb3d45c072e82bab5bb405601f51a65ce0b5e3fae3e583b158679766cba",
+      "adapted": false
+    },
+    "references/browser-session.md": {
+      "upstreamSha256": "dbafcf49a60b997e177cc41dc2d8ff3c692589a3fa05490af100327888934392",
+      "sha256": "dbafcf49a60b997e177cc41dc2d8ff3c692589a3fa05490af100327888934392",
+      "adapted": false
+    },
+    "references/usage.md": {
+      "upstreamSha256": "a80fa7174405fb5594357a73e46c7feff4d4b710ad586fb6c5e0b120f9b3b2e7",
+      "sha256": "a80fa7174405fb5594357a73e46c7feff4d4b710ad586fb6c5e0b120f9b3b2e7",
+      "adapted": false
+    },
+    "DISTRIBUTION-PERMISSION.md": {
+      "upstreamSha256": null,
+      "sha256": "5ebc8abae00da3a5248c80d771f0c9aac523e73be92aa5d9dd4b0d487d23ca45",
+      "adapted": true
+    }
+  },
+  "entrypoints": [
+    "scripts/linker.py",
+    "scripts/browser_bridge.py"
+  ],
+  "adaptation": "merchant namespace/install guidance/POSIX metadata; original business and browser OAuth flow retained"
+}

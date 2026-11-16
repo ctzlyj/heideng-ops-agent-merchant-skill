@@ -1,0 +1,213 @@
+"""Create completed collection packages from live per-SKU checkpoints only."""
+from __future__ import annotations
+
+# Help is offline and has no runtime/browser side effects.
+import sys as _sys
+if __name__ == '__main__' and ('--help' in _sys.argv or '-h' in _sys.argv):
+    import argparse as _argparse
+    _help = _argparse.ArgumentParser(description='Package all complete per-SKU checkpoints; missing arrival prices remain pending.')
+    _help.add_argument('--root', required=True)
+    _help.add_argument('--state-dir')
+    _help.add_argument('--allow-original-price-fallback', action='store_true')
+    _help.print_help()
+    raise SystemExit(0)
+
+import json,sys,hashlib,subprocess,concurrent.futures,shutil
+from pathlib import Path
+from datetime import datetime,timezone
+from collector_guard import atomic_json,validate_main,ordered_variants
+from asset_paths import ROOT,STAGE,CACHE,safe_name,image_url,save_jpeg,get_public
+from workbook_writer import write_workbook
+from package_contract import ordered_detail_urls,decode_detail_payload,HEADERS,table_matrix,error_state
+from media_guard import inspect_mp4
+SCRIPT=Path(__file__).parent
+
+def load(path):return json.loads(path.read_text(encoding='utf-8-sig'))
+
+def fallback_marker(stage=STAGE):
+    """Batch-scoped user authorization for original-price fallback, or None."""
+    p=Path(stage)/'price_fallback.json'
+    if not p.exists():return None
+    try:return (load(p) or {}).get('marker')
+    except (ValueError,AttributeError):return None
+
+def authorize_original_price_fallback(stage=STAGE):
+    marker='original_price_user_authorized_'+datetime.now().strftime('%Y%m%d')
+    atomic_json(Path(stage)/'price_fallback.json',{'marker':marker,'authorizedAt':datetime.now(timezone.utc).isoformat()})
+    return marker
+
+def live_data(sku,stage=None,marker=None):
+    stage=STAGE if stage is None else Path(stage)
+    marker=fallback_marker(stage) if marker is None else marker
+    p=stage/'data'/f'{sku}.json'
+    if not p.exists():
+        # Without an explicit per-batch authorization marker, pending prices stay pending.
+        if not marker:return None
+        fp=stage/'partial_data'/f'{sku}.json'
+        if not fp.exists():return None
+        try:
+            d=load(fp)
+            if d.get('source') not in ('live_signed_page_arrival_pending','live_native_page_arrival_pending'):return None
+            data=dict(d['data']);data['pp']=data.get('p');data['priceSource']=marker
+            return validate_main(sku,data)
+        except (KeyError,ValueError,RuntimeError):return None
+    try:
+        d=load(p)
+        if d.get('source') not in ('live_signed_page','live_native_page'):return None
+        return validate_main(sku,d['data'])
+    except (KeyError,ValueError,RuntimeError):return None
+
+def details(spu):
+    p=STAGE/'details_ordered'/f'{spu}.json'
+    if p.exists():return load(p)
+    data=ordered_detail_urls(decode_detail_payload(get_public(f'https://d.3.cn/desc/{spu}')))
+    # A parsed document with zero images is a genuinely image-less detail page; cache it
+    # and keep the empty 详情图 folder. Fetch failures still raise from get_public and
+    # malformed documents raise DETAIL_FORMAT_INVALID in ordered_detail_urls.
+    atomic_json(p,data);return data
+
+def _detail_jobs(urls, folder, save):
+    """Download detail images at their source positions; 404 links are dead on the
+    source CDN, so they are recorded and skipped instead of failing the product.
+    Any other download failure still raises."""
+    jobs=[];dead=[]
+    for i,u in enumerate(urls,1):
+        dest=folder/f'详情图_{i}.jpg'
+        try:
+            save(u,dest);jobs.append((u,dest))
+        except Exception as e:
+            if getattr(getattr(e,'response',None),'status_code',None)==404:dead.append(u)
+            else:raise
+    return jobs,dead
+
+def plan_product(keyword,item,known_names):
+    pid=item['pid'];error=STAGE/'errors'/f'{pid}.json'
+    # An unavailable verdict wins even when partial main data was collected first
+    # (e.g. spec-matrix products whose page loads fine but cannot be modeled).
+    if error.exists():
+        saved=load(error)
+        if saved.get('reason')=='PRODUCT_UNAVAILABLE':
+            return {'pid':pid,'keyword':keyword,'state':'PRODUCT_UNAVAILABLE','reason':(saved.get('evidence') or {}).get('failureType') or saved.get('reason')}
+    main=live_data(pid)
+    if not main:
+        if error.exists():return {'pid':pid,'keyword':keyword,'state':error_state(load(error)),'reason':load(error).get('evidence',{}).get('itemOverTip') or load(error).get('reason')}
+        return {'pid':pid,'keyword':keyword,'state':'MAIN_OR_PRICE_PENDING'}
+    rows=ordered_variants(pid,main['colorSize']);prices={r['sku']:live_data(r['sku']) for r in rows}
+    missing=[k for k,v in prices.items() if v is None]
+    if missing:return {'pid':pid,'keyword':keyword,'state':'SKU_PRICES_PENDING','missingSku':missing}
+    title=safe_name(main['title']);key=(keyword,title)
+    if key in known_names and known_names[key]!=pid:title+='_'+pid
+    known_names[key]=pid
+    temp=STAGE/'packages'/pid;final=ROOT/safe_name(keyword)/title
+    receipt=STAGE/'receipts'/f'{pid}.json'
+    if receipt.exists():
+        r=load(receipt)
+        if r.get('state')=='COMPLETE' and Path(r['folder']).exists():return {'pid':pid,'keyword':keyword,'state':'COMPLETE','folder':r['folder']}
+    temp.mkdir(parents=True,exist_ok=True)
+    for name in ['主图','详情图','SKU图','主图视频']:(temp/name).mkdir(exist_ok=True)
+    jobs=[]
+    for i,c in enumerate([c for c in main['carousel'] if c.get('u')],1):jobs.append((image_url(c['u']),temp/'主图'/f'主图_{i}.jpg'))
+    detail_jobs,dead_detail_urls=_detail_jobs(details(main['realSpuId']),temp/'详情图',save_jpeg)
+    jobs.extend(detail_jobs)
+    names=set()
+    for row in rows:
+        image=row['image'] or next((c['u'] for c in prices[row['sku']]['carousel'] if c.get('u')),'')
+        if not image:raise ValueError('SKU_IMAGE_MISSING')
+        n=safe_name(' '.join(x for x in [row['spec1'],row['spec2']] if x) or row['sku'])
+        if n in names:n+='_'+row['sku']
+        names.add(n);jobs.append((image_url(image),temp/'SKU图'/(n+'.jpg')))
+    groups={}
+    for u,p in jobs:groups.setdefault(u,[]).append(p)
+    def download(u,paths):
+        for p in paths:save_jpeg(u,p)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        futures=[pool.submit(download,u,paths) for u,paths in groups.items()]
+        for f in futures:f.result()
+    video_urls=list(dict.fromkeys(v['p'] for d in [main,*prices.values()] for c in d['carousel'] for v in c.get('v',[]) if v.get('p')))
+    videos=[]
+    for i,u in enumerate(video_urls,1):
+        vp=temp/'主图视频'/f'主图视频_{i}.mp4'
+        if not vp.exists():
+            cached=STAGE/'video_cache'/(hashlib.sha256(u.encode()).hexdigest()+'.mp4');cached.parent.mkdir(exist_ok=True)
+            if not cached.exists():
+                b=get_public(u);inspect_mp4(b);part=cached.with_suffix('.part');part.write_bytes(b);part.replace(cached)
+            shutil.copyfile(cached,vp)
+        videos.append({'file':str(vp.relative_to(temp)),**inspect_mp4(vp.read_bytes())})
+    matrix=table_matrix(main,rows,prices)
+    spec={'headers':HEADERS,'rows':matrix,'output':str(temp/'商品信息.xlsx')}
+    metadata={'sourceSku':pid,'keyword':keyword,'title':main['title'],'finalFolder':str(final),'variants':rows,'arrivalPrices':{r['sku']:prices[r['sku']]['pp'] for r in rows},'expectedImages':len(jobs),'videos':videos,'deadDetailUrls':dead_detail_urls,'priceSource':'live_signed_page','priceSources':{r['sku']:prices[r['sku']].get('priceSource','bestPromotion.purchasePrice') for r in rows},'collectedAt':datetime.now(timezone.utc).isoformat(),'state':'AWAITING_WORKBOOK'}
+    atomic_json(temp/'package_metadata.json',metadata)
+    return {'pid':pid,'keyword':keyword,'state':'AWAITING_WORKBOOK','spec':spec,'metadata':metadata,'temp':str(temp),'final':str(final)}
+
+def prior_folder_owner(final,pid):
+    """True only when a provided prior receipt proves the folder packages this same pid."""
+    import os
+    path=os.environ.get('HEIDENG_COLLECTION_PRIOR_RECEIPTS')
+    if not path:return False
+    try:entries=json.loads(Path(path).read_text(encoding='utf-8-sig'))
+    except (OSError,ValueError):return False
+    return any(isinstance(r,dict) and str(r.get('folder'))==str(final) and str(r.get('sourceSku'))==str(pid) for r in entries)
+
+def verify_table(p,metadata):
+    from openpyxl import load_workbook
+    w=load_workbook(p,read_only=True,data_only=False);s=w.active
+    rows=list(s.values);w.close()
+    if list(rows[0])!=HEADERS or len(rows)-1!=len(metadata['variants']):raise ValueError('WORKBOOK_ROWS_OR_COLUMNS_WRONG')
+    for i,(v,row) in enumerate(zip(metadata['variants'],rows[1:])):
+        if (row[5] or '')!=v['spec1'] or (row[6] or '')!=v['spec2'] or abs(float(row[7])-float(metadata['arrivalPrices'][v['sku']]))>0.000001 or row[8]!=999:raise ValueError('WORKBOOK_SKU_ORDER_OR_PRICE_WRONG')
+        if i==0 and row[0]!=metadata['title']:raise ValueError('WORKBOOK_TITLE_WRONG')
+        if i and any(row[x] is not None for x in range(5)):raise ValueError('PRODUCT_FIELDS_REPEATED')
+
+def finalize(p):
+    from PIL import Image
+    temp=Path(p['temp']);meta=p['metadata'];verify_table(temp/'商品信息.xlsx',meta)
+    images=list(temp.rglob('*.jpg'))
+    if len(images)!=meta['expectedImages']:raise ValueError('IMAGE_COUNT_MISMATCH')
+    for image in images:
+        with Image.open(image) as im:
+            if im.format!='JPEG':raise ValueError('NOT_REAL_JPEG')
+            im.verify()
+    for v in meta['videos']:inspect_mp4((temp/v['file']).read_bytes())
+    final=Path(p['final']);final.parent.mkdir(exist_ok=True)
+    if final.exists():
+        # A folder from a prior batch that packaged the same source product is our own
+        # artifact; move it aside and rebuild with this batch's current data. Anything
+        # else remains a hard stop so genuine user folders are never overwritten.
+        if not prior_folder_owner(final,p['pid']):raise ValueError('USER_FOLDER_COLLISION')
+        backup=STAGE/'replaced_prior_folders'/(p['pid']+'_'+datetime.now().strftime('%Y%m%d%H%M%S'))
+        backup.parent.mkdir(parents=True,exist_ok=True)
+        final.rename(backup)
+    # Only copy complete business artifacts; metadata stays in task work area.
+    final.mkdir()
+    for name in ['主图','详情图','SKU图','主图视频']:shutil.copytree(temp/name,final/name)
+    shutil.copyfile(temp/'商品信息.xlsx',final/'商品信息.xlsx')
+    verify_table(final/'商品信息.xlsx',meta)
+    receipt={'state':'COMPLETE','sourceSku':p['pid'],'keyword':p['keyword'],'folder':str(final),'skuCount':len(meta['variants']),'images':len(images),'videos':len(meta['videos']),'validatedAt':datetime.now(timezone.utc).isoformat()}
+    atomic_json(STAGE/'receipts'/f"{p['pid']}.json",receipt);return receipt
+
+def main():
+    import argparse
+    ap=argparse.ArgumentParser(add_help=False)
+    ap.add_argument('--allow-original-price-fallback',action='store_true')
+    args,_=ap.parse_known_args()
+    if args.allow_original_price_fallback:authorize_original_price_fallback()
+    CACHE.mkdir(parents=True,exist_ok=True)
+    tasks=load(STAGE/'keyword_tasks.json');report=[];prepared=[];names={}
+    for kw,items in tasks.items():
+        for it in items:
+            try:
+                p=plan_product(kw,it,names);report.append({k:v for k,v in p.items() if k in ['pid','keyword','state','folder','missingSku']})
+                if p['state']=='AWAITING_WORKBOOK':prepared.append(p)
+            except Exception as e:report.append({'pid':it['pid'],'keyword':kw,'state':'MATERIAL_ERROR','error':type(e).__name__,'errorCode':str(e) if isinstance(e,ValueError) else '', 'httpStatus':getattr(getattr(e,'response',None),'status_code',None)})
+    if prepared:
+        for p in prepared: write_workbook(p['spec'])
+        for p in prepared:
+            result=finalize(p)
+            for x in report:
+                if x['pid']==p['pid']:x.update(result)
+            print(json.dumps(result,ensure_ascii=False),flush=True)
+    atomic_json(STAGE/'package_report.json',report)
+    print(json.dumps({'scope':len(report),'complete':sum(x['state']=='COMPLETE' for x in report),'pending':sum(x['state']!='COMPLETE' for x in report)},ensure_ascii=False),flush=True)
+if __name__=='__main__':main()
+
+

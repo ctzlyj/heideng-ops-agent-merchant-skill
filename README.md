@@ -1,117 +1,26 @@
-# 黑灯运营智能体商家版
+# 黑灯运营智能体商家版 0.3.0
 
-> 当前为私有开发检查点，目标仍在实施；尚未宣布正式上线完成。原生商品/SKU/健康分查询、价格规划/执行/待审与线上回查及新OAuth自动接管代码已补齐，验证为离线/SDK等级；真实店铺连接和授权复用已由商家0.1.3内测反馈验证；新恢复修补、完整发行回测和其他业务实机链路仍待后续内测。
+直接迁移成熟 Skill 的业务源码，只保留独立安装、商家状态/授权隔离、外部模型和宿主薄适配。旧 `builtin-independent-merchant-runtime` 及其重复授权/标题/商品业务模块不再打包或派发。
 
-商家安装一个GitHub能力包，只描述目标，Agent组合官方京麦、合法浏览器和本地工具执行。不是SaaS，不代付，不依赖京东员工ERP/内网SSO/SkillHub/公司模型Key。
+## 从零使用
 
-## 安装提示词（发给你的Agent）
+由宿主 Agent 执行：
 
-请安装 GitHub 仓库 ctzlyj/heideng-ops-agent-merchant-skill 的黑灯运营智能体商家版。复用当前Agent已有的GitHub读取权限。当前没有正式Release：读取私有codex/merchant-foundation分支，核对docs中的最新开发检查点commit与验收证据，在该commit重建独立ZIP、验证清单SHA256后安装，不将源码检查点当正式发行版。正式Release发布后优先下载经过审核的发行ZIP并核对SHA256。由你执行install.py，将唯一入口heideng-ops-agent-merchant安装到当前宿主的独立skills目录，再运行onboarding带我上手。不要改动内部版或使用内部SkillHub，不要让我手敲命令、复制Cookie、授权码或Key。店铺相关功能缺官方CLI时，你从京麦官方公开通道校验安装；需要新授权时，我只扫码并完成本人确认。
+```text
+python install.py --host codex --with-runtime --with-official
+python scripts/merchant.py run connection -- ensure-shop --shop "目标店铺" --no-auth
+```
 
-**当前先私有交付**：安装者必须已有仓库读取授权；不能把私有链接说成任何商家均可下载。公开、公司成果分发和第三方商用许可由负责人另行决定。
+JoyCode 使用 `--host joycode`；WorkBuddy 等使用其实际 `--skills-dir`。商家只需描述目标。已有商家授权优先复用；首次新授权先取得具体许可，再按成熟同会话扫码/OAuth 完成连接。后续直接说“维护信息分”“生成并自动导入短标题”“复刻链接上架”“比价”等，Agent 按 SKILL.md 派发原实现。
 
-## 0.1.1 内测授权兼容修复
+图片使用商家自己的 LTS4AI Key、gpt-image-2.5；不使用公司凭据/额度。外部 AI 视频生成尚未配置，但已有合格候选可通过成熟本地交接与上传绑定链处理。独立文本/视觉 API 未配置时，使用原宿主生成文件路线，不静默回落公司渠道。
 
-HD-001：WorkBuddy等会在命令退出时清理子进程的宿主，Agent使用`auth-start --foreground --wait`，保持同一长命令直到授权终态。旧死任务先用`auth-reconcile`严格核对，不手改回执；确证未开始OAuth才可`auth-restart --foreground --wait`。HD-002在0.1.1仅改善提示；0.1.4已改实际登录入口，不再要求先去首页点登录。详细更新与诊断说明见`references/shop-connection.md`。本修复的真实WorkBuddy复测仍待内测反馈。
+来源、精确版本/commit、逐文件差异及许可见 `registry.json`、`mature/*/provenance.json`；最终迁移对照与边界见 `docs/merchant-mature-delivery-0.3.0-2026-11-17.md`。
 
-HD-003～HD-006开发修复：任务context统一监听工作台新标签页；简称/多店登录后展示真实候选，由商家明确确认并用`auth-confirm-shop`在原窗口继续，不取消重扫；旧页面证据失效不授权；公开授权布尔字段不再被字段名误脱敏。成功授权的精确Profile需实时核验后才复用。已验证合成身份/回执、真实loopback及全请求拦截的系统浏览器popup；真实WorkBuddy和现网OAuth仍未验收。仅推送开发分支，现有发行ZIP不替换，不创建Release。
+## 交付和边界
 
-## 0.1.2 开发升级修复
-
-JoyCode HD-2026-11-16-005由商家报告在ed40310实机复测关闭；HD-006通过递增到0.1.2支持从0.1.1直接升级，不关闭同版本防替换保护，不要求rollback→install。安装器遇到same-version-different-artifact给出取得更高版本候选的明确指引。HD-007修正测试对macOS临时目录别名的期望值，产品的resolve行为不改。详见references/install-runtime.md。
-
-包内内容变更的可安装源码也必须升版；仅不入包的测试/docs提交不必单独升版。本轮仍只推送开发分支，不创建Release，不覆盖原0.1.1 ZIP，不通知商家更新。
-
-## 0.1.3 成熟能力优先复用与连接修正
-
-全部能力优先复用既有成熟实现，本次不重写上架、短标题、素材、诊断或生图。店铺连接恢复原连接器的宿主观测/控制器契约，不再把固定域名/字段网络采集器作为生产默认；Agent使用当前现成浏览器工具、从已观察接口或可靠DOM返回标准身份，同context衔接官方OAuth，商家只在需要时扫码/确认。控制器由Agent准备，不让商家配置；缺工具立即报告，不空等。
-
-WorkBuddy HD-007检查taskId绑定的实际worker与launch两个PID，兼容venv redirector；原双锁、原件复核、未开始OAuth与未知不重发门禁保留。--wait默认960，勿设成任务900秒期限。完整说明见references/shop-connection.md。已验证本地真实Windows redirector、实际浏览器控制器子进程及拦截页面链路，真实商家OAuth仍待复测。只推送开发源码，不建Release，不替换原安装包。
-
-## 安装前置与平台支持
-
-Agent先复用宿主或用户独立的Python 3.11+；缺少时按 `references/install-runtime.md` 准备可信便携运行时，不替换系统Python或要求商家装包管理器。JoyCode默认目录为 `.joycode/skills`，宿主明确提供的实际目录可用 `--skills-dir` 指定；文件校验与宿主识别分开报告。`--with-official`失败只报告官方组件未就绪，不把已安装Skill误报失败。当前macOS店铺官方链路不可用，应在授权前提示；离线任务与独立外部生图不因此禁用。
-
-## 可直接描述的目标
-
-- 帮我核对这份商品资料并保留全部规格，整理成实拍上新包。
-- 分析这份经营和广告报表，指出数据缺项，不自动投广告。
-- 整理这些同规格商品的逐SKU到手价，出TOP10和待确认调价方案。
-- 核对这批商品信息分和素材缺口，复用已有合规图片。
-- 采集这些商品的真实SKU顺序、到手价、主图/详情素材，保存成包。
-- 用我提供的视频和封面准备主图视频交接，先复核再确认绑定。
-- 连接我的POP店铺并查询商品；任何写入给我看明确范围再提交。
-
-## 状态必须说清楚
-
-生图来源已选定为LTS4AI（https://api.lts4ai.com/v1），模型gpt-image-2.5；已复用现成MIT客户端接入文生图、参考图编辑与本地图片保存；商家安全设置自己的Key并批准本次数量/预算后可执行，真实付费调用尚未实测。详见 references/lts4ai-image.md。视频生成服务仍待选择：不会偷偷用公司网关，也不会静默切换收费平台。已有素材、宿主策划/识图、报表分析、查询和业务准备仍可使用。官方权限和网页登录需商家本人授权。视频生成、本地文件、上传、受理、线上生效是不同状态。
-
-已实现独立安装/校验/回滚、官方同版大载荷stdin薄适配（公开源标deprecated，版本/SHA/批准绑定；未实测真实上传）、原生图片空间/分类/上传与原回执ID回查（未实测真实店铺），原生商品/SKU/健康分分页查询及京东价PATCH（待审和线上分开）、官方CLI下载验证、非default Profile身份绑定、任务范围批准/unknown去重、本地经营分析、同规格比价、素材审核、实拍包和已有视频交接。新授权由独立worker承接同会话扫码/OAuth；当前仅Windows开放带凭据CLI执行；macOS新授权和已有授权查询均因官方token刷新可能产生secret argv而禁用，安装/离线流程仍可用。浏览器采集和商智京准通取数由当前Agent使用商家授权会话执行，不要求安装公司浏览器插件；实际平台链路验证进度见docs。
-
-## Agent内部命令（商家不需要执行）
-
-python install.py --host codex --with-official
-python scripts/merchant.py onboarding
-python scripts/merchant.py doctor --install-cli
-python scripts/merchant.py route "诊断店铺广告"
-python -m unittest discover -s tests -v
-
-可选XLSX读取使用公开Python依赖openpyxl；缺失时由Agent在商家独立运行时安装，不要求另装Skill仓库。核心安装/JSON/CSV流程仅需Python3.11+标准库。
-
-## 安全与许可
-
-只使用当前仓库的独立代码，不分发无许可证内部业务源码、运行记录、个人路径或凭据。官方工具从官方源校验下载；第三方工具/模板/字体等权利不由本仓库重授。没有获得公司成果对外分发和收费许可，不能将此视为个人收费项目。
-
-
-已有合规图可走原生素材规划/上传/回查，不调用生成模型；首次图片解码由Agent按需准备公开PyPI Pillow的独立运行时。图片空间保存与商品绑定分开，详见references/native-materials.md；目前为私有开发验收等级，真实账号权限与上传未实测。
-
-已有商品可读取全SKU编辑模板，生成只改已有主图/逐SKU图槽位的无损本地草案（全量SKU、销售属性、详情和未知控件保留），详见references/native-product-schema.md；此草案命令本身不写店铺；需要整版提交、详情编辑和图片绑定字段回查时，使用下述独立来源基线/两阶段编辑链路，真实线上状态仍待商家授权验收。当前价格规划不再受旧18000字符argv估计限制，按实际官方transport选择stdin；仍以完整旧值/待审/线上范围批准和回查，不截SKU。
-
-新品可从本商类目/三级品牌/销售属性/完整模板进入全SKU校验与条件提交链；已有照片无须生成模型。校验和提交都需明确范围批准，未知不重放，原applyId/productId不制造链接；源码和限制见references/native-publishing.md。当前为开发验证等级，真实商家新建与全线上字段仍未实测。
-
-既有商品整版图片/详情优化新增来源基线与原申请单/全字段回查链路，见 references/native-full-edit.md；必须保留全 SKU/原字段并经官方 validation 和用户明确许可才写入。当前为合成/离线契约验证，不承诺未验证类目模板或真实线上状态语义已兼容。
-
-原生模板自动编译入口见 references/native-template-compile.md：Agent 从同店原完整详情与原规则的字段声明准备全 SKU 来源基线，不让商家手填 schema/bindings/sale-sources；原始规则和编译证明保留，重复准备沿用同一编辑意图。未声明或无法证明的字段拒绝，不称所有线上模板已经实测。
-
-**信息分口径仍需实测对照**：官方目录将 health-infos 定义为“商品信息健康分”，可用原生 healthScore / improvementList 做诊断；与京麦页面 commodity-score 的逐行等价性尚未验证，不能仅凭名称断言相同或不同。已补齐原生 SKU 缺失素材槽位的审计、批准、绑定及全查询范围回读（仅合成测试）。图片空间保存、整版编辑、素材绑定、审核通过和分数重算分别记录。详见 references/native-sku-materials.md。
-
-全店在售素材/信息健康审计新增完整来源入口：在售商品→全部兄弟SKU（包含离线兄弟）→一次原生health数据集→全部支持素材→前后商品/SKU集合交叉核对。摘要只返回完整范围计数，明细保存在本地且可分页筛选；分值未知、未取到和缺失分开，不补0、不自动写店铺。仅合成/安装验证，真实权限/接口未实测。详见 references/native-shop-material-audit.md。
-
-## 已有视频的本地交接
-
-Agent可独立全帧/音轨解码MP4、检查真实封面并绑定视频/封面/商品hash；视觉和声音须实际验收，不能凭`technicalPass=true`提升可绑定状态。运行时仅按需从公开PyPI安装，不生成/付费调用。详见`references/local-video-handoff.md`。本地就绪不等于原生上传、SKU绑定或平台审核成功，原生上传/保存的受批准会话已接入（见`references/native-video-delivery.md`），SKU绑定已接入私有研发适配（见`references/native-video-binding.md`），仅经离线/合成验证，真实平台未实测，真实商家链路另获批准才实测。
-
-### 视频会话与更新安全
-
-独立上传会话和 SKU 绑定的原始尝试、回执及批准均纳入更新门禁。有 unknown、未决阶段、孤立/损坏证据时，安装和回滚不会先清理恢复现场。新视频计划保存运行时版本；更新后的旧未执行计划不会发起业务写入。只有尚无任何业务尝试的本地计划，在明确取消原范围后，Agent 才可保留取消证明并重新规划。不能取消远端未知结果来重提；详见 `references/native-video-delivery.md`。以上边界由合成链路验证，不等于真实商家上线验收。
-
-### 整店可用素材统一执行
-
-Agent先取得全部在售商品、完整兄弟SKU和素材来源，再把已有核验上传图/真实卖点放进一个明确根范围；一次批准后逐商品<=50SKU分块、独立原件留账、原字段读回和恢复，unknown不重提或推进剩余块。默认全部支持槽位，缺素材/原有空/待审/驳回/未知状态完整报告，不能只处理有分数的行或把部分成功称整店完成。入口和明确边界见 `references/native-shop-material-execution.md`。整店驳回/空槽的明确修复已接入：旧状态/理由与原图字节留证，新图不得换URL复用旧字节，逐块未知不重提，详见 `references/native-shop-material-repair.md`。当前仅合成/安装验收，生成来源、短标题与真实商家验收仍未完成。
-
-## 短标题自动导入的前置阶段
-
-已增加完整原库存/health问题核对、宿主审核稿的规划/分页、5000行分块与安全模板中间产物。分数无效/素材读取失败不会被当成标题不存在；离线/未知/无问题完整保留，模板不从内部缓存复制。详见 `references/native-short-title-planning.md`。此阶段明确planning-only，不具备浏览器上传/创建任务/回读，不称已导入，也不要求商家默认人工上传；完整自动导入仍是下一阶段必须完成的工作。
-
-### 短标题原生导入与处理结果API（B2/C1-C2研发）
-
-已接入精确root批准、原抽屉上传/创建实例、独立回执与查询恢复API，以及原任务结果文件的只读获取、完整逐行处理结果和独立观察/回执/head校验。CLI 已有持久 worker 的 start/精确 approve/execute/recover/results/effects/status/command-status/stop 与确认关闭后的 readonly resume；用法见 references/native-short-title-worker.md。C3 完整正式审核/health/门户回读仍必须补齐。rowResultsVerified只说明原完整批次处理结果，不是标题生效或重试批准；unknown、审核延迟不重投。详见 references/native-short-title-import.md 与 references/native-short-title-results.md。
-
-原范围实际短标题/health 回读与持久化证据已接入部分原生来源 API；持久 worker 已接入；完整正式审核/门户/health 与确认失败子计划仍待完成，不称整店生效。Agent 用法与历史 effects 分页见 `references/native-short-title-effects.md`。
-
-## 0.1.4 HD-002：直接打开登录页
-
-未登录的任务窗口直接打开https://passport.shop.jd.com/login/index.action。宿主open_login动作明确传入该登录url，Agent控制器使用原浏览器导航能力执行；已登录且已校验归属的会话仍复用，不重新扫码。登录后继续同context的工作台身份核对和官方OAuth，不将passport加入身份响应白名单。本次只修入口与相应提示，不改生图或成熟业务流程；仍仅推送开发分支。
-
-## 0.1.5 第4批局部恢复修补
-
-商家第4批报告已在 0.1.3 真实完成新店连接、官方身份核验及后续免重扫授权复用；Windows 双 PID 恢复也已实机通过。此为商家反馈证据，不冒充本机真实登录。0.1.4 的直接登录页保留。
-
-- HD-009：新增 auth-prove-cleanup；原 worker 双 PID 确证退出并取得原锁后，由任务自有控制器只读 verify_cleanup 检查原资源确实已释放，精确 task/action/新 inspection nonce 回执核对后才允许安全重启。拒绝 OAuth 已开始、授权未知、资源仍活跃和不完整证据。
-- HD-010：只读观察瞬时失败不结束任务，清空旧身份并记录连续/累计失败；连续 5 次失败给明确原因。普通观察和 OAuth 前只读复核共享此策略；不重放登录或 OAuth 动作，归属失效不关闭未知页面。
-- HD-011：新建/复用旧任务输出明确，wait 也保留标记；按 nextAction 继续。
-- HD-012：确认过的简称保存在 shops.json，官方实时复用/刷新保留；全名授权后新简称可用 auth-bind-alias 一次确认绑定，不再扫码，不猜前缀。
-- HD-014：保留重复页拒绝；新增 paginationDiagnostics，区别返回 50 个唯一项与观察到的 64 行/53 个唯一项，差额不称已验证缺失。现场旧返回差异未确证，不自动重试或静默把部分集合算完整；product/sku page-size 上限 50、health 上限 100 会在报错中说明。
-- HD-015：候选采信和官方 ready 终态同步身份诊断，不再留“等待身份”的旧说明。
-
-本轮只改局部适配与诊断，不重新实现成熟业务，不更新内部版，不创建 Release，不通知商家更新。真实商家对本轮新增恢复路径的复测尚待后续统一更新。
+- 新内容使用独立版本 0.3.0；同版本不同包、降级与完整性保护保留。
+- 原内部版、原商家分支及其未提交短标题实验不改动。
+- 用户已要求不再做任何额外验证，本次不重跑成熟测试、不安装演练、不执行新授权/店铺写入/付费生成。前期本地记录不是本次商家真实验收。
+- 不创建 Release，不公开仓库，不通知商家。现有 GitHub 验证工作流仅手动触发，本次不触发。
+- 平台账号/品牌/类目权限、宿主实际浏览器和外部视频生成配置是实际环境输入，不靠新状态机或假回执解决。

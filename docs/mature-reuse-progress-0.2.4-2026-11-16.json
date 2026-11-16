@@ -1,0 +1,60 @@
+{
+  "date": "2026-11-16",
+  "draftVersion": "0.2.4",
+  "goalComplete": false,
+  "merchantRetestReady": false,
+  "userConfirmationScope": "necessary pure business code/templates from connector/POP/refresh/diagnosis/fixed-video into private merchant repo and install-package distribution; no OAuth/shop write/paid task authorization",
+  "newSourceReuse": [
+    {
+      "component": "connection",
+      "source": "ctzlyj/jingmai-cli-linker",
+      "version": "1.0.2",
+      "commit": "1c438fc5419cd86f709cc4a501325782fd4a1e36",
+      "files": 11
+    },
+    {
+      "component": "materials",
+      "source": "ctzlyj/jd-material-pop-skill",
+      "version": "2026.11.207",
+      "commit": "b56b22376db88182352d3f64ea3e9752d4ae5677",
+      "files": 20
+    }
+  ],
+  "adaptationChecks": {
+    "scopedOfflineTests": 134,
+    "scopedOfflineTestsPassed": true,
+    "actualOriginalIdleConnectorServiceStartAndShutdown": true,
+    "gitNormalizedExportArchiveReproducible": true,
+    "protectedOriginalExperimentFiles": 23,
+    "originalExperimentChanged": 0,
+    "frozenDraftInstallVersion": "0.2.3",
+    "frozenDraftInstallIntegrityVerified": true,
+    "officialPublicBinaryVerified": true,
+    "isolatedDependencies": "preparation in progress, not yet verified"
+  },
+  "dependencyHelper": {
+    "pid": 52036,
+    "statusFile": ".agent-work/owner-confirmed-runtime-status.json",
+    "operation": "public-isolated-dependency-prepare"
+  },
+  "newSeam": "optional task-owned persistent browser profile metadata travels via original connector shops.json into original POP automatic import; no new auth/title FSM",
+  "notPerformed": [
+    "real OAuth or new scanning",
+    "real existing authorized merchant profile readback",
+    "real title import/createImportJob or shop writes",
+    "paid LTS4AI generation",
+    "macOS/WorkBuddy/JoyCode live host acceptance"
+  ],
+  "remaining": [
+    "verify/install public dependencies and installed connector/POP cross-module execution",
+    "actual host owned persistent browser metadata path, identity and login verification",
+    "whole-shop refresh source and boundary migration",
+    "full link replica/publish unknown-receipt safety seam",
+    "live collection driver/transport migration",
+    "merchant diagnosis source/data adapter migration",
+    "fixed video local source/handoff and upload/bind protocol migration; external generation provider not configured"
+  ],
+  "pushed": false,
+  "releaseCreated": false,
+  "merchantsNotified": false
+}

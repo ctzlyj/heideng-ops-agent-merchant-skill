@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "listing-package/v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mode",
+    "status",
+    "store",
+    "title",
+    "productId",
+    "skuIds",
+    "mainImages",
+    "detailImages",
+    "variants"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "listing-package/v1"
+    },
+    "mode": {
+      "const": "photo-new-listing"
+    },
+    "status": {
+      "type": "string"
+    },
+    "store": {
+      "type": "object",
+      "required": [
+        "profile",
+        "venderId",
+        "shopName"
+      ],
+      "properties": {
+        "profile": {
+          "type": "string",
+          "pattern": "^(?!default$)[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+        },
+        "venderId": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "shopName": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "productId": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "skuIds": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
+    },
+    "sellingPoints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "category": {
+      "type": "object"
+    },
+    "mainImages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/image"
+      }
+    },
+    "detailImages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/image"
+      }
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "skuImage"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "skuId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "skuImage": {
+            "$ref": "#/$defs/image"
+          },
+          "spec": {
+            "type": "string"
+          },
+          "jdPrice": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "stock": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "video": {
+      "type": "object"
+    },
+    "timings": {
+      "type": "object"
+    },
+    "facts": {
+      "type": "object"
+    },
+    "detailPlan": {
+      "type": "object",
+      "description": "detail-plan.json 摘要：模块数、每模块 kind/本地路径/覆盖SKU/线上URL、PC与mobile回读结果",
+      "properties": {
+        "moduleCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "width": {
+          "enum": [
+            750,
+            790
+          ]
+        },
+        "exemption": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "readback": {
+          "type": "object"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "localPath"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "localPath": {
+                "type": "string"
+              },
+              "skuKeys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "onlineUrl": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "deliveryChecks": {
+      "type": "object",
+      "description": "四项分别记录，任一失败不得称“全部完成”",
+      "properties": {
+        "platformValidationPassed": {
+          "type": "boolean"
+        },
+        "productOnSale": {
+          "type": "boolean"
+        },
+        "detailQualityPassed": {
+          "type": "boolean"
+        },
+        "videoBound": {
+          "type": "boolean"
+        },
+        "statement": {
+          "type": "string"
+        },
+        "checkedAt": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "image": {
+      "type": "object",
+      "required": [
+        "localPath"
+      ],
+      "properties": {
+        "localPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Package-relative path; resolve with containment checks before reading"
+        },
+        "onlineUrl": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "previewOnly": {
+          "type": "boolean"
+        },
+        "module": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "skuKeys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "VERIFIED"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "category",
+          "verification",
+          "deliveryChecks",
+          "detailPlan"
+        ],
+        "properties": {
+          "productId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "skuIds": {
+            "minItems": 1
+          },
+          "mainImages": {
+            "minItems": 1
+          },
+          "detailImages": {
+            "minItems": 1
+          },
+          "variants": {
+            "minItems": 1,
+            "items": {
+              "properties": {
+                "skuId": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "skuId",
+                "vendorSku",
+                "jdPrice",
+                "stock"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

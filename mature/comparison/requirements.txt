@@ -1,0 +1,3 @@
+# Direct third-party imports in the selected upstream scripts; no auto-install.
+Pillow
+openpyxl

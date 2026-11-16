@@ -1,3 +1,4 @@
+import tempfile
 import os, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -37,5 +38,25 @@ class SafetyTests(unittest.TestCase):
     with patch('pathlib.Path.is_junction',return_value=False,create=True):
      with self.assertRaises(SafetyError):safe_join(root,'junction/item')
    finally:os.rmdir(link)
+
+
+
+class WindowsCleanEnvironmentTests(unittest.TestCase):
+ def test_uppercase_os_roots_are_retained_without_credentials(self):
+  if os.name!='nt':self.skipTest('Windows-specific environment convention')
+  from heideng_merchant.safety import clean_environment
+  with tempfile.TemporaryDirectory() as d:
+   env=clean_environment(Path(d),{'SYSTEMROOT':os.environ.get('SystemRoot','C:/Windows'),'WINDIR':os.environ.get('WINDIR','C:/Windows'),'PATH':os.environ.get('PATH',''),'JD_LLM_API_KEY':'synthetic-company-marker'})
+   self.assertTrue(env.get('SystemRoot'))
+   self.assertNotIn('JD_LLM_API_KEY',env)
+ def test_missing_os_roots_do_not_crash_native_node_rng(self):
+  if os.name!='nt':self.skipTest('Windows-specific native runtime')
+  import shutil,subprocess
+  from heideng_merchant.safety import clean_environment
+  with tempfile.TemporaryDirectory() as d:
+   env=clean_environment(Path(d),{'PATH':os.environ.get('PATH','')})
+   self.assertTrue(env.get('SystemRoot'))
+   result=subprocess.run([shutil.which('node'),'--version'],env=env,capture_output=True,timeout=15)
+   self.assertEqual(result.returncode,0,'native Node failed in minimal clean environment')
 
 if __name__=='__main__':unittest.main()

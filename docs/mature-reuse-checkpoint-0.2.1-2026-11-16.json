@@ -1,0 +1,74 @@
+{
+  "date": "2026-11-16",
+  "version": "0.2.1",
+  "status": "incomplete-migration-checkpoint",
+  "goalComplete": false,
+  "merchantRetestReady": false,
+  "sourceReuse": [
+    {
+      "component": "collection",
+      "repository": "ctzlyj/jd-hot-link-collector",
+      "commit": "90ef8dfd8455848d539d22560ae26ba8bac52e2a",
+      "version": "1.0.4",
+      "files": 28,
+      "originalUnchanged": 19,
+      "originalAdapted": 9,
+      "newThinFiles": 0
+    },
+    {
+      "component": "comparison",
+      "repository": "ctzlyj/jd-competitor-price-adjustment-skill",
+      "commit": "43bdf6790fe3c8a5b89c217edcaefabf670cbc2c",
+      "version": "1.0.0",
+      "files": 27,
+      "originalUnchanged": 14,
+      "originalAdapted": 11,
+      "newThinFiles": 2
+    },
+    {
+      "component": "listing",
+      "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+      "commit": "3ee08af2f3970f88d39756f1906040efe75117dc",
+      "version": "1.2.6",
+      "files": 39,
+      "originalUnchanged": 20,
+      "originalAdapted": 19,
+      "newThinFiles": 0
+    }
+  ],
+  "verification": {
+    "scopedTests": 115,
+    "scopedTestsPassed": true,
+    "isolatedMerchantVenvPublicPyPI": true,
+    "officialPublicBinaryVersion": "0.3.7",
+    "officialBinaryAndDocumentChecksumsVerified": true,
+    "installedMatureHelpEntries": 12,
+    "normalUpgradeFromDraft": "0.2.0 -> 0.2.1",
+    "existingVenvPreserved": true,
+    "packageFiles": 123,
+    "archiveSha256": "492cc70587eabfba95946b8c322350f3dfbb05aa33bb43bf43aa6ecfa54fb8a2",
+    "originalExperimentFiles": 23,
+    "originalExperimentChanged": 0
+  },
+  "notPerformed": [
+    "real merchant OAuth/scanning",
+    "live shop writes or imports",
+    "paid model generation",
+    "live merchant browser/data collection",
+    "macOS/WorkBuddy/JoyCode live environment acceptance"
+  ],
+  "blockers": [
+    "distribution permission for connector/POP/full-refresh/diagnosis/fixed-video source not confirmed",
+    "connector and POP/short-title source not yet packaged, so core install-connect-reuse-business chain remains incomplete",
+    "live collection browser driver not ported",
+    "full replica orchestration and unknown-publish receipt guard not yet completed",
+    "external video/vision/text provider and video handoff not configured"
+  ],
+  "publication": {
+    "commit": false,
+    "push": false,
+    "release": false,
+    "merchantNotification": false,
+    "visibilityChanged": false
+  }
+}

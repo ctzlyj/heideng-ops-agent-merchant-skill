@@ -1,0 +1,55 @@
+{
+  "date": "2026-11-16",
+  "draftVersion": "0.2.6",
+  "frozenVerifiedCheckpointVersion": "0.2.5",
+  "goalComplete": false,
+  "merchantRetestReady": false,
+  "newReusableSource": [
+    "jingmai-batch-image-refresh-skill 1.4.5 / 8a2f3df185562b1f2f27859a90080d19b2f259cf",
+    "portable jd-store-diagnosis snapshot bc5a0fb5f01f0867a269388e076539a526cf330f (L1 only)"
+  ],
+  "realFullDiagnosisSourceFound": {
+    "repository": "ctzlyj/jd-store-diagnosis-skill",
+    "version": "0.2.0",
+    "commit": "42971c041248bab27f4d627357dcc475f848eb75",
+    "workingTreeClean": true,
+    "internalSkillId": 11128,
+    "L2Migrated": false
+  },
+  "verification": {
+    "freshScopedTests": 147,
+    "freshScopedTestsPassed": true,
+    "normalImmutableUpgrade": "0.2.3 -> 0.2.5",
+    "installedIntegrityVerified": true,
+    "isolatedCoreDependenciesFromPublicPyPI": true,
+    "coreDependencyMetadataAndImportsVerified": true,
+    "installedHelpProviderInfoDryPlanEntries": 10,
+    "officialPublicBinaryVerified": true,
+    "frozenZipSha256": "bc2034ca0dafbb27a7559824f85b5cb50e49cfc377512702a07b8206bb016744",
+    "originalExperimentFilesUnchanged": 23,
+    "detachedWorkerOwnSharedLease": true,
+    "directHelperDefaultMerchantNamespace": true
+  },
+  "dependencyOperation": {
+    "firstFullAttempt": "failed after 900s; no completed import evidence",
+    "boundedHttpxPublicWheelProbe": "succeeded",
+    "coreOnlyAttempt": "completed and private-venv imports checked",
+    "neuralCutout": "optional pinned dependency group, not installed/inferred/downloaded by core setup",
+    "activeHelperPids": []
+  },
+  "notPerformed": [
+    "real shop OAuth/scanning or existing-authorized-profile readback",
+    "real POP short-title import or shop writes",
+    "real paid model generation",
+    "live browser collection/diagnosis",
+    "macOS/WorkBuddy/JoyCode real-host acceptance"
+  ],
+  "nextCriticalPath": [
+    "migrate actual full diagnosis 0.2.0 L2 scripts/make_plans.py, sz-fetch.js, jzt-run.js and original report validation; no new ad analyzer",
+    "complete live collection browser transport and full replica orchestration unknown-write guard seam",
+    "fixed video producer/local handoff/upload-binding adaptation; external generation provider still not selected"
+  ],
+  "pushed": false,
+  "releaseCreated": false,
+  "merchantNotificationSent": false
+}

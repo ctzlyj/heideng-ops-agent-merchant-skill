@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "repository": "ctzlyj/jd-competitor-price-adjustment-skill",
+  "upstreamCommit": "43bdf6790fe3c8a5b89c217edcaefabf670cbc2c",
+  "upstreamVersion": "1.0.0",
+  "license": "MIT",
+  "files": {
+    "assets/商品导入价格模板.xlsx": {
+      "upstreamSha256": "b75d977412e4bbf4965890e7685b0e8807ae22b6a1c1292b991c6da44fb5ce18",
+      "sha256": "b75d977412e4bbf4965890e7685b0e8807ae22b6a1c1292b991c6da44fb5ce18",
+      "adapted": false,
+      "upstreamPath": "assets/商品导入价格模板.xlsx"
+    },
+    "LICENSE": {
+      "upstreamSha256": "50153f65150200ddbbcbb6d8bcd74df8c2126d42e13f20633e805df389a0bdc1",
+      "sha256": "50153f65150200ddbbcbb6d8bcd74df8c2126d42e13f20633e805df389a0bdc1",
+      "adapted": false,
+      "upstreamPath": "LICENSE"
+    },
+    "README.md": {
+      "upstreamSha256": "3fab16f6ec2af998419713cf5917a7d24acd38eebf431960938886c83f40b01d",
+      "sha256": "6fed404fdc4d8c0ae41ebf29be0ad9d748df1a406d0c020de174e7b04a47882f",
+      "adapted": true,
+      "upstreamPath": "README.md",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "references/competitor-discovery.md": {
+      "upstreamSha256": "711e82a7c210af1a2f4c3fba0c3f1097e3c7669109c39dd10020b4a451d508f5",
+      "sha256": "aa52867dfbbf1cd1255b40b7f062836b315f4f36eba557d6b019ed5e8dd67442",
+      "adapted": true,
+      "upstreamPath": "references/competitor-discovery.md",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "references/input-output-schema.md": {
+      "upstreamSha256": "223904a5f4b6a5f80df8220d6bf87ff4ce5b8ba9af995ef860755992f0139eec",
+      "sha256": "223904a5f4b6a5f80df8220d6bf87ff4ce5b8ba9af995ef860755992f0139eec",
+      "adapted": false,
+      "upstreamPath": "references/input-output-schema.md"
+    },
+    "references/jingmai-api.md": {
+      "upstreamSha256": "5218fa8c890fa599f6b7a97386a30992185152835cbd8e62124366f968cc912d",
+      "sha256": "382a21da4a333c68dfe601ba6f37480adb2c52ad5fd2dc753ac0e2a0cfa27e2c",
+      "adapted": true,
+      "upstreamPath": "references/jingmai-api.md",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "references/shop-policies.md": {
+      "upstreamSha256": "0abd9e9af03d8d06236f8ec9686a893535e9a7d544303c9a77e9eaf5bc03d37c",
+      "sha256": "e4bb721bbd5d6052fae4971bb997757645aed1e2ef6eda2d5024f23f291b926b",
+      "adapted": true,
+      "upstreamPath": "references/shop-policies.md",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "references/workflow.md": {
+      "upstreamSha256": "9fd78bb13d79080a509fdb2c664f0bc50031b7bdbc07f0e88c098b1aae31b8fe",
+      "sha256": "a2e4a8961290217ab01606ee20649c99fddb7e8e725f724ae13d7352434b58e9",
+      "adapted": true,
+      "upstreamPath": "references/workflow.md",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "requirements.txt": {
+      "upstreamSha256": null,
+      "sha256": "b34213d192a664c7df4f53b81e221161ddd68f56a1b39efada688c8555023dd9",
+      "adapted": true,
+      "upstreamPath": null,
+      "reason": "New merchant path/executable boundary or inferred requirements; no upstream file exists."
+    },
+    "scripts/authorized_image_search.py": {
+      "upstreamSha256": "3e82bd2292cb0c22338a1cbe7b69c7cfe87068653241f07633eec7b0b459703c",
+      "sha256": "a1b2b99dad1aca9a4e4847f99befbcd0327ca47bb80c7439eb6df8d20c420f1e",
+      "adapted": true,
+      "upstreamPath": "scripts/authorized_image_search.py",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "scripts/browser_capture.py": {
+      "upstreamSha256": "085f451174d9cc977cf6e3f942fab6eb3872541f6552c9b606f15a4d6cf40ad6",
+      "sha256": "738b82727d8f641446a19735596e4f7fefba60a6a85c44da8bfe0e510f8785d6",
+      "adapted": true,
+      "upstreamPath": "scripts/browser_capture.py",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "scripts/browser_runtime.py": {
+      "upstreamSha256": "08e3dfd4dbd492eb715fc7e9662f178d835661a8b4bb29a94686b8729c26da30",
+      "sha256": "60c27a89b74082133f4dc365f34bb600c9fffc4d699ab7906cdd55ac98f67483",
+      "adapted": true,
+      "upstreamPath": "scripts/browser_runtime.py",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "scripts/build_market_workbook.py": {
+      "upstreamSha256": "ad794e6946a1b7c2970d05bb4dedcb135117e9e0690479356f3b372d5214ac38",
+      "sha256": "ad794e6946a1b7c2970d05bb4dedcb135117e9e0690479356f3b372d5214ac38",
+      "adapted": false,
+      "upstreamPath": "scripts/build_market_workbook.py"
+    },
+    "scripts/build_upload_workbook.py": {
+      "upstreamSha256": "897b1991da8b70faa252e1a91cebce862d9f7f4c82ea4ba32c9064c19d579a57",
+      "sha256": "897b1991da8b70faa252e1a91cebce862d9f7f4c82ea4ba32c9064c19d579a57",
+      "adapted": false,
+      "upstreamPath": "scripts/build_upload_workbook.py"
+    },
+    "scripts/competitor_discovery.py": {
+      "upstreamSha256": "cf2f05eea3c033e2279388517a44f355561fb4736c2a2e35b21609784ea75532",
+      "sha256": "cf2f05eea3c033e2279388517a44f355561fb4736c2a2e35b21609784ea75532",
+      "adapted": false,
+      "upstreamPath": "scripts/competitor_discovery.py"
+    },
+    "scripts/hot_spu_comparison.py": {
+      "upstreamSha256": "a9e946af5932e12028624da8d0dcba52540d409c253a8cd2218b0536eb05592b",
+      "sha256": "a9e946af5932e12028624da8d0dcba52540d409c253a8cd2218b0536eb05592b",
+      "adapted": false,
+      "upstreamPath": "scripts/hot_spu_comparison.py"
+    },
+    "scripts/hot_spu_workbook_comparison.py": {
+      "upstreamSha256": "97ad71890bdb6b2a9aa96369b59427db5be3264a18960fea06671195e33d67ff",
+      "sha256": "97ad71890bdb6b2a9aa96369b59427db5be3264a18960fea06671195e33d67ff",
+      "adapted": false,
+      "upstreamPath": "scripts/hot_spu_workbook_comparison.py"
+    },
+    "scripts/image_similarity.py": {
+      "upstreamSha256": "bb2ae02741f56c384ca045b643e945c5193db5e6d0613841aa9fa26518e6d580",
+      "sha256": "bb2ae02741f56c384ca045b643e945c5193db5e6d0613841aa9fa26518e6d580",
+      "adapted": false,
+      "upstreamPath": "scripts/image_similarity.py"
+    },
+    "scripts/jd_detail_evidence.py": {
+      "upstreamSha256": "27e27f977f859501af2b3b94f7b308c3b7737a1f679647033b6ac93afa15c9d0",
+      "sha256": "27e27f977f859501af2b3b94f7b308c3b7737a1f679647033b6ac93afa15c9d0",
+      "adapted": false,
+      "upstreamPath": "scripts/jd_detail_evidence.py"
+    },
+    "scripts/jd_image_search_capture.py": {
+      "upstreamSha256": "61b4edb40225ff990c79b0b7d8ed485dfe59583c2bbb3505dfa10a256ee16c93",
+      "sha256": "61b4edb40225ff990c79b0b7d8ed485dfe59583c2bbb3505dfa10a256ee16c93",
+      "adapted": false,
+      "upstreamPath": "scripts/jd_image_search_capture.py"
+    },
+    "scripts/jd_price_adjustment.py": {
+      "upstreamSha256": "4f13ae5e9ad4851e9da6717b9540c142006e2d3b6918cf4035c220dcdb1c8016",
+      "sha256": "4f13ae5e9ad4851e9da6717b9540c142006e2d3b6918cf4035c220dcdb1c8016",
+      "adapted": false,
+      "upstreamPath": "scripts/jd_price_adjustment.py"
+    },
+    "scripts/jingmai_api.py": {
+      "upstreamSha256": "7491085ad8c1923b9a0ae37878e61a2e1242a4f94d2d7737e3119b0a67eacd29",
+      "sha256": "1502d61d6216dac97b8e8d6792ca92ca9f886d42a2257d8aed3195c5139e0c60",
+      "adapted": true,
+      "upstreamPath": "scripts/jingmai_api.py",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "scripts/merchant_runtime.py": {
+      "upstreamSha256": null,
+      "sha256": "596ba9e21753e3dfcde9cd32fcdbff3875455dc07e8c224b825aa70c2ca94455",
+      "adapted": true,
+      "upstreamPath": null,
+      "reason": "New merchant path/executable boundary or inferred requirements; no upstream file exists."
+    },
+    "scripts/same_product_market.py": {
+      "upstreamSha256": "8727b35315c49c18fa6ae1e5825ada6adb7b85c74b5dd07c7783aa69745b12ec",
+      "sha256": "8727b35315c49c18fa6ae1e5825ada6adb7b85c74b5dd07c7783aa69745b12ec",
+      "adapted": false,
+      "upstreamPath": "scripts/same_product_market.py"
+    },
+    "scripts/store_pricing.py": {
+      "upstreamSha256": "1c87b669609b4227e982a5a591a29b9d78874195255b2ff8622b88ff5a093a77",
+      "sha256": "5dbcd05faa8a85378b4fad30f9f1160886439a0fc85aaea0979208bf68a17201",
+      "adapted": true,
+      "upstreamPath": "scripts/store_pricing.py",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "scripts/webcli_jd_detail_capture.py": {
+      "upstreamSha256": "27bd99cf731b6bd8d002fa8580ab5108488875a955dd3acf915790f57f3ea3bd",
+      "sha256": "ca21b20f799b273ec0927119e4365fe61f960b1b1cced8b7130fa682108f4553",
+      "adapted": true,
+      "upstreamPath": "scripts/webcli_jd_detail_capture.py",
+      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+    },
+    "scripts/webcli_jd_search_capture.py": {
+      "upstreamSha256": "1480473302ebdde1defb0d77635b256bb68f62c2c6701c18adeecdc86fb29232",
+      "sha256": "1480473302ebdde1defb0d77635b256bb68f62c2c6701c18adeecdc86fb29232",
+      "adapted": false,
+      "upstreamPath": "scripts/webcli_jd_search_capture.py"
+    }
+  },
+  "entrypoints": [
+    "scripts/browser_capture.py",
+    "scripts/browser_runtime.py",
+    "scripts/build_market_workbook.py",
+    "scripts/build_upload_workbook.py",
+    "scripts/competitor_discovery.py",
+    "scripts/hot_spu_comparison.py",
+    "scripts/hot_spu_workbook_comparison.py",
+    "scripts/image_similarity.py",
+    "scripts/jd_detail_evidence.py",
+    "scripts/jd_image_search_capture.py",
+    "scripts/jd_price_adjustment.py",
+    "scripts/jingmai_api.py",
+    "scripts/same_product_market.py",
+    "scripts/store_pricing.py",
+    "scripts/webcli_jd_detail_capture.py",
+    "scripts/webcli_jd_search_capture.py"
+  ],
+  "sourceRepository": "https://github.com/ctzlyj/jd-competitor-price-adjustment-skill",
+  "selection": "Runtime copied from Git HEAD blobs only, preserving raw bytes; installed source was read-only and checked for content drift (CRLF-only installation differences). New files explicitly have null upstreamSha256.",
+  "unchangedMappings": [
+    {
+      "upstream": "assets/商品导入价格模板.xlsx",
+      "destination": "assets/商品导入价格模板.xlsx"
+    },
+    {
+      "upstream": "LICENSE",
+      "destination": "LICENSE"
+    },
+    {
+      "upstream": "references/input-output-schema.md",
+      "destination": "references/input-output-schema.md"
+    },
+    {
+      "upstream": "scripts/build_market_workbook.py",
+      "destination": "scripts/build_market_workbook.py"
+    },
+    {
+      "upstream": "scripts/build_upload_workbook.py",
+      "destination": "scripts/build_upload_workbook.py"
+    },
+    {
+      "upstream": "scripts/competitor_discovery.py",
+      "destination": "scripts/competitor_discovery.py"
+    },
+    {
+      "upstream": "scripts/hot_spu_comparison.py",
+      "destination": "scripts/hot_spu_comparison.py"
+    },
+    {
+      "upstream": "scripts/hot_spu_workbook_comparison.py",
+      "destination": "scripts/hot_spu_workbook_comparison.py"
+    },
+    {
+      "upstream": "scripts/image_similarity.py",
+      "destination": "scripts/image_similarity.py"
+    },
+    {
+      "upstream": "scripts/jd_detail_evidence.py",
+      "destination": "scripts/jd_detail_evidence.py"
+    },
+    {
+      "upstream": "scripts/jd_image_search_capture.py",
+      "destination": "scripts/jd_image_search_capture.py"
+    },
+    {
+      "upstream": "scripts/jd_price_adjustment.py",
+      "destination": "scripts/jd_price_adjustment.py"
+    },
+    {
+      "upstream": "scripts/same_product_market.py",
+      "destination": "scripts/same_product_market.py"
+    },
+    {
+      "upstream": "scripts/webcli_jd_search_capture.py",
+      "destination": "scripts/webcli_jd_search_capture.py"
+    }
+  ],
+  "adaptedMappings": [
+    {
+      "upstream": "README.md",
+      "destination": "README.md"
+    },
+    {
+      "upstream": "references/competitor-discovery.md",
+      "destination": "references/competitor-discovery.md"
+    },
+    {
+      "upstream": "references/jingmai-api.md",
+      "destination": "references/jingmai-api.md"
+    },
+    {
+      "upstream": "references/shop-policies.md",
+      "destination": "references/shop-policies.md"
+    },
+    {
+      "upstream": "references/workflow.md",
+      "destination": "references/workflow.md"
+    },
+    {
+      "upstream": null,
+      "destination": "requirements.txt"
+    },
+    {
+      "upstream": "scripts/authorized_image_search.py",
+      "destination": "scripts/authorized_image_search.py"
+    },
+    {
+      "upstream": "scripts/browser_capture.py",
+      "destination": "scripts/browser_capture.py"
+    },
+    {
+      "upstream": "scripts/browser_runtime.py",
+      "destination": "scripts/browser_runtime.py"
+    },
+    {
+      "upstream": "scripts/jingmai_api.py",
+      "destination": "scripts/jingmai_api.py"
+    },
+    {
+      "upstream": null,
+      "destination": "scripts/merchant_runtime.py"
+    },
+    {
+      "upstream": "scripts/store_pricing.py",
+      "destination": "scripts/store_pricing.py"
+    },
+    {
+      "upstream": "scripts/webcli_jd_detail_capture.py",
+      "destination": "scripts/webcli_jd_detail_capture.py"
+    }
+  ]
+}

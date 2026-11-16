@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "repository": "ctzlyj/jd-main-video-batch-skill",
+  "upstreamCommit": "40d664e98d173cf0e6387f4c3f387cab504b3e43",
+  "upstreamVersion": "1.1.3",
+  "license": "owner-authorized-distribution",
+  "permissionRecord": "DISTRIBUTION-PERMISSION.md",
+  "files": {
+    "scripts/video_publication.py": {
+      "upstreamSha256": "6b710a0e5f423b9ecc00fec899b93eaf2be9a3c247f9812f82062bfcbf1bcebc",
+      "sha256": "6b710a0e5f423b9ecc00fec899b93eaf2be9a3c247f9812f82062bfcbf1bcebc",
+      "adapted": false
+    },
+    "scripts/check_main_video.py": {
+      "upstreamSha256": "4c82bfbe169be1120e327d4dabeae6cad4a43273b8bb8ee82aa2401e165787ba",
+      "sha256": "4c82bfbe169be1120e327d4dabeae6cad4a43273b8bb8ee82aa2401e165787ba",
+      "adapted": false
+    },
+    "DISTRIBUTION-PERMISSION.md": {
+      "upstreamSha256": null,
+      "sha256": "45955774e733bc21e7613eede076b88e9f597c8df52da78bc40729e324bc6942",
+      "adapted": true,
+      "origin": "user-authorization-record"
+    },
+    "scripts/local_handoff.py": {
+      "upstreamSha256": null,
+      "sha256": "c0622b12cbade2ad4ad86de663cc2366235f73f84e31420e3ed2987c4a998479",
+      "adapted": true,
+      "origin": "merchant-distribution-wrapper"
+    },
+    "requirements.txt": {
+      "upstreamSha256": null,
+      "sha256": "39f67576e019d8ce9e471a94b1bedfc05b891f086dce1759bb3c35c1e15d4936",
+      "adapted": true,
+      "origin": "selected-original-import-dependencies"
+    }
+  },
+  "entrypoints": [
+    "scripts/local_handoff.py",
+    "scripts/check_main_video.py"
+  ],
+  "migration": "original-local-publication-and-handoff-only; external-generation-unconfigured"
+}

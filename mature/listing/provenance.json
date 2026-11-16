@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+  "upstreamCommit": "3ee08af2f3970f88d39756f1906040efe75117dc",
+  "upstreamVersion": "1.2.6",
+  "license": "MIT",
+  "files": {
+    "LICENSE": {
+      "upstreamSha256": "50153f65150200ddbbcbb6d8bcd74df8c2126d42e13f20633e805df389a0bdc1",
+      "sha256": "50153f65150200ddbbcbb6d8bcd74df8c2126d42e13f20633e805df389a0bdc1",
+      "adapted": false
+    },
+    "requirements.txt": {
+      "upstreamSha256": "d92afdd6ab330a015db14de71c20ba92e78e81787b04fb5a99b5a763704b1f49",
+      "sha256": "d92afdd6ab330a015db14de71c20ba92e78e81787b04fb5a99b5a763704b1f49",
+      "adapted": false
+    },
+    "scripts/jdo_listing_mvp.py": {
+      "upstreamSha256": "42281253267957388ed5e3cd111889898b3a4ac61952bb89c509f10d669b0a1e",
+      "sha256": "62a7ae7e4ce1bb446fa3c6a7d276fbe881ae05ab0cb6ff7dfb7cd8b0169419ed",
+      "adapted": true
+    },
+    "scripts/jd_product_mover.py": {
+      "upstreamSha256": "31f462335937282c47234fbbddc5baa12713f0668a63b38c09eafd60da3c5318",
+      "sha256": "7121225a815d6796b4d23ff29dd5198f7a751181473ba3ddc8fbaadba5dc5190",
+      "adapted": true
+    },
+    "scripts/jd_product_pipeline.py": {
+      "upstreamSha256": "389d5df3d1f64000fd2febeeed6fed19a32adb3c4465191b2fe9331e8fdbc372",
+      "sha256": "e47c063e5a473a941050a76c608c4da3b22cd49c3d6930ec0f02df7c0f170359",
+      "adapted": true
+    },
+    "scripts/source_pricing.py": {
+      "upstreamSha256": "b03d788269773434ecae7f5d425a96699342dc74418751cd982bfdcc3de83c84",
+      "sha256": "b03d788269773434ecae7f5d425a96699342dc74418751cd982bfdcc3de83c84",
+      "adapted": false
+    },
+    "scripts/component_rounded_pricing.py": {
+      "upstreamSha256": "63d7ab7f79392d9914d04936e0292acdba24ff4df2c9a5205945a9b44d837d8e",
+      "sha256": "63d7ab7f79392d9914d04936e0292acdba24ff4df2c9a5205945a9b44d837d8e",
+      "adapted": false
+    },
+    "scripts/hot_replica_mode.py": {
+      "upstreamSha256": "6864794dad6785bfb9ffca0916b8c78d5b21d2d86a074046f7af9df7c90021bc",
+      "sha256": "6864794dad6785bfb9ffca0916b8c78d5b21d2d86a074046f7af9df7c90021bc",
+      "adapted": false
+    },
+    "scripts/photo_listing.py": {
+      "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
+      "sha256": "51eff7b6dbcbcd193679cdd4ed6dd04f7806caf21d7868e150e1608881dde15f",
+      "adapted": true
+    },
+    "scripts/photo_contract.py": {
+      "upstreamSha256": "053d351a11a3045ba7958eb58d9bb32ad52ed96398c674078f9eba3a832943f1",
+      "sha256": "053d351a11a3045ba7958eb58d9bb32ad52ed96398c674078f9eba3a832943f1",
+      "adapted": false
+    },
+    "scripts/photo_generation.py": {
+      "upstreamSha256": "892e17c68cd038e2c0d3bdb0d84e31da983e2e4a5c9f69698cc14ab6c1a2ce50",
+      "sha256": "ee7bd94a45e7d2354b56037b3b8fea6037c762ac97d4718c030d0974c4c1a9fb",
+      "adapted": true
+    },
+    "scripts/company_jpeg_edits.py": {
+      "upstreamSha256": "4e044efd666bea87b45976aa6fe39614eaacec4ef34a3c59a06f7d9f22f07b93",
+      "sha256": "9fa8e15a1f9903e162a837d5fdf8fbe2148c1d81dbead12c87e1e470d55b53b3",
+      "adapted": true
+    },
+    "scripts/image_patch_update.py": {
+      "upstreamSha256": "aac02e6aa506cfca07a049c88739c55be97aa6ead4b6b6320cea3d8a3bb12056",
+      "sha256": "b0d98c86bc8eca2c8a927ebe6836419e4cdd928b71bda0dce92a9da3d3e9cde9",
+      "adapted": true
+    },
+    "scripts/detail_pages.py": {
+      "upstreamSha256": "7919735fb715de051642399d2c92fa3c7eb61645ff3dca9842e5d6bd62d7ffa1",
+      "sha256": "7919735fb715de051642399d2c92fa3c7eb61645ff3dca9842e5d6bd62d7ffa1",
+      "adapted": false
+    },
+    "scripts/detail_repair.py": {
+      "upstreamSha256": "36839d65d4fd58729ff6aebde59ff317a70b31a437097d10ae2d410e9d865adc",
+      "sha256": "36839d65d4fd58729ff6aebde59ff317a70b31a437097d10ae2d410e9d865adc",
+      "adapted": false
+    },
+    "scripts/image_quality_gate.py": {
+      "upstreamSha256": "c394ac37749360e4d8cbaeb86b97ac1b899c313d43e477e0c8ab8644747882fa",
+      "sha256": "c394ac37749360e4d8cbaeb86b97ac1b899c313d43e477e0c8ab8644747882fa",
+      "adapted": false
+    },
+    "scripts/sale_attr_templates.py": {
+      "upstreamSha256": "97471cda42fc31c5365167c8dd3b5786f9eec8436a046cd75ad51c4ee475fa83",
+      "sha256": "97471cda42fc31c5365167c8dd3b5786f9eec8436a046cd75ad51c4ee475fa83",
+      "adapted": false
+    },
+    "scripts/merchant_template_import.py": {
+      "upstreamSha256": "044333ad7db87336c1244687837ec2078f08503ff88ee546377cf80d8912b067",
+      "sha256": "d43d3de01953f722e07b5125e9ffb8e9830c80a9be1810aa91d1d94258aa9645",
+      "adapted": true
+    },
+    "scripts/matrix_listing.py": {
+      "upstreamSha256": "5f61e01259471244a4465fbf4be6f79bee573892c41a5d248cc3164d37917840",
+      "sha256": "f91375e3ce7b605be6c6babc34f1c8ec222474cd1aab46f47312257f03000e99",
+      "adapted": true
+    },
+    "scripts/set_product_brand.py": {
+      "upstreamSha256": "bfc6338125d6f8a5d2516a62f1da7297f6b1b5e9b261377ada5334eabcb5fd6b",
+      "sha256": "6356f2557cad1dc1f4e137b5e41d8431068353bd169472039c66f8141b8980e9",
+      "adapted": true
+    },
+    "scripts/publish_local_draft.py": {
+      "upstreamSha256": "3f644761e2c86b6b57bcdbb74264d3a08803bface719c42a915407b1328a1d34",
+      "sha256": "7ef258d493e3085005fc2bdce80584ae49779c6722ba9ae52baf38f0c9b856c5",
+      "adapted": true
+    },
+    "scripts/deferred_publish_batch.py": {
+      "upstreamSha256": "f52f52e5b67d357064ead1ea7fb75b4c714de39ea28eb28b7399dfa14d3a51ac",
+      "sha256": "f52f52e5b67d357064ead1ea7fb75b4c714de39ea28eb28b7399dfa14d3a51ac",
+      "adapted": false
+    },
+    "scripts/jdo_large_body_bridge.py": {
+      "upstreamSha256": "189a1482921581ff751754d84b2a8525947d18f361a13d886dca251ce2b541d3",
+      "sha256": "189a1482921581ff751754d84b2a8525947d18f361a13d886dca251ce2b541d3",
+      "adapted": false
+    },
+    "scripts/jdo_bridge_probe.py": {
+      "upstreamSha256": "69d5349f7285e53278bff76063e55875bbe724d7193c6a2fa3808fb6a79f4748",
+      "sha256": "69d5349f7285e53278bff76063e55875bbe724d7193c6a2fa3808fb6a79f4748",
+      "adapted": false
+    },
+    "scripts/skill_paths.py": {
+      "upstreamSha256": "fad29b7fc79a6694748765dc1b1feb0b7d479ba9569034037d0ae0a5143a4f38",
+      "sha256": "43af866f52d2e90fc95cf4a20e512f5fa8c7b9d2bbe2a67805045ab1b8c3fd51",
+      "adapted": true
+    },
+    "scripts/win_no_window.py": {
+      "upstreamSha256": "59d2fcd8616cd7c3f49dbc07be23818dbc45f5529516756341d08c722810d125",
+      "sha256": "59d2fcd8616cd7c3f49dbc07be23818dbc45f5529516756341d08c722810d125",
+      "adapted": false
+    },
+    "scripts/photo_video.py": {
+      "upstreamSha256": "cde5dd441d20c4c1d1bd53aeb1328acb227b9ad8b2c64b24b05eb879ba6098cc",
+      "sha256": "cde5dd441d20c4c1d1bd53aeb1328acb227b9ad8b2c64b24b05eb879ba6098cc",
+      "adapted": false
+    },
+    "scripts/video_handoff.py": {
+      "upstreamSha256": "c35730b2112f1b8394bb623388618d6f8461ce071869a754e1bbcccc830573aa",
+      "sha256": "fee1fced9aca2e373e29c8ea9c174b19cb485444c29de8be2bf1773da4b51dd0",
+      "adapted": true
+    },
+    "references/listing-package.schema.json": {
+      "upstreamSha256": "4a52bdfb2513f5622adf35afa8a2f30b397fb7107fd607f0a0ee64986a4f3305",
+      "sha256": "4a52bdfb2513f5622adf35afa8a2f30b397fb7107fd607f0a0ee64986a4f3305",
+      "adapted": false
+    },
+    "references/structured-sale-attributes.md": {
+      "upstreamSha256": "66d3d4b16e9b84169f088059571a4ce4f874469a5752976e1f4c0119134cbff9",
+      "sha256": "66d3d4b16e9b84169f088059571a4ce4f874469a5752976e1f4c0119134cbff9",
+      "adapted": false
+    },
+    "references/sku-image-group-binding.md": {
+      "upstreamSha256": "41a53963bb8ca879f39843e86cb77e7be74e4b39650c81c009f5a3acfde1e367",
+      "sha256": "998ca32926d1cc4105690dd83b12b750dfd4f1829e4e82fd364bf863da61a679",
+      "adapted": true
+    },
+    "references/large-requests-and-cli-versions.md": {
+      "upstreamSha256": "04754852bf268fb7fc566d017526985570b0636f810c0a86c8ec2720de535e72",
+      "sha256": "063aa5b220ac7092033c774802a94dc6105e88507ca1814d0ca5dd9d2d202c86",
+      "adapted": true
+    },
+    "references/detail-pages.md": {
+      "upstreamSha256": "4fb93c1caf358a0d31175435e0cdfcb47f8adb564ad031869639b88e9dcfa24e",
+      "sha256": "91ffdf874073e49941df395af1f6f2f5e76bb848a2799a68bb65d5ab546dc81a",
+      "adapted": true
+    },
+    "references/image-upload-names.md": {
+      "upstreamSha256": "e0323a79b2880c4c2720f4fea610f5ec803bd60d74af747e9c5e8bb96a8cd159",
+      "sha256": "e0323a79b2880c4c2720f4fea610f5ec803bd60d74af747e9c5e8bb96a8cd159",
+      "adapted": false
+    },
+    "references/state-machine.md": {
+      "upstreamSha256": "b90d92304d132761cb817d529bb00e60a08537458a2f24c56587d75d1819b8dc",
+      "sha256": "b90d92304d132761cb817d529bb00e60a08537458a2f24c56587d75d1819b8dc",
+      "adapted": false
+    },
+    "scripts/taobao_product_mvp.py": {
+      "upstreamSha256": "192aa91f1e486c46002fa6311f67d62797cab204215cd9055c892bf676decb9b",
+      "sha256": "b78015b622d98bcad84eeddb6eb9469621dc5a0e0137d2e56fa86dc9f005340d",
+      "adapted": true
+    },
+    "scripts/hot_replica_apply.py": {
+      "upstreamSha256": "6ac8338b5156af8cb42f36701180db3af3c109c387eb06acbee31d2e29bdcc3c",
+      "sha256": "4b3c3b66ea274d9e7399dda69c54257b4a6d805c2af645742263fb98dccb747a",
+      "adapted": true
+    },
+    "scripts/hot_replica_price_plan.py": {
+      "upstreamSha256": "b1112da92d32d6a49a64d5bca4011543a329a0e41491428ec2ff0f1489ac5ded",
+      "sha256": "71b6ada75c2732bf883f3b0e3ec477aa9905164dcf63fe519102602a85a25d24",
+      "adapted": true
+    },
+    "scripts/hot_replica_preflight.py": {
+      "upstreamSha256": "ce4b2b80440ab3bda69d4a852677cf1b6cb0607da483217dbefc55b4f9a554ee",
+      "sha256": "8ccb3f4967c599e1009d4c2cd86ad2e9be087674242ff56ffa5ea5e049646fd0",
+      "adapted": true
+    },
+    "scripts/hot_replica_publish.py": {
+      "upstreamSha256": "f09c44b83d56c71460f78936db91c1aa8946dd8ba179a0c7b7b9294280b02b6b",
+      "sha256": "45eca06f5931fa2f9ff383a6afc4bd9b0259012ae5a997285364452651e0266d",
+      "adapted": true
+    },
+    "references/jd-hot-replica-handoff.md": {
+      "upstreamSha256": "4d068fbc5080dd39f311070af1f91af1c1d62bc457b768feffa4021d4db45c75",
+      "sha256": "4d068fbc5080dd39f311070af1f91af1c1d62bc457b768feffa4021d4db45c75",
+      "adapted": false
+    },
+    "references/jd-hot-replica-mode.md": {
+      "upstreamSha256": "d27e25f00e9645de397430dc084262a44b8aa5cd44348b331e0707201c63854a",
+      "sha256": "d27e25f00e9645de397430dc084262a44b8aa5cd44348b331e0707201c63854a",
+      "adapted": false
+    }
+  },
+  "entrypoints": [
+    "scripts/jdo_listing_mvp.py",
+    "scripts/jd_product_mover.py",
+    "scripts/jd_product_pipeline.py",
+    "scripts/photo_listing.py",
+    "scripts/company_jpeg_edits.py",
+    "scripts/image_patch_update.py",
+    "scripts/detail_repair.py",
+    "scripts/merchant_template_import.py",
+    "scripts/matrix_listing.py",
+    "scripts/set_product_brand.py",
+    "scripts/publish_local_draft.py",
+    "scripts/jdo_large_body_bridge.py",
+    "scripts/photo_video.py",
+    "scripts/taobao_product_mvp.py",
+    "scripts/hot_replica_apply.py",
+    "scripts/hot_replica_price_plan.py",
+    "scripts/hot_replica_preflight.py",
+    "scripts/hot_replica_publish.py"
+  ]
+}

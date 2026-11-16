@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>京麦 CLI 店铺连接器</title>
+<style>
+:root {
+  --red: #e1251b;
+  --ink: #1f2329;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --ok: #0f9d58;
+  --warn: #b45309;
+  --err: #c0392b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+.top {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.brand { display: flex; gap: 12px; align-items: center; }
+.logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--red);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 22px;
+}
+h1 { font-size: 18px; margin: 0; }
+.brand p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.chip {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+  white-space: nowrap;
+}
+.chip.ok { background: #e8f7ee; color: #0f7b45; }
+.chip.err { background: #fdecea; color: #b42318; }
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+}
+h2 { font-size: 15px; margin: 0 0 12px; }
+label { display: block; font-size: 13px; color: #374151; margin: 14px 0 0; }
+input {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+  background: #fff;
+}
+input:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(225, 37, 27, .08); }
+.hint { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.5; }
+button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid transparent; padding: 10px 14px; }
+button.primary {
+  background: var(--red);
+  color: #fff;
+  width: 100%;
+  margin-top: 18px;
+  font-weight: 600;
+}
+button.primary:hover { background: #c91f16; }
+button.ghost {
+  background: #fff;
+  border-color: var(--line);
+  color: #374151;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+button.ghost:hover { border-color: #cbd5e1; background: #f8fafc; }
+.list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.list-head h2 { margin: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+td { padding: 12px 10px; border-bottom: 1px solid #f1f3f5; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; font-size: 12px; }
+.shop { font-weight: 600; margin-bottom: 4px; }
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+}
+.tag.ok { background: #e8f7ee; color: #0f7b45; }
+.tag.warn { background: #fff4e5; color: #b45309; }
+.tag.err { background: #fdecea; color: #b42318; }
+.actions { text-align: right; white-space: nowrap; }
+.actions button + button { margin-left: 6px; }
+.empty { padding: 28px 8px; text-align: center; color: var(--muted); font-size: 13px; }
+.job {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafafa;
+}
+.job.hidden { display: none; }
+.job-head { display: flex; align-items: center; gap: 8px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #9ca3af; }
+.dot.spin { background: var(--red); animation: pulse 1s infinite; }
+.dot.ok { background: var(--ok); }
+.dot.err { background: var(--err); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.job p { margin: 8px 0 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.job a.primary {
+  display: block;
+  text-align: center;
+  margin-top: 12px;
+  text-decoration: none;
+  background: var(--red);
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+}
+.job a.primary.hidden { display: none; }
+.job button.ghost { margin-top: 10px; }
+details { margin-top: 10px; font-size: 12px; color: var(--muted); }
+pre {
+  max-height: 180px;
+  overflow: auto;
+  background: #111827;
+  color: #d1d5db;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+footer {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px 28px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo">京</div>
+    <div>
+      <h1>京麦 CLI 店铺连接器</h1>
+      <p>报店名、京麦 App 扫码，自动连接这家店</p>
+    </div>
+  </div>
+  <div id="cliStatus" class="chip">检测中…</div>
+</header>
+
+<main>
+  <section class="card">
+    <h2>连接新店铺</h2>
+    <p class="hint">已有授权直接连接；需要登录时，请让商家用京麦 App 扫描任务页面的二维码。</p>
+    <label>店铺名称
+      <input id="shopName" placeholder="例如：云鹤家居甄选店" autocomplete="off">
+    </label>
+    <input id="profile" type="hidden">
+    <button id="connectBtn" class="primary">开始连接</button>
+
+    <div id="jobPanel" class="job hidden">
+      <div class="job-head">
+        <span id="jobDot" class="dot"></span>
+        <strong id="jobTitle">正在启动…</strong>
+      </div>
+      <p id="jobMessage"></p>
+      <div id="agentTakeover" class="hidden">
+        <p>当前浏览器控制器尚未接入。把下面的连接目标交给当前 Agent，接管当前任务后再扫码。</p>
+        <p id="takeoverPrompt"></p>
+        <button id="takeoverBtn" class="ghost">接管当前连接</button>
+      </div>
+      <a id="authLink" class="primary hidden">授权由任务浏览器自动处理</a>
+      <button id="cancelBtn" class="ghost hidden">取消本次授权</button>
+      <p id="jobLogText" class="hidden"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="list-head">
+      <h2>已连接店铺</h2>
+      <button id="refreshBtn" class="ghost">刷新</button>
+    </div>
+    <div id="profiles"></div>
+  </section>
+</main>
+
+<footer>
+  网页登录和授权使用同一个任务浏览器会话。平台要求验证码、店铺选择或本人确认时，按页面提示完成即可。
+</footer>
+
+<script>
+const TOKEN = "__SESSION_TOKEN__";
+const $ = function (id) { return document.getElementById(id); };
+let state = { profiles: [], job: null };
+let profileTouched = false;
+let pollTimer = null;
+
+function api(path, options) {
+  options = options || {};
+  const headers = Object.assign(
+    { "Content-Type": "application/json", "X-Session-Token": TOKEN },
+    options.headers || {}
+  );
+  return fetch(path, Object.assign({}, options, { headers: headers })).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      if (data.ok === false) throw new Error(data.message || data.error || "当前连接未完成，请核对任务与店铺。");
+      return data;
+    });
+  });
+}
+
+function esc(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+  });
+}
+
+function fmtVerified(ms) {
+  if (!ms) return "—";
+  return esc(new Date(ms).toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }));
+}
+
+function fmtExpiry(ms) {
+  if (!ms) return "—";
+  const d = new Date(ms);
+  const text = d.toLocaleString("zh-CN", {
+    hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+  });
+  const diff = ms - Date.now();
+  if (diff <= 0) return '<span class="muted">' + esc(text) + "（已过期）</span>";
+  const hours = Math.floor(diff / 3600000);
+  return esc(text) + "（剩 " + hours + " 小时）";
+}
+
+function suggestProfile(name) {
+  const ascii = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (ascii) return ("pop-" + ascii).slice(0, 41);
+  const d = new Date();
+  const pad = function (n) { return String(n).padStart(2, "0"); };
+  return "pop-shop-" + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes());
+}
+
+function renderCli() {
+  const el = $("cliStatus");
+  if (state.cli && state.cli.exists) {
+    el.textContent = "CLI " + (state.cli.version || "已就绪");
+    el.className = "chip ok";
+  } else {
+    el.textContent = "未找到 jdo-cli";
+    el.className = "chip err";
+  }
+}
+
+function renderProfiles() {
+  const box = $("profiles");
+  const list = state.profiles || [];
+  if (!list.length) {
+    box.innerHTML = '<div class="empty">还没有连接任何店铺。</div>';
+    return;
+  }
+  let html = "<table><thead><tr><th>店铺</th><th>Profile</th><th>venderId</th><th>最近核验</th><th></th></tr></thead><tbody>";
+  list.forEach(function (p) {
+    let tag = '<span class="tag">待验证</span>';
+    if (!p.hasProfile) tag = '<span class="tag err">Profile 缺失</span>';
+    else if (p.aliasOf) tag = '<span class="tag">别名 → ' + esc(p.aliasOf) + '</span>';
+    else if (p.status === "error") tag = '<span class="tag warn">需重新授权</span>';
+    else if (p.lastVerifiedAt) tag = '<span class="tag ok">已连接</span>';
+    html += "<tr>";
+    html += '<td><div class="shop">' + esc(p.shopName || p.profile) + "</div>" + tag + "</td>";
+    html += "<td><code>" + esc(p.profile) + "</code></td>";
+    html += "<td>" + esc(p.venderId || "—") + "</td>";
+    html += "<td>" + fmtVerified(p.lastVerifiedAt) + "</td>";
+    html += '<td class="actions">';
+    if (p.hasProfile) {
+      html += '<button class="ghost" data-action="verify" data-profile="' + esc(p.profile) + '">验证</button>';
+      html += '<button class="ghost" data-action="relogin" data-profile="' + esc(p.profile) + '" data-shop="' + esc(p.shopName || p.profile) + '">重新授权</button>';
+      if (p.shopName) {
+        html += '<button class="ghost" data-action="shortcut" data-profile="' + esc(p.profile) + '" data-shop="' + esc(p.shopName) + '">快捷方式</button>';
+      }
+    }
+    html += "</td></tr>";
+  });
+  html += "</tbody></table>";
+  box.innerHTML = html;
+}
+
+function statusText(status) {
+  return {
+    starting: "正在启动授权…",
+    waiting: "等待京东授权…",
+    verifying: "正在校验店铺…",
+    success: "连接成功",
+    failed: "连接失败",
+    cancelled: "已取消",
+    mismatch: "店铺不一致"
+  }[status] || "处理中…";
+}
+
+function renderJob() {
+  const job = state.job;
+  const panel = $("jobPanel");
+  if (!job) {
+    panel.classList.add("hidden");
+    return;
+  }
+  panel.classList.remove("hidden");
+  const stages = { waiting_browser: "等待 Agent 接管浏览器", waiting_login: "等待京麦 App 扫码", checking_browser_identity: "核对网页登录店铺", waiting_oauth: "自动连接官方 CLI", verifying_cli: "实时核验店铺", ready: "连接成功" };
+  $("jobTitle").textContent = stages[job.stage] || statusText(job.status);
+  $("jobMessage").textContent = job.message || "";
+  $("agentTakeover").classList.toggle("hidden", job.stage !== "waiting_browser");
+  $("takeoverPrompt").textContent = "请连接京麦店铺「" + (job.shopName || "") + "」，接管当前任务 " + (job.id || "") + "，先核验已有结果，不重复授权。";
+  const link = $("authLink");
+  link.classList.add("hidden");
+  $("cancelBtn").classList.toggle("hidden", ["starting", "waiting", "verifying"].indexOf(job.status) === -1);
+  $("jobLogText").textContent = "";
+  $("jobDot").className = "dot " + (
+    job.status === "success" ? "ok" :
+    (job.status === "failed" || job.status === "mismatch") ? "err" :
+    job.status === "cancelled" ? "" : "spin"
+  );
+}
+
+async function loadState() {
+  const data = await api("/api/state");
+  state = data;
+  renderCli();
+  renderProfiles();
+  if (data.job) {
+    state.job = data.job;
+    renderJob();
+    if (["starting", "waiting", "verifying"].indexOf(data.job.status) !== -1) startPolling();
+  }
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async function () {
+    try {
+      const data = await api("/api/job");
+      state.job = data.job;
+      renderJob();
+      if (!data.job || ["success", "failed", "cancelled", "mismatch"].indexOf(data.job.status) !== -1) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        await loadState();
+      }
+    } catch (err) {
+      // 页面关闭或服务重启时忽略
+    }
+  }, 1500);
+}
+
+async function startConnect(profile, shopName) {
+  try {
+    const data = await api("/api/connect", {
+      method: "POST",
+      body: JSON.stringify({ shopName: shopName, profile: profile, force: true })
+    });
+    if (data.status === "ready") {
+      state.job = { status: "success", stage: "ready", message: "已连接：" + data.shopName };
+      renderJob();
+      await loadState();
+      return;
+    }
+    state.job = data.job || {
+      status: "starting",
+      stage: "waiting_login",
+      message: "请让商家用京麦 App 扫码登录，之后会自动连接。",
+      profile: data.profile,
+      shopName: shopName,
+      log: []
+    };
+    renderJob();
+    startPolling();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function verifyProfile(profile) {
+  try {
+    const data = await api("/api/verify", {
+      method: "POST",
+      body: JSON.stringify({ profile: profile })
+    });
+    alert("验证成功：" + data.identity.shopName + "（" + data.identity.venderId + "）");
+    await loadState();
+  } catch (err) {
+    alert("验证失败：" + err.message);
+  }
+}
+
+async function createShortcut(profile, shopName) {
+  try {
+    const data = await api("/api/shortcut", {
+      method: "POST",
+      body: JSON.stringify({ shopName: shopName, profile: profile })
+    });
+    alert("已创建快捷方式：\n" + data.path + "\n\n下次双击它，会直接用这家店的浏览器打开并预填。");
+  } catch (err) {
+    alert("创建快捷方式失败：" + err.message);
+  }
+}
+
+$("shopName").addEventListener("input", function () {
+  if (!profileTouched) $("profile").value = suggestProfile($("shopName").value);
+});
+$("profile").addEventListener("input", function () {
+  profileTouched = true;
+});
+$("connectBtn").addEventListener("click", function () {
+  const shopName = $("shopName").value.trim();
+  const profile = $("profile").value.trim();
+  if (!shopName) {
+    alert("请填写店铺名称。");
+    return;
+  }
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(profile)) {
+    alert("Profile 名称只能使用小写字母、数字和短横线，长度 2-41。");
+    return;
+  }
+  startConnect(profile, shopName);
+});
+$("refreshBtn").addEventListener("click", function () {
+  loadState().catch(function (err) { alert(err.message); });
+});
+$("takeoverBtn").addEventListener("click", async function () {
+  const text = $("takeoverPrompt").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    $("takeoverBtn").textContent = "已复制，发给当前 Agent";
+  } catch (_) {
+    $("takeoverBtn").textContent = "请选中上面的目标发给当前 Agent";
+  }
+});
+$("cancelBtn").addEventListener("click", async function () {
+  try {
+    await api("/api/cancel", { method: "POST", body: JSON.stringify({ jobId: (state.job || {}).id || "" }) });
+    await loadState();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+$("profiles").addEventListener("click", function (event) {
+  const btn = event.target.closest("button[data-action]");
+  if (!btn) return;
+  if (btn.dataset.action === "verify") verifyProfile(btn.dataset.profile);
+  if (btn.dataset.action === "relogin") startConnect(btn.dataset.profile, btn.dataset.shop);
+  if (btn.dataset.action === "shortcut") createShortcut(btn.dataset.profile, btn.dataset.shop);
+});
+
+const params = new URLSearchParams(location.search);
+const qShop = params.get("shop") || "";
+const qProfile = params.get("profile") || "";
+if (qShop) $("shopName").value = qShop;
+if (qProfile) {
+  $("profile").value = qProfile;
+  profileTouched = true;
+}
+
+loadState().catch(function (err) {
+  $("cliStatus").textContent = "连接本机服务失败";
+  $("cliStatus").className = "chip err";
+  console.error(err);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "repository": "ctzlyj/jingmai-batch-image-refresh-skill",
+  "upstreamCommit": "8a2f3df185562b1f2f27859a90080d19b2f259cf",
+  "upstreamVersion": "1.4.5",
+  "license": "owner-authorized-distribution",
+  "permissionRecord": "DISTRIBUTION-PERMISSION.md",
+  "files": {
+    "scripts/_common.py": {
+      "upstreamSha256": "5e56a6d8a8ad628785a406f72da7968c91bf70e8a082598163b7707d32e3b8fc",
+      "sha256": "9ae3b56b30c44255716c20dc41882e2b153222f0dfd77956207c718a21bad75e",
+      "adapted": true
+    },
+    "scripts/build_plan.py": {
+      "upstreamSha256": "873a04b51a9c9d01fb59504cac2b3c6052b2440d6b03d5c7769c158cc70ef16b",
+      "sha256": "873a04b51a9c9d01fb59504cac2b3c6052b2440d6b03d5c7769c158cc70ef16b",
+      "adapted": false
+    },
+    "scripts/cleanup.py": {
+      "upstreamSha256": "a331f8cb5382ac7b1de0da4eea69c52c8179dc456111c58ebc5da193c93d8743",
+      "sha256": "a331f8cb5382ac7b1de0da4eea69c52c8179dc456111c58ebc5da193c93d8743",
+      "adapted": false
+    },
+    "scripts/compare.py": {
+      "upstreamSha256": "2d5bb47353659ed2cf6c50a60319d495fcbbbc58effa2b102905cb931ee5d414",
+      "sha256": "2d5bb47353659ed2cf6c50a60319d495fcbbbc58effa2b102905cb931ee5d414",
+      "adapted": false
+    },
+    "scripts/detail_patch_update.py": {
+      "upstreamSha256": "aec05c8de6c44f2d5d3256625d3c0d27ada6284ef6f50716e27719739976803c",
+      "sha256": "aec05c8de6c44f2d5d3256625d3c0d27ada6284ef6f50716e27719739976803c",
+      "adapted": false
+    },
+    "scripts/download_sources.py": {
+      "upstreamSha256": "2d22f4f3ce96e91f1436987dc29277277f7d023a07f0d658236a1502291c8141",
+      "sha256": "2d22f4f3ce96e91f1436987dc29277277f7d023a07f0d658236a1502291c8141",
+      "adapted": false
+    },
+    "scripts/generate.py": {
+      "upstreamSha256": "091eb311fcc7a3637f8a5874e224528f99c636e770ab0718b15296c0b6d72c2b",
+      "sha256": "27565de2d8f93c895fccd7df7c35860bba8a16b680ab68b5a0bc0a33cf7d5d41",
+      "adapted": true
+    },
+    "scripts/image_patch_update.py": {
+      "upstreamSha256": "a8050f9bcfbcaa7cdae2c39c9ac0db96ffff784c6eb2274696e2290250268aea",
+      "sha256": "a8050f9bcfbcaa7cdae2c39c9ac0db96ffff784c6eb2274696e2290250268aea",
+      "adapted": false
+    },
+    "scripts/list_products.py": {
+      "upstreamSha256": "7d85e2934920401a31f397f0c2f08f7eb88376184d91e50ecb709857950de800",
+      "sha256": "7d85e2934920401a31f397f0c2f08f7eb88376184d91e50ecb709857950de800",
+      "adapted": false
+    },
+    "scripts/new_job.py": {
+      "upstreamSha256": "da1fb505156febab36a939a7fca948ba0d46cd78e44148be5bbe1840d7e8d2da",
+      "sha256": "da1fb505156febab36a939a7fca948ba0d46cd78e44148be5bbe1840d7e8d2da",
+      "adapted": false
+    },
+    "scripts/no_window.py": {
+      "upstreamSha256": "7d0e2a60cf4831b4494d60cfe0ccb4119b29a14b916f8c8e7883d5aa07e9fc9b",
+      "sha256": "7d0e2a60cf4831b4494d60cfe0ccb4119b29a14b916f8c8e7883d5aa07e9fc9b",
+      "adapted": false
+    },
+    "scripts/patch.py": {
+      "upstreamSha256": "24bc66dfd8421f70e3a29e7cdcddcd44506a32d0cfaa317b6d15b4fbaadc30fb",
+      "sha256": "24bc66dfd8421f70e3a29e7cdcddcd44506a32d0cfaa317b6d15b4fbaadc30fb",
+      "adapted": false
+    },
+    "scripts/patch_detail.py": {
+      "upstreamSha256": "ef9f6d73e0e145880248de6a5f7d6cb567b69c3ca2e4d1523bfad6c9e2406784",
+      "sha256": "ef9f6d73e0e145880248de6a5f7d6cb567b69c3ca2e4d1523bfad6c9e2406784",
+      "adapted": false
+    },
+    "scripts/rebuild_ledger.py": {
+      "upstreamSha256": "1d7fa3867c6945c870d46506ad52288d9b1c53746c9525196370c33ac0ecd52c",
+      "sha256": "1d7fa3867c6945c870d46506ad52288d9b1c53746c9525196370c33ac0ecd52c",
+      "adapted": false
+    },
+    "scripts/repair_one.py": {
+      "upstreamSha256": "cdbbf5dcf758319f3e945647fd5348c5bbc7c31fca248e457d26f84d140a9555",
+      "sha256": "cdbbf5dcf758319f3e945647fd5348c5bbc7c31fca248e457d26f84d140a9555",
+      "adapted": false
+    },
+    "scripts/report.py": {
+      "upstreamSha256": "35078739084619338c1e03153c04a9e8dd694db60adc658740241556c1b16cd8",
+      "sha256": "35078739084619338c1e03153c04a9e8dd694db60adc658740241556c1b16cd8",
+      "adapted": false
+    },
+    "scripts/run_all.py": {
+      "upstreamSha256": "78664d10697e9319f7da5f8b1309065186146e73a2003d2fd77a01bfcbb13561",
+      "sha256": "9ebcd96b239f251eb62689e85c96af13cacb401308e7ceb1ae24b3edc71ed7bd",
+      "adapted": true
+    },
+    "scripts/start_job.py": {
+      "upstreamSha256": "b2ac4895e3f643fd0246e0235318a9665b0cb8ef91f01a376d5280f6550476ba",
+      "sha256": "b58e01d7f317d6b36332f92626d6d2086c3d5c3518979db4f14aeaa6436f2c14",
+      "adapted": true
+    },
+    "scripts/upload.py": {
+      "upstreamSha256": "632d1246e074065158a9af315abfedb771217a75dd6147bb6a92814db0d3e40c",
+      "sha256": "632d1246e074065158a9af315abfedb771217a75dd6147bb6a92814db0d3e40c",
+      "adapted": false
+    },
+    "scripts/verify.py": {
+      "upstreamSha256": "6d97969ba1439af919bcb09c6b646b638102551f52f599eaa20390546a2fb92f",
+      "sha256": "6d97969ba1439af919bcb09c6b646b638102551f52f599eaa20390546a2fb92f",
+      "adapted": false
+    },
+    "requirements.txt": {
+      "upstreamSha256": "7ba92b47110edad0c9f5d7f533ce3b1d01c563bf76b2d1201c797c5cf0f4a77b",
+      "sha256": "7ba92b47110edad0c9f5d7f533ce3b1d01c563bf76b2d1201c797c5cf0f4a77b",
+      "adapted": false
+    },
+    "DISTRIBUTION-PERMISSION.md": {
+      "upstreamSha256": null,
+      "sha256": "74ec12f1d011a5130797c9d405a672f87d8b24c4391e97d95035ff682f4448db",
+      "adapted": true
+    }
+  },
+  "entrypoints": [
+    "scripts/build_plan.py",
+    "scripts/cleanup.py",
+    "scripts/compare.py",
+    "scripts/download_sources.py",
+    "scripts/generate.py",
+    "scripts/image_patch_update.py",
+    "scripts/list_products.py",
+    "scripts/new_job.py",
+    "scripts/patch.py",
+    "scripts/patch_detail.py",
+    "scripts/rebuild_ledger.py",
+    "scripts/repair_one.py",
+    "scripts/report.py",
+    "scripts/run_all.py",
+    "scripts/start_job.py",
+    "scripts/upload.py",
+    "scripts/verify.py"
+  ],
+  "adaptation": "original refresh plan/slot/detail URL/upload/verify/report; packaged mature mover; merchant-only LTS4AI sufy single-attempt images and original ledger no automatic replay"
+}

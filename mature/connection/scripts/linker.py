@@ -1,0 +1,404 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""京麦 CLI 店铺连接器客户端。
+
+核心入口：`ensure-shop --shop 店名|venderId`。写入类任务前先调用它，
+拿返回的 profile 和 venderId 再执行。所有命令输出 JSON。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+SKILL_DIR = Path(__file__).resolve().parents[1]
+APP_DIR = SKILL_DIR / "app"
+sys.path.insert(0, str(APP_DIR))
+import shoplib as sl  # noqa: E402
+from redaction import safe_text
+
+SERVER_PY = APP_DIR / "server.py"
+DEFAULT_PORT = int(os.environ.get('JINGMAI_LINKER_PORT') or 8765)
+BASE = f"http://127.0.0.1:{DEFAULT_PORT}"
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+
+def http_json(path: str, payload=None, token=None, timeout: int = 30):
+    data, headers = None, {}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["X-Session-Token"] = token
+    request = urllib.request.Request(BASE + path, data=data, headers=headers,
+                                     method="POST" if data is not None else "GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            return exc.code, json.loads(body)
+        except Exception:
+            return exc.code, {"error": body or str(exc)}
+    except Exception as exc:
+        return 0, {"error": str(exc)}
+
+
+def expected_version() -> str:
+    m = re.search(r'^SERVER_VERSION\s*=\s*"([^"]+)"', SERVER_PY.read_text(encoding="utf-8"), re.M)
+    return m.group(1) if m else ""
+
+
+def server_info(timeout: int = 2):
+    status, data = http_json("/api/health", timeout=timeout)
+    return data if status == 200 and data.get("ok") is True else None
+
+
+def server_health(timeout: int = 2) -> bool:
+    return server_info(timeout) is not None
+
+
+def stop_stale_server() -> None:
+    """Ask an identified inactive connector to stop; never kill by executable name."""
+    info = server_info()
+    if not info or Path(info.get('appDir') or '').resolve() != APP_DIR.resolve():
+        raise RuntimeError('本机端口由其它目录的服务占用，未结束任何进程。')
+    status, result = http_json('/api/shutdown', {}, token=get_token())
+    if status != 200 or not result.get('ok'):
+        raise RuntimeError('旧连接器未安全退出（可能有在途任务），请结束原任务后重试。')
+    deadline = time.time() + 5
+    while time.time() < deadline and sl.port_owner(DEFAULT_PORT)[0]:
+        time.sleep(0.3)
+
+
+def ensure_server() -> bool:
+    info = server_info()
+    if info and info.get("version") == expected_version() and (
+            not info.get('appDir') or Path(info['appDir']).resolve() == APP_DIR.resolve()):
+        return False
+    if info:  # 有服务但版本不符（升级后遗留的旧进程），先停掉
+        stop_stale_server()
+    if not SERVER_PY.exists():
+        raise RuntimeError(f"找不到 app/server.py：{SERVER_PY}")
+    subprocess.Popen(
+        [sys.executable, "-I", "-B", str(Path(os.environ["HEIDENG_MERCHANT_PACKAGE"])/"scripts/mature_entry.py"),
+         str(SERVER_PY), "--port", str(DEFAULT_PORT), "--no-clipboard"],
+        cwd=str(APP_DIR), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=CREATE_NO_WINDOW,
+    )
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        info = server_info()
+        if info and info.get("version") == expected_version():
+            return True
+        time.sleep(0.5)
+    raise RuntimeError("本机连接器启动超时，请手动运行 python app/server.py 查看错误。")
+
+def get_token() -> str:
+    with urllib.request.urlopen(BASE + "/", timeout=10) as response:
+        html = response.read().decode("utf-8")
+    match = re.search(r'const TOKEN = "([^"]+)"', html)
+    if not match:
+        raise RuntimeError("无法从页面读取会话令牌。")
+    return match.group(1)
+
+
+def api(path: str, payload=None, timeout: int = 30):
+    ensure_server()
+    return http_json(path, payload=payload, token=get_token(), timeout=timeout)
+
+
+def _unwrap(status, data):
+    return data if status == 200 else {"ok": False, "error": data.get("error")}
+
+
+# ---------------------------------------------------------------- 基础命令
+
+def cmd_ensure(_a):
+    return {"ok": True, "url": BASE + "/", "started": ensure_server()}
+
+
+def cmd_state(_a):
+    return _unwrap(*api("/api/state"))
+
+
+def cmd_job(_a):
+    return _unwrap(*api("/api/job"))
+
+
+def cmd_cancel(_a):
+    return _unwrap(*api("/api/cancel", {}))
+
+
+def cmd_verify(a):
+    return _unwrap(*api("/api/verify", {"profile": a.profile}))
+
+
+def cmd_shortcut(a):
+    return _unwrap(*api("/api/shortcut", {"shopName": a.shop, "profile": a.profile}))
+
+
+def cmd_connect(a):
+    payload = {"shopName": a.shop or "", "profile": a.profile or "", "venderId": a.vender_id or ""}
+    if a.no_open:
+        payload['browserConfig'] = {'provider': 'host'}
+    data = _unwrap(*api("/api/connect", payload))
+    if data.get('jobId'):
+        sl.save_pending({'jobId': data['jobId'], 'profile': data['profile'], 'query': a.shop,
+                         'shopName': a.shop or '', 'venderId': a.vender_id or ''})
+    return data
+
+
+def _job_matches(job, job_id='', profile='', vender_id='', shop_name=''):
+    if job_id and job.get('id') != job_id or profile and job.get('profile') != profile:
+        return False
+    if job.get('status') == 'success':
+        identity = job.get('identity') or {}
+        if vender_id and str(identity.get('venderId') or '') != str(vender_id):
+            return False
+        if shop_name and not sl.name_matches(shop_name, [identity.get('shopName', '')]):
+            return False
+    return True
+
+
+def wait_job(timeout: int, interval: float = 2.0, *, job_id='', profile='', vender_id='', shop_name=''):
+    deadline = time.time() + timeout
+    last = None
+    while True:
+        status, data = api("/api/job")
+        if status != 200:
+            return {"ok": False, "error": data.get("error")}
+        job = data.get("job")
+        if job:
+            if not _job_matches(job, job_id, profile, vender_id, shop_name):
+                return {'ok': False, 'status': 'error', 'errorKind': 'task_changed',
+                        'error': '当前任务或店铺身份已改变，未组合、登记或使用其它店铺结果。'}
+            last = job
+            if job.get("status") in ("success", "failed", "cancelled", "mismatch"):
+                return {"ok": job.get("status") == "success", "job": job,
+                        'status': 'ready' if job.get('status') == 'success' else job.get('status'),
+                        'stage': job.get('stage', '')}
+        if time.time() >= deadline:
+            break
+        time.sleep(interval)
+    return {'ok': True, 'status': 'awaiting_auth', 'stage': (last or {}).get('stage', 'waiting_login'), 'job': last}
+
+
+def cmd_wait(a):
+    pending = sl.load_pending()
+    res = wait_job(a.timeout, a.interval, job_id=getattr(a, 'job_id', '') or pending.get('jobId', ''),
+                   profile=pending.get('profile', ''), vender_id=pending.get('venderId', ''),
+                   shop_name=pending.get('shopName', ''))
+    job = res.get("job") or {}
+    same_job = pending.get('jobId') == job.get('id') if pending.get('jobId') else False
+    if res.get("ok") and job.get('status') == 'success' and pending and same_job and pending.get("profile") == job.get("profile"):
+        ident = job.get("identity") or {}
+        remember_shop(pending["profile"], pending.get("query", ""), pending.get("shopName", ""), ident,
+                      pending.get("shortcutPath", ""))
+        entry = sl.load_registry()["profiles"].get(pending["profile"], {})
+        res.update({"status": "ready", **sl._public(pending["profile"], ident, entry)})
+    if same_job and job.get("status") in ("success", "cancelled", "mismatch"):
+        sl.clear_pending(pending.get('jobId'))
+    return res
+
+
+# ---------------------------------------------------------------- 新命令
+
+def cmd_resolve(a):
+    return sl.resolve(a.shop)
+
+
+def _env_blockers():
+    if not sl.find_jdo():
+        return {"ok": False, "status": "error", "errorKind": "no_cli",
+                "error": "这台电脑还没有安装京麦 CLI。",
+                "nextActions": ["运行 python scripts/linker.py doctor --install-jdo，装好后会自动初始化，然后重新执行 ensure-shop"]}
+    return None
+
+
+def remember_shop(profile, query, shop_name, ident, shortcut_path=""):
+    """授权成功后写登记：把用户当初用的叫法记为别名，并记住专用浏览器，下次 resolve 直接命中。"""
+    reg = sl.load_registry()
+    entry = reg["profiles"].setdefault(profile, {})
+    if shortcut_path:
+        entry["browserShortcut"] = shortcut_path
+    q = (query or "").strip()
+    alias = q if q and not q.isdigit() else shop_name
+    if alias and alias != ident.get("shopName", ""):
+        entry["aliases"] = sorted(set(entry.get("aliases") or []) | {alias})
+    sl.save_registry(reg)
+
+
+def cmd_ensure_shop(a):
+    blocker = _env_blockers()
+    if blocker:
+        return blocker
+    res = sl.resolve(a.shop)
+    if res["status"] != "needs_auth":
+        return res
+    if a.no_auth:
+        res["note"] = "未授权，且指定了 --no-auth，不发起授权。"
+        return res
+    if os.environ.get('HEIDENG_BACKGROUND') == '1' or os.environ.get('JINGMAI_LINKER_BACKGROUND') == '1':
+        return {'ok': False, 'status': 'deferred', 'stage': 'deferred', 'message': '后台不发起扫码或授权。'}
+    # 发起授权
+    q = a.shop.strip()
+    existing = res.get("profile") or ""
+    profile = a.profile or existing or res.get("suggestedProfile") or sl.suggest_profile_name(q, sl.list_disk_profiles())
+    shop_name = res.get("shopName") or ("" if q.isdigit() else q)
+    vender_id = res.get("venderId") or (q if q.isdigit() else "")
+    if not shop_name and not vender_id:
+        return {"ok": False, "status": "error", "error": "无法确定店铺名称或 venderId"}
+    payload = {"shopName": shop_name, "profile": profile, "venderId": vender_id,
+               'resume': bool(getattr(a, 'resume', False))}
+    config_file = getattr(a, 'browser_config', '')
+    if config_file:
+        payload['browserConfig'] = sl.read_json(Path(config_file), {})
+    if a.no_open:
+        payload['browserConfig'] = {'provider': 'host'}
+    started = _unwrap(*api("/api/connect", payload))
+    if started.get('status') == 'ready':
+        return started
+    if not started.get("ok"):
+        err = str(started.get("error") or "")
+        out = {"ok": False, "status": "error", "errorKind": "auth_busy" if "已有授权" in err else "other",
+               "error": err}
+        if "9001" in err:
+            out["errorKind"] = "port_busy"
+            out["nextActions"] = ["先运行 python scripts/linker.py cancel，仍被占用则关闭占用 9001 的程序后重试"]
+        return out
+    profile = started.get('profile') or profile
+    out_base = {'profile': profile, 'jobId': started.get('jobId'), 'stage': started.get('stage', 'waiting_login')}
+    sl.save_pending({'jobId': started.get('jobId'), 'profile': profile, 'query': q, 'shopName': shop_name,
+                     'venderId': vender_id})
+    if a.no_wait:
+        return {'ok': True, 'status': 'awaiting_auth', 'message': (started.get('job') or {}).get('message', ''), **out_base}
+    waited = wait_job(min(a.timeout, 3), interval=0.5, job_id=started.get('jobId', ''), profile=profile,
+                       vender_id=vender_id, shop_name=shop_name)
+    job = waited.get("job") or {}
+    st = job.get("status")
+    if st == "success":
+        if not _job_matches(job, started.get('jobId', ''), profile, vender_id, shop_name):
+            return {'ok': False, 'status': 'error', 'errorKind': 'task_changed',
+                    'error': '等待结果不属于原任务或目标店铺，未登记。'}
+        ident = job.get("identity") or {}
+        entry = sl.load_registry()["profiles"].get(profile, {})
+        remember_shop(profile, q, shop_name, ident)
+        entry = sl.load_registry()["profiles"].get(profile, {})
+        sl.clear_pending(started.get('jobId'))
+        return {"ok": True, "status": "ready", "reauthorized": True, **sl._public(profile, ident, entry), **out_base, 'stage': 'ready'}
+    if st == "mismatch":
+        return {"ok": False, "status": "mismatch", "profile": profile, "message": job.get("message"),
+                "actual": {"shopName": (job.get("identity") or {}).get("shopName", ""),
+                           "venderId": (job.get("identity") or {}).get("venderId", "")}, **out_base}
+    if waited.get('status') == 'awaiting_auth':
+        return {'ok': True, 'status': 'awaiting_auth', **out_base, 'stage': job.get('stage', out_base['stage']),
+                'message': job.get('message', '')}
+    hint = sl.permission_hint() if job.get("errorKind") == "permission" else ""
+    return {"ok": False, "status": "error", "errorKind": waited.get('errorKind') or job.get("errorKind") or "timeout",
+            "error": job.get("message") or waited.get("error"), "hint": hint, **out_base}
+
+
+def cmd_audit(a):
+    blocker = _env_blockers()
+    if blocker:
+        return blocker
+    return sl.audit(apply_aliases=not a.no_write)
+
+
+def cmd_doctor(a):
+    extra = {}
+    if a.install_jdo:
+        res = sl.install_jdo()
+        extra["install"] = res
+        if res.get("ok") and res.get("installed"):
+            # 装好后直接初始化，让同事不用回头问下一步
+            extra["init"] = sl.init_jdo()
+            if not extra["init"].get("ok"):
+                extra["install"] = sl._install_fail("init_failed", extra["init"].get("message", ""))
+    elif a.init and sl.find_jdo():
+        extra["init"] = sl.init_jdo()
+    result = sl.doctor()
+    result.update(extra)
+    inst = extra.get("install") or {}
+    if inst.get("ok") and result.get("ok"):
+        result["nextStep"] = '环境已就绪。告诉 Agent 要连接的店名；需要登录时商家用京麦 App 扫网页二维码，之后自动衔接授权。'
+    elif inst and not inst.get("ok"):
+        result["ok"] = False
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Jingmai CLI shop linker client")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    for name, fn in (("ensure", cmd_ensure), ("state", cmd_state), ("job", cmd_job), ("cancel", cmd_cancel)):
+        sub.add_parser(name).set_defaults(func=fn)
+
+    p = sub.add_parser("resolve", help="店名/简称/venderId → profile（只读）")
+    p.add_argument("--shop", required=True)
+    p.set_defaults(func=cmd_resolve)
+
+    p = sub.add_parser("ensure-shop", help="解析→可用即返回→否则授权→核验→登记")
+    p.add_argument("--shop", required=True, help="店名、简称或明确 venderId；不把 shopId 当 venderId")
+    p.add_argument("--profile", help="新店用的 Profile 名（默认自动生成）")
+    p.add_argument("--timeout", type=int, default=3)
+    p.add_argument("--no-auth", action="store_true", help="只解析，未授权也不发起授权")
+    p.add_argument("--no-open", action="store_true", help="暂不打开页面，返回等待浏览器状态")
+    p.add_argument("--no-wait", action="store_true", help="立即返回任务与阶段，由 Agent 短轮询")
+    p.add_argument('--resume', action='store_true', help='先核验已有结果，再恢复同任务')
+    p.add_argument('--browser-config', help='Agent 提供的非敏感浏览器适配配置文件')
+    p.set_defaults(func=cmd_ensure_shop)
+
+    p = sub.add_parser("audit", help="只读体检全部 Profile")
+    p.add_argument("--no-write", action="store_true", help="不更新本机登记表（别名/主 Profile 标记）")
+    p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("doctor", help="检查/修复运行环境")
+    p.add_argument("--install-jdo", action="store_true")
+    p.add_argument("--init", action="store_true")
+    p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("connect", help="底层：发起授权并（默认）自动打开授权页")
+    p.add_argument("--shop", default="")
+    p.add_argument("--profile", default="")
+    p.add_argument("--vender-id", default="")
+    p.add_argument("--no-open", action="store_true")
+    p.set_defaults(func=cmd_connect)
+
+    p = sub.add_parser("wait")
+    p.add_argument('--job-id', default='', help='显式绑定原任务，默认使用本任务pending')
+    p.add_argument("--timeout", type=int, default=3)
+    p.add_argument("--interval", type=float, default=2.0)
+    p.set_defaults(func=cmd_wait)
+
+    p = sub.add_parser("verify")
+    p.add_argument("--profile", required=True)
+    p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("shortcut")
+    p.add_argument("--shop", required=True)
+    p.add_argument("--profile", required=True)
+    p.set_defaults(func=cmd_shortcut)
+
+    args = parser.parse_args()
+    try:
+        result = args.func(args)
+    except Exception as exc:
+        result = {"ok": False, "status": "error", "error": safe_text(exc)}
+    sys.stdout.reconfigure(encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

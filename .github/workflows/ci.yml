@@ -1,4 +1,4 @@
-name: Merchant standalone verification
+name: Merchant mature-source migration verification
 on:
   workflow_dispatch:
 permissions:
@@ -7,15 +7,17 @@ jobs:
   offline:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python: ['3.11', '3.12']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -I -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: --no-cache-dir -r tests/requirements.txt
-      - run: python tests/run_offline.py
+      - run: python -I -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: --no-cache-dir -r tests/mature-requirements.txt
+      - run: python tests/run_mature_offline.py
       - run: python scripts/build_release.py
-      - run: python scripts/audit_release.py dist/heideng-ops-agent-merchant-0.1.0.zip
+      - run: python -c "from pathlib import Path; from scripts.audit_release import audit; import json; print(json.dumps(audit(next(Path('dist').glob('heideng-ops-agent-merchant-*.zip')))))"

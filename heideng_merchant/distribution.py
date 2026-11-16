@@ -11,7 +11,12 @@ MANIFEST='package-manifest.json'
 RECEIPT='.merchant-install.json'
 
 def admissible_file(name):
- return name in {'SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py',MANIFEST} or bool(re.fullmatch(r'(?:heideng_merchant|scripts)/[a-zA-Z0-9_-]+\.py|references/[a-zA-Z0-9_-]+\.md',name))
+ if name in {'SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py','package-files.json',MANIFEST}:return True
+ if re.fullmatch(r'(?:heideng_merchant|scripts)/[a-zA-Z0-9_-]+\.py|references/[a-zA-Z0-9_-]+\.md',name):return True
+ parts=name.split('/')
+ if len(parts)<3 or parts[0]!='mature' or parts[1] not in {'connection','materials','listing','collection','comparison','diagnosis','refresh','video'}:return False
+ # Path safety remains safe_join's responsibility; binary templates need their original Unicode names.
+ return Path(name).name=='LICENSE' or Path(name).suffix.lower() in {'.py','.md','.json','.mjs','.js','.txt','.xlsx','.csv','.ps1','.sh','.svg','.html','.cjs'}
 
 def version_key(value):
  if not isinstance(value,str) or not re.fullmatch(r'\d+\.\d+\.\d+',value):raise SafetyError('invalid-version')
@@ -19,6 +24,31 @@ def version_key(value):
 
 def source_files(source):
  source=Path(source).resolve();files={}
+ declaration=read_json(source/'package-files.json')
+ if declaration is not None:
+  if declaration.get('schemaVersion')!=1 or not isinstance(declaration.get('files'),list):raise SafetyError('invalid-package-declaration')
+  candidates=[*declaration['files'],'package-files.json']
+  mature=source/'mature'
+  if mature.exists():
+   for component in sorted(mature.iterdir()):
+    if not component.is_dir() or is_linked(component):raise SafetyError('linked-mature-source')
+    metadata=read_json(component/'provenance.json')
+    if not isinstance(metadata,dict) or metadata.get('license') not in {'MIT','owner-authorized-distribution'}:raise SafetyError('mature-distribution-permission-required')
+    if metadata.get('license')=='owner-authorized-distribution':
+     permission=metadata.get('permissionRecord')
+     if not permission or permission not in metadata.get('files',{}):raise SafetyError('mature-distribution-permission-record-required')
+    for rel,record in metadata.get('files',{}).items():
+     path=safe_join(component,rel)
+     if is_linked(path) or not path.is_file() or file_sha(path)!=record.get('sha256'):raise SafetyError('mature-source-modified')
+     candidates.append(path.relative_to(source).as_posix())
+    candidates.append((component/'provenance.json').relative_to(source).as_posix())
+  for name in sorted(set(candidates)):
+   path=safe_join(source,name)
+   if is_linked(path) or not path.is_file() or not admissible_file(name):raise SafetyError('unapproved-distribution-file')
+   data=path.read_bytes()
+   files[name]=data if name.startswith("mature/") else data.replace(b"\r\n",b"\n")
+  if not {'SKILL.md','VERSION'}<=files.keys():raise SafetyError('missing-package-entry')
+  return files
  candidates=['SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py']
  for folder in ('heideng_merchant','scripts','references'):
   parent=source/folder
@@ -111,8 +141,10 @@ def _remove_owned(path,target,kind):
   shutil.rmtree(p)
 
 def busy(state):
- from .update_gate import busy as update_busy
- return update_busy(state)
+ # Mature foreground execution holds this same install.lock for its full lifetime.
+ # A connector's own pending job also keeps an update deferred, without a new auth FSM.
+ pending=read_json(Path(state)/'linker'/'pending.json')
+ return bool(pending and pending.get('status') not in ('ready','completed','cancelled','error'))
 
 def _replace_directory(source,target):
  """Retry only an unchanged local directory switch under transient Windows locks.
@@ -157,6 +189,9 @@ def install_archive(archive,target,state,*,expected_sha):
   if target.exists():
    current=verify_install(target)
    if not current['valid']:raise SafetyError(current['reason'])
+   from .installation_guard import check_legacy_update,quiesce_mature_connector
+   check_legacy_update(target,state,current['version'])
+   quiesce_mature_connector(target,state)
    if current['version']==manifest['version']:
     if current['receipt']['archiveSha256']==expected_sha:return {'status':'unchanged','version':manifest['version'],'target':str(target)}
     raise SafetyError('same-version-different-artifact')

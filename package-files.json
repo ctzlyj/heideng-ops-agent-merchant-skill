@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    "heideng_merchant/__init__.py",
+    "heideng_merchant/cli.py",
+    "heideng_merchant/distribution.py",
+    "heideng_merchant/safety.py",
+    "heideng_merchant/state.py",
+    "heideng_merchant/official.py",
+    "heideng_merchant/lts4ai_client.py",
+    "heideng_merchant/mature_runtime.py",
+    "heideng_merchant/mature_image.py",
+    "SKILL.md",
+    "VERSION",
+    "README.md",
+    "NOTICE.md",
+    "registry.json",
+    "install.py",
+    "scripts/merchant.py",
+    "scripts/mature_entry.py",
+    "scripts/build_release.py",
+    "scripts/audit_release.py",
+    "heideng_merchant/installation_guard.py",
+    "heideng_merchant/merchant_key_ui.py",
+    "scripts/with_image_key.py",
+    "heideng_merchant/runtime_dependencies.py",
+    "heideng_merchant/external_endpoint.py"
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "sources": [
+    {
+      "source": "code-license",
+      "url": "https://raw.githubusercontent.com/ZhengPeng7/BiRefNet/main/LICENSE",
+      "sha256": "92a7089e0915fc32bc40067560b398f1e6a7a5958abd7d04eda393629a5acefb",
+      "observedLicense": "MIT",
+      "checkedOn": "2026-10-30"
+    },
+    {
+      "source": "rembg-license",
+      "url": "https://raw.githubusercontent.com/danielgatis/rembg/main/LICENSE.txt",
+      "sha256": "90a3215072968fd304669c5389f04f1274a587abdd0507d99dead0f5511f8999",
+      "observedLicense": "MIT",
+      "checkedOn": "2026-10-30"
+    },
+    {
+      "source": "model-card-general",
+      "url": "https://huggingface.co/ZhengPeng7/BiRefNet/raw/main/README.md",
+      "sha256": "ceac4a1bb69b807eac5510bff80ff5599f606ef7458bee3b54b68d866e868532",
+      "observedLicense": "MIT",
+      "checkedOn": "2026-10-30"
+    },
+    {
+      "source": "model-card-lite",
+      "url": "https://huggingface.co/ZhengPeng7/BiRefNet_lite/raw/main/README.md",
+      "sha256": "22fe432bdd706e8079ee1c53dcd6192962291d023c84d5416df3c983f6e665a2",
+      "observedLicense": "MIT",
+      "checkedOn": "2026-10-30"
+    },
+    {
+      "source": "onnx-card-general",
+      "url": "https://huggingface.co/onnx-community/BiRefNet-ONNX/raw/main/README.md",
+      "sha256": "561faa7cfaa4869745d576f23d18bde010ab0b98c1c7bfbe44a147703385df0a",
+      "observedLicense": "MIT",
+      "checkedOn": "2026-10-30"
+    },
+    {
+      "source": "onnx-card-lite",
+      "url": "https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/raw/main/README.md",
+      "sha256": "95be7ac786fc40352e1405c397767af132e3e44f7eb6b924391bb145a2446542",
+      "observedLicense": "MIT",
+      "checkedOn": "2026-10-30"
+    }
+  ],
+  "scope": "These are publisher/license metadata observations, not a warranty about every upstream training asset. Models are not redistributed; only the exact reviewed SHA256 allowlist is used.",
+  "weights": {
+    "birefnet-general-lite": "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
+    "birefnet-general": "58f621f00f5d756097615970a88a791584600dcf7c45b18a0a6267535a1ebd3c"
+  }
+}

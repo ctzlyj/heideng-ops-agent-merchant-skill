@@ -21,7 +21,7 @@ def main(argv=None):
  for stream in (sys.stdout,sys.stderr):
   if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8',errors='backslashreplace')
  p=argparse.ArgumentParser(description='黑灯运营智能体商家版单仓库安装；由Agent执行')
- p.add_argument('--host',choices=HOSTS,default='codex');p.add_argument('--home');p.add_argument('--skills-dir');p.add_argument('--archive');p.add_argument('--sha256');p.add_argument('--offline',action='store_true');p.add_argument('--with-official',action='store_true');p.add_argument('--rollback',action='store_true')
+ p.add_argument('--host',choices=HOSTS,default='codex');p.add_argument('--home');p.add_argument('--skills-dir');p.add_argument('--archive');p.add_argument('--sha256');p.add_argument('--offline',action='store_true');p.add_argument('--with-official',action='store_true');p.add_argument('--with-runtime',action='store_true');p.add_argument('--with-cutout-runtime',action='store_true');p.add_argument('--rollback',action='store_true')
  args=p.parse_args(argv)
  try:
   if sys.version_info<(3,11):raise SafetyError('python-3.11-or-newer-required-agent-install-official-runtime')
@@ -49,7 +49,13 @@ def main(argv=None):
     warning='Skill本体已安装；官方京麦CLI更新未完成，原已校验CLI仍可用，使用前按原版本核对。' if ready else 'Skill本体已安装；官方京麦CLI准备未完成。店铺官方链路不可用，离线任务仍可使用。'
     result['warnings']=[{'component':'officialCli','reason':code,'text':warning}]
   else:result['officialCli']={'ready':client.ready(),'deferred':True}
-  result.update(skill=SKILL_NAME,requiresManualCommands=False,employeeDependencies=False,next='由Agent运行已安装scripts/merchant.py onboarding；先核对平台支持，店铺链路可用时再准备官方CLI及扫码授权。')
+  if (args.with_runtime or args.with_cutout_runtime) and not args.offline:
+   from heideng_merchant.runtime_dependencies import prepare_runtime
+   result['runtimeDependencies']=prepare_runtime(state,target,optional="cutout" if args.with_cutout_runtime else None)
+  else:result['runtimeDependencies']={'status':'deferred','independent':True,'reason':'offline-or-not-requested'}
+  result.update(skill=SKILL_NAME,requiresManualCommands=False,employeeDependencies=False,next='由Agent运行已安装scripts/merchant.py status，按实际成熟源码入口执行；缺源码许可或宿主适配时明确报告阻塞，不回落旧业务运行时。')
+  from heideng_merchant.mature_runtime import status as mature_status
+  result['matureCapabilities']=mature_status()
   print(json.dumps(redact(result),ensure_ascii=False));return 0
  except (SafetyError,OSError,ValueError) as error:
   result={'status':'blocked','error':redact(str(error)),'internalVersionUntouched':True}

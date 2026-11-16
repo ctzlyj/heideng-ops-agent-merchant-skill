@@ -1,0 +1,374 @@
+{
+  "schemaVersion": 1,
+  "repository": "ctzlyj/jd-hot-link-collector",
+  "upstreamCommit": "90ef8dfd8455848d539d22560ae26ba8bac52e2a",
+  "upstreamVersion": "1.0.4",
+  "license": "MIT",
+  "files": {
+    "LICENSE": {
+      "upstreamSha256": "50153f65150200ddbbcbb6d8bcd74df8c2126d42e13f20633e805df389a0bdc1",
+      "sha256": "50153f65150200ddbbcbb6d8bcd74df8c2126d42e13f20633e805df389a0bdc1",
+      "adapted": false
+    },
+    "requirements.txt": {
+      "upstreamSha256": "2e305254bda0b6404d1b8c5276071b369687228af231cb49ecd1a464a351a31d",
+      "sha256": "2e305254bda0b6404d1b8c5276071b369687228af231cb49ecd1a464a351a31d",
+      "adapted": false
+    },
+    "references/price-and-sku-contract.md": {
+      "upstreamSha256": "f565f3d2a256449e99b903d5f17bb365e82a476baa214b7144db869667cb5ce4",
+      "sha256": "f565f3d2a256449e99b903d5f17bb365e82a476baa214b7144db869667cb5ce4",
+      "adapted": false
+    },
+    "references/package-contract.md": {
+      "upstreamSha256": "f254faa1e91514553e51fb08c2c84a8fdb23560ea3c72289067d0ef922c67a45",
+      "sha256": "f254faa1e91514553e51fb08c2c84a8fdb23560ea3c72289067d0ef922c67a45",
+      "adapted": false
+    },
+    "references/rate-limit-and-recovery.md": {
+      "upstreamSha256": "3bb73bfcf66e9770c8e29bccdc5e701e148e2994f80486156991a06ac376ea81",
+      "sha256": "3bb73bfcf66e9770c8e29bccdc5e701e148e2994f80486156991a06ac376ea81",
+      "adapted": false
+    },
+    "scripts/collector_guard.py": {
+      "upstreamSha256": "e8c9c857d50cb45a5b82da41c5ac343d770c5d570fdeac9a9afdeec4666af8db",
+      "sha256": "e8c9c857d50cb45a5b82da41c5ac343d770c5d570fdeac9a9afdeec4666af8db",
+      "adapted": false
+    },
+    "scripts/package_contract.py": {
+      "upstreamSha256": "7a5c03175c99621c7c8fef19502ca70c75e4eaff60809ce61c1909c2a899c25c",
+      "sha256": "7a5c03175c99621c7c8fef19502ca70c75e4eaff60809ce61c1909c2a899c25c",
+      "adapted": false
+    },
+    "scripts/workbook_writer.py": {
+      "upstreamSha256": "c21a722c4295b06e30664114de7a88da2d7c1f0b9db4bdb0766b90d0a8767812",
+      "sha256": "c21a722c4295b06e30664114de7a88da2d7c1f0b9db4bdb0766b90d0a8767812",
+      "adapted": false
+    },
+    "scripts/checkpoint_status.py": {
+      "upstreamSha256": "ef8f0db93eb9a7461101430020bd22a9c148666cb7d7fb55dc2b4ac00821d0ed",
+      "sha256": "ef8f0db93eb9a7461101430020bd22a9c148666cb7d7fb55dc2b4ac00821d0ed",
+      "adapted": false
+    },
+    "scripts/media_evidence.py": {
+      "upstreamSha256": "870e03e0afb1e9a21d840aead2633d67e08a78bac7682320fd9f0edd34597b92",
+      "sha256": "870e03e0afb1e9a21d840aead2633d67e08a78bac7682320fd9f0edd34597b92",
+      "adapted": false
+    },
+    "scripts/media_guard.py": {
+      "upstreamSha256": "94415347e964e008734c7e786cf230d0770877a339d51da8e0efbfcdf69bb03e",
+      "sha256": "94415347e964e008734c7e786cf230d0770877a339d51da8e0efbfcdf69bb03e",
+      "adapted": false
+    },
+    "scripts/jpeg_cache.py": {
+      "upstreamSha256": "9b4712885223cb8baa7a3a30b3f835ea7d5aaf6215825fe4defec535aa2ab9af",
+      "sha256": "9b4712885223cb8baa7a3a30b3f835ea7d5aaf6215825fe4defec535aa2ab9af",
+      "adapted": false
+    },
+    "scripts/resume_policy.py": {
+      "upstreamSha256": "e627b7a6f2f1303a19a22594776c3c8548d9db3b6507829c36b7de2719df321a",
+      "sha256": "e627b7a6f2f1303a19a22594776c3c8548d9db3b6507829c36b7de2719df321a",
+      "adapted": false
+    },
+    "scripts/asset_paths.py": {
+      "upstreamSha256": "bb8db5a32836fe9b373a334bd0a3da608fd5be239d97926d7903265b9e90fa9e",
+      "sha256": "d5b1c8dd5f9baf20ffa6d805a39b99ac3404f4370ed9ab31b9d9602dd966d74a",
+      "adapted": true
+    },
+    "scripts/package_live.py": {
+      "upstreamSha256": "4e6f248d024811b981f5577c8465dc23b6b398f9a5f90a9e2696a38d71fafa26",
+      "sha256": "b6526f9833ad47e2a4c2f01b102bf15b7b16d83c6be7d5524545576ab6b0159e",
+      "adapted": true
+    },
+    "scripts/verify_batch.py": {
+      "upstreamSha256": "0908164d8c4e8c78a22a6da55b1fcb00c3271df6e2f9dee6829a7b7d997cd4ff",
+      "sha256": "79470cc6b83eef8b767d860f1e4d34ab6b6db7873ce81cd8ce2100099618aef1",
+      "adapted": true
+    },
+    "scripts/prepare_batch.py": {
+      "upstreamSha256": "e055ebe7c33c0c3baa9e34ffa60954d9c3b93eb23264c1e423cd8a5a958fa256",
+      "sha256": "2d582658d028d5202d1bf02bdaa285fd7b8ce9cfece0a5c2658a7c30f887b8d1",
+      "adapted": true
+    },
+    "scripts/deliver_batch.py": {
+      "upstreamSha256": "ca78617ac418eb4cfab1cfe1ab6baeba8fa35f052ba445940eebdb6f3b2e054f",
+      "sha256": "a70d616704183d75e9cf74e51d842aab5d7af28dee84d04319b5f532e26c8208",
+      "adapted": true
+    },
+    "scripts/variant_queue.py": {
+      "upstreamSha256": "b467c793cbe663357401b396ae5fd413d01fe3a90053f0346d43cb80542334b4",
+      "sha256": "b467c793cbe663357401b396ae5fd413d01fe3a90053f0346d43cb80542334b4",
+      "adapted": false
+    },
+    "scripts/variant_bridge.mjs": {
+      "upstreamSha256": "3b88448e404260ef324d60f19ea69e7b88b34fb1c64f188c4b4dcbe37ea56846",
+      "sha256": "736cffe7b84a41a96e5b8a47dd7d6969790e5b9ad931388e2f974b3b080c4866",
+      "adapted": true
+    },
+    "scripts/request_policy.mjs": {
+      "upstreamSha256": "6f5191701fa9b3995fbd932bf02943e3c7e7bb6e7ec5a81a8b9bd0c05e7f8c79",
+      "sha256": "6f5191701fa9b3995fbd932bf02943e3c7e7bb6e7ec5a81a8b9bd0c05e7f8c79",
+      "adapted": false
+    },
+    "scripts/browser_worker.mjs": {
+      "upstreamSha256": "adcafeb6468422dfec171da3a5720c4cdd7ebbe4b9e2d9d7704fa2752f2085ec",
+      "sha256": "adcafeb6468422dfec171da3a5720c4cdd7ebbe4b9e2d9d7704fa2752f2085ec",
+      "adapted": false
+    },
+    "scripts/native_page.mjs": {
+      "upstreamSha256": "2a114929dadf973b4c850fb44468193d80869bfe9efe5b16bc8692671dea563f",
+      "sha256": "2a114929dadf973b4c850fb44468193d80869bfe9efe5b16bc8692671dea563f",
+      "adapted": false
+    },
+    "scripts/runner_lock.mjs": {
+      "upstreamSha256": "58d51d8d4ab128ed9a504021214c8d17c5445b5c8ffe041f6c9d2f5292bbba65",
+      "sha256": "58d51d8d4ab128ed9a504021214c8d17c5445b5c8ffe041f6c9d2f5292bbba65",
+      "adapted": false
+    },
+    "scripts/collection_policy.mjs": {
+      "upstreamSha256": "a2418a229892299d3813c8f2aa51ed1c25f34717af910c3f331e4fcc57ef5940",
+      "sha256": "c2323988655c882e715f52af55fc6b60e8d7a24ac1039357220c228745fe8b4e",
+      "adapted": true
+    },
+    "scripts/task_context.mjs": {
+      "upstreamSha256": "6e03fef907f19e02de43a86ace8154b0993fe202fea4f7366ac4dbee13e94450",
+      "sha256": "d306cbd0fdbcfb14b0b637c787f250e91d58b8e0573f180ae2497bcf9fd884bc",
+      "adapted": true
+    },
+    "scripts/collect_signed.mjs": {
+      "upstreamSha256": "51091085fe5c533d0aa46f0e18babd252982bb1758d9b5487fe742592c06b788",
+      "sha256": "d1974554e377d0216ed987dc50d7737a6a87c750f0505dc487a4f6336369d1a9",
+      "adapted": true
+    },
+    "scripts/batch_driver/checkpoint_io.py": {
+      "upstreamSha256": "1588791ee88c9fd10a48b9de2ac461c1de319128a9746a589ff9d4cf9b957d31",
+      "sha256": "1588791ee88c9fd10a48b9de2ac461c1de319128a9746a589ff9d4cf9b957d31",
+      "adapted": false
+    },
+    "scripts/owned_cdp_transport.mjs": {
+      "upstreamSha256": null,
+      "sha256": "420efaeca047e4046e5e728f80c31e73bac52c17e249fb37f15343ff7f3ccbb3",
+      "adapted": true,
+      "reason": "thin Page-compatible transport using already vendored mature diagnosis Cdp; no signatures or collection business implementation"
+    },
+    "scripts/batch_driver/batch_driver.py": {
+      "upstreamSha256": "c1a3212eb8dba8c5f1b87046d06e3ca3d715eb5c8448ddfe802372664a427c65",
+      "sha256": "a640a6861ba478dba0825b8b6d31dd233fd5df5958406062f8ef77485ccd0ec6",
+      "adapted": true
+    },
+    "scripts/batch_driver/driver_keeper.py": {
+      "upstreamSha256": "04f44635801dfb867f55bdb002e4eb3665edb23c371a1b969521de44b178bcf0",
+      "sha256": "3d11d40ca8796129d6932f28dac9fee849f9290f875383ada9d202d5c952aad9",
+      "adapted": true
+    },
+    "scripts/batch_driver/driver_policy.py": {
+      "upstreamSha256": "e0d046445a83d8d68b1ad8b7a4867b250653162f3c11cfca2641b6c0e068b489",
+      "sha256": "e0d046445a83d8d68b1ad8b7a4867b250653162f3c11cfca2641b6c0e068b489",
+      "adapted": false
+    },
+    "scripts/batch_driver/monitor_batch.ps1": {
+      "upstreamSha256": "c8230fe015c5802c000ef96382f5de6b7394792d5eb44e26058476b17698b3e8",
+      "sha256": "c8230fe015c5802c000ef96382f5de6b7394792d5eb44e26058476b17698b3e8",
+      "adapted": false
+    },
+    "scripts/batch_driver/original_price_fallback.py": {
+      "upstreamSha256": "9fa4f33e9f5ffa140ee36ba5c32290095fe1b7ba1141e144eaa88f765f374c7c",
+      "sha256": "d676eb9cf5b80e4b50abca8d44cec031d1cb5afd6203eb88123df83c05fc63d6",
+      "adapted": true
+    },
+    "scripts/batch_driver/package_with_artifacts.py": {
+      "upstreamSha256": "04d1e84c0a2f7ad9315322004bc212120deea6da1420ff51339d184318900e9e",
+      "sha256": "a44865944340aeab337cab58ad34af0e887ae2102f677e9ca32626e4e15eb3cb",
+      "adapted": true
+    },
+    "scripts/batch_driver/package_with_fallback.py": {
+      "upstreamSha256": "2a57df0c88eb4081a3f7818d37f697c4870dcac5c3017e6e6ef40fd5af187587",
+      "sha256": "5ec22cd8169fbcf63070f129159335ff34d4a125e910a22587f8524e660637f3",
+      "adapted": true
+    },
+    "scripts/batch_driver/prior_receipts.py": {
+      "upstreamSha256": "f2c62337bd63a768282555c2c08510917a760811444e4d9c8f282288a650b956",
+      "sha256": "23e7c6daf59dd1df6d74fbdf7fed3f956f4466e7138d8d08f36ea34317817a44",
+      "adapted": true
+    },
+    "scripts/batch_driver/resume_after_abrupt_runner.py": {
+      "upstreamSha256": "89db4c57907a125f6d81d094cc15c1d27b3c2041d8ca7a9d6891e8a63095cf87",
+      "sha256": "b53916d8826895def60ac8514a82f95095e24d6cf646300b5a54b9e25ba6b67e",
+      "adapted": true
+    },
+    "scripts/batch_driver/resume_after_local_recovery.py": {
+      "upstreamSha256": "c3f2c747ee5527127468d6d49402e3c4f608a8526af4fed1b9f0cb53fdcfa07d",
+      "sha256": "8eca5303a87356b12fa77d955d4792017d60b0a5dc01d92bcfde58d535c02c63",
+      "adapted": true
+    },
+    "scripts/batch_driver/resume_after_material_recovery.py": {
+      "upstreamSha256": "a4332e9d793c93c504cb2b400dfafa2ea7125d7b36a72a262a5f2740f10f0bd8",
+      "sha256": "32e5665e2f7f8b3f4d7a66d405967180f97c246ae5fb39b4a9379e28d498d75d",
+      "adapted": true
+    },
+    "scripts/batch_driver/resume_after_pacing_change.py": {
+      "upstreamSha256": "3f9ba698d82ba624015914ec0a8f72e5d342b7cb6df34547997c0f948e7b2758",
+      "sha256": "3175cebf347ec608fabcb5ce51549a9422d852a5eb342184428f60d5b1e13ddb",
+      "adapted": true
+    },
+    "scripts/batch_driver/resume_after_platform_cooldown.py": {
+      "upstreamSha256": "394ad83bad11fccc112a7196bcd1366a0888197ed6ed013e41345ea5d6a86423",
+      "sha256": "f9cc1b56d3be85406ae6faec918c5d2da6e5e536a93f8d7d0aaadcc0a78ca011",
+      "adapted": true
+    },
+    "scripts/batch_driver/resume_after_stall_isolated.py": {
+      "upstreamSha256": "3fa8551cc3f8928db020870c1207109d4726a97c35a053297cba866d95d7e06b",
+      "sha256": "5580d818a202e7b72dc8b043f001d122d7110b4635952e1359a748ea76a79607",
+      "adapted": true
+    },
+    "scripts/batch_driver/resume_after_verification.py": {
+      "upstreamSha256": "63a4904567a6d2e66b20cb07e090dcfdf8db74dda4771fed87f7d6499bd902ab",
+      "sha256": "cc3a5872675d9a17ddcc18b02a6fbc3cae574722a9b1f6ca962c43ca07039c7f",
+      "adapted": true
+    },
+    "scripts/batch_driver/stage_cached_assets.py": {
+      "upstreamSha256": "54f3d9abb5c48d8446adc95088ae050155023849003895066651e10e9b496bfb",
+      "sha256": "533948a069866c2fa6bf4618e5b8eb7b58c914a2d0657ddd3adcdf6792a3656a",
+      "adapted": true
+    },
+    "scripts/batch_driver/stage_pending_materials.py": {
+      "upstreamSha256": "2ec8ee6e6398e4ca09d246cd525eb3478005e39f633da459bb1a08a4c16ec17a",
+      "sha256": "02cf209e1c154a79b5e6d9cb183329a88527c4ac82b50938eba205769439c9d5",
+      "adapted": true
+    },
+    "scripts/batch_driver/staging_cache.py": {
+      "upstreamSha256": "872879a2269ec372f61dcbfac2931e75210cec68a9b9806beaa9d540c7697c51",
+      "sha256": "872879a2269ec372f61dcbfac2931e75210cec68a9b9806beaa9d540c7697c51",
+      "adapted": false
+    },
+    "scripts/batch_driver/start_new_batch.py": {
+      "upstreamSha256": "33f26b71b8efaefbc7944995f1576646a45cbc4be35ad454ba6de2696edf6bd7",
+      "sha256": "8e8cc032226da45a92f395cfcf7fa4b0a2852ea92b124780d03290ecbfb5d165",
+      "adapted": true
+    },
+    "scripts/batch_driver/verify_batch_fallback.py": {
+      "upstreamSha256": "3436090da212f2a27e43b014ee931f6cd1dceff99718a932bd53478c9990ab9a",
+      "sha256": "445d6adf0e667c64f8f70b1b383b376f9f3e333959a47c8ffa1fad96c8b3abc6",
+      "adapted": true
+    },
+    "scripts/batch_driver/workbook_author_openpyxl.py": {
+      "upstreamSha256": "29c7e2d13be457fb98f65db3496a50b6359e84aa879e8e8d19746ca7d0c5ee10",
+      "sha256": "603833b4430c08a27968ae441156685f708d92031ec4a14a57877b523b3f8ff9",
+      "adapted": true
+    },
+    "scripts/clean_session_click_test.mjs": {
+      "upstreamSha256": "2a1f42eb58aec1f7cac17dec2a3cb1dcb654f72b26af2a36278f56bc7154768c",
+      "sha256": "55fae5a3b1c495236355235103818fb5ba0505d81e1c1d70278bd7ff3f10dc1f",
+      "adapted": true
+    },
+    "scripts/click_collector.mjs": {
+      "upstreamSha256": "114fff5250c776db25c2734aa61083a26fcda48b963cbce1efa0f20a8a4e8853",
+      "sha256": "c834b859e3ae99bb5f30010dcc407d331d47f256cb6276ac0cdd056556bf127b",
+      "adapted": true
+    },
+    "scripts/click_probe.mjs": {
+      "upstreamSha256": "9d6ab7b48cee81db1721d8008945c97b4e0c1e6c1487fbd2689ce0c7c32e0728",
+      "sha256": "3f5b373f3d7d2dce3bd76d1e05e8147ab568c7336dc79606eb8c28379ced2049",
+      "adapted": true
+    },
+    "scripts/click_supervisor.py": {
+      "upstreamSha256": "87c9b8d001fa717ace4b38e07a1c9f1d8cebbadbe4fde864c8be93b1a0acf731",
+      "sha256": "d0940dbdf46936e60fd07ef419ec8f2221265ad613149f4c3c05a86dfd6b38d9",
+      "adapted": true
+    },
+    "scripts/diagnose_native.mjs": {
+      "upstreamSha256": "3af6f5717818d48abaf8479b0d22545d4e6844e3588b429f0171dc38ede88833",
+      "sha256": "cf6a32bf573d208bf7bac73b754a3d3865a38aa1efb691e13e33f56058a1fd40",
+      "adapted": true
+    },
+    "scripts/interface_probe.mjs": {
+      "upstreamSha256": "6d710304c43d9bbb19c812ede247bc976066be5d969d4ae6769cfad5c15abfb3",
+      "sha256": "d55de475af49e7b3c6c287af03cf34f2a323797c7e6e41bd4e5cb527107703ce",
+      "adapted": true
+    },
+    "scripts/native_observer.mjs": {
+      "upstreamSha256": "8571687315186381f16bd758ecabbab8eb36efd068ce527b88d105e5e8fbbeac",
+      "sha256": "8571687315186381f16bd758ecabbab8eb36efd068ce527b88d105e5e8fbbeac",
+      "adapted": false
+    },
+    "scripts/recovery_probe.mjs": {
+      "upstreamSha256": "b7bb70e54e70d7880e0c8d6d92089404f9a6345dfd9328d29fcd08218205a0df",
+      "sha256": "b8a318516bbe4016ab46034f8c011e446ca3cc4127b68ab5579ce691a7dbad4f",
+      "adapted": true
+    },
+    "scripts/self_check.py": {
+      "upstreamSha256": "e1fa46ffd25280dff4eda15298ec100a7870bf3c18b2e8bdf26ebe61d8a88f74",
+      "sha256": "b4e670dee07e403efbcf3a39b8ed1becf7d8bb92f7d0ff90fa977bc7adba6004",
+      "adapted": true
+    },
+    "scripts/supervisor.py": {
+      "upstreamSha256": "cbbc7cecd28d90b4f86cfa98781aa7ecf278005177dc8e815b45721cef5145a7",
+      "sha256": "10b7fb18f269d60cfbcf19ead0a7f783f586e0411027f527e2c89d2d51c9a729",
+      "adapted": true
+    },
+    "scripts/verify_interface.mjs": {
+      "upstreamSha256": "ae81a7a050e0e9bb15c0f063588f69ca6a24fef6223f3636e5382a3aa6d7e3ae",
+      "sha256": "0155d4f2209b834ba0a5c6a8b16f352d6b9056dc69ac0d2576e8df5d53c474a1",
+      "adapted": true
+    },
+    "references/browser-session-setup.md": {
+      "upstreamSha256": "eedae6243aa03fd928fb702c0934ecb5d988593c443cdc9ffbd07826f988f5f2",
+      "sha256": "3cff94f768da4c884b8cbd9a8402de5e99ace9260fd9792524ada509961cd807",
+      "adapted": true
+    },
+    "references/throughput-and-stability.md": {
+      "upstreamSha256": "1e9276c3b9600c022aab864f1825438a7d2db80581e5841d4a638396c59cb97f",
+      "sha256": "1e9276c3b9600c022aab864f1825438a7d2db80581e5841d4a638396c59cb97f",
+      "adapted": false
+    },
+    "references/merchant-workflow.md": {
+      "upstreamSha256": "59cdbbd8f9b4bd83c318afb4d661828609a3f34ce823e257979f3b73d7e95a49",
+      "upstreamPath": "SKILL.md",
+      "sha256": "79474ec6ef7d21eb2947e07f0fbc3c887406b1552959dd96c114cb500e6e11f1",
+      "adapted": true,
+      "reason": "mature business instructions; merchant installation/browser/state boundary notes substituted"
+    }
+  },
+  "entrypoints": [
+    "scripts/batch_driver/batch_driver.py",
+    "scripts/batch_driver/driver_keeper.py",
+    "scripts/batch_driver/package_with_artifacts.py",
+    "scripts/batch_driver/package_with_fallback.py",
+    "scripts/batch_driver/resume_after_abrupt_runner.py",
+    "scripts/batch_driver/resume_after_local_recovery.py",
+    "scripts/batch_driver/resume_after_material_recovery.py",
+    "scripts/batch_driver/resume_after_pacing_change.py",
+    "scripts/batch_driver/resume_after_platform_cooldown.py",
+    "scripts/batch_driver/resume_after_stall_isolated.py",
+    "scripts/batch_driver/resume_after_verification.py",
+    "scripts/batch_driver/stage_cached_assets.py",
+    "scripts/batch_driver/stage_pending_materials.py",
+    "scripts/batch_driver/start_new_batch.py",
+    "scripts/batch_driver/verify_batch_fallback.py",
+    "scripts/clean_session_click_test.mjs",
+    "scripts/click_collector.mjs",
+    "scripts/click_probe.mjs",
+    "scripts/click_supervisor.py",
+    "scripts/collect_signed.mjs",
+    "scripts/deliver_batch.py",
+    "scripts/diagnose_native.mjs",
+    "scripts/interface_probe.mjs",
+    "scripts/package_live.py",
+    "scripts/prepare_batch.py",
+    "scripts/recovery_probe.mjs",
+    "scripts/self_check.py",
+    "scripts/supervisor.py",
+    "scripts/verify_batch.py",
+    "scripts/verify_interface.mjs"
+  ],
+  "dependencies": [
+    {
+      "component": "diagnosis",
+      "entry": "scripts/cdp-lib.js",
+      "repository": "ctzlyj/jd-store-diagnosis-skill",
+      "commit": "42971c041248bab27f4d627357dcc475f848eb75",
+      "license": "owner-authorized-distribution"
+    }
+  ],
+  "adaptation": "full original interface/click/batch driver and material/price/verification source; merchant-owned CDP Page adapter, private path/runtime mapping; no new business collector"
+}

@@ -585,7 +585,7 @@ def _find_image_payload(value: Any) -> ImagePayload | None:
 
 def download_remote_image(url: str, timeout: float) -> tuple[bytes, str]:
     parsed = urllib.parse.urlsplit(url)
-    from .providers import validate_external_endpoint
+    from .external_endpoint import validate_external_endpoint
     # Signed result query parameters are used only for this GET, never logged.
     validate_external_endpoint(urllib.parse.urlunsplit(parsed._replace(query="")))
     request = urllib.request.Request(url, headers={"Accept": "image/*"}, method="GET")

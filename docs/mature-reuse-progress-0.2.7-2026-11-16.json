@@ -1,0 +1,51 @@
+{
+  "date": "2026-11-16",
+  "version": "0.2.7",
+  "goalComplete": false,
+  "merchantRetestReady": false,
+  "sourceReuse": {
+    "diagnosis": "actual internal jd-store-diagnosis-skill 0.2.0 / 42971c041248bab27f4d627357dcc475f848eb75 L1+L2 Git source and workflow",
+    "genericPublish": "matrix_listing.publish_guard directly reused; SUBMITTING preserved"
+  },
+  "verified": {
+    "normalUpgrade": "0.2.5 -> 0.2.7",
+    "installedIntegrity": true,
+    "archiveAudit": true,
+    "archiveSha256": "109bdf7bb9c24509567c44bf7ef895f5cf746cb83910c89420f8a66f14757870",
+    "archiveMembers": 208,
+    "installedL1HelpAndDryPlan": true,
+    "installedOriginalL2HelpEntries": 4,
+    "installedCdpFixture": {
+      "status": "passed",
+      "scope": "installed 0.2.7 original SDK with real isolated Chromium/CDP and intercepted fixture only",
+      "realMerchantApiCalled": false,
+      "paidOrShopWrite": false,
+      "originalJztRequestMethod": "POST read-only report",
+      "privateProfileUsed": true,
+      "responseCredentialFieldsRedacted": true,
+      "fixtureReportCreated": true
+    },
+    "publicCoreVenvPreviousCheck": true,
+    "originalExperimentsExpectedUnchanged": 23,
+    "freshScopedTests": 159,
+    "freshScopedTestsPassed": true,
+    "originalExperimentalFilesUnchanged": 23,
+    "trueDiagnosisReferenceWorkingTreeUnchanged": true
+  },
+  "notPerformed": [
+    "real merchant OAuth/scanning and identity readback",
+    "live Shangzhi/Jingzhuntong data, current permission or conclusion checks",
+    "real product publication/short-title import/material/price writes",
+    "paid model generation",
+    "macOS/WorkBuddy/JoyCode live-host tests"
+  ],
+  "remaining": [
+    "complete full live collection driver/transport",
+    "complete full link replication/orchestration and lower-level unknown-publication guard",
+    "fixed external video producer handoff and mature upload/binding source adaptation; external video provider unconfigured",
+    "final requirement-by-requirement audit, verified fresh install/upgrade and permitted commit/push"
+  ],
+  "pushed": false,
+  "releaseCreated": false,
+  "merchantsNotified": false
+}

@@ -9,3 +9,5 @@ dist/
 .agent-work/
 *.log
 *.sqlite*
+
+*.local.json

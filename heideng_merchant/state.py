@@ -4,7 +4,21 @@ from pathlib import Path
 from .safety import is_linked,SafetyError
 
 class FileLock:
- def __init__(self,path:Path,timeout=5):self.path=Path(path);self.timeout=timeout;self.stream=None;self.acquired=False;self.owner_thread=None
+ def __init__(self,path:Path,timeout=5,*,shared=False):self.path=Path(path);self.timeout=timeout;self.shared=shared;self.stream=None;self.acquired=False;self.owner_thread=None
+ def _windows_lock(self,unlock=False):
+  import ctypes,msvcrt
+  from ctypes import wintypes
+  if not unlock:
+   class Overlapped(ctypes.Structure):
+    _fields_=[('Internal',ctypes.c_size_t),('InternalHigh',ctypes.c_size_t),('Offset',wintypes.DWORD),('OffsetHigh',wintypes.DWORD),('hEvent',wintypes.HANDLE)]
+   self.overlapped=Overlapped();self.kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+   self.kernel.LockFileEx.argtypes=[wintypes.HANDLE,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,ctypes.POINTER(Overlapped)]
+   self.kernel.LockFileEx.restype=wintypes.BOOL
+   self.kernel.UnlockFileEx.argtypes=[wintypes.HANDLE,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,ctypes.POINTER(Overlapped)]
+   self.kernel.UnlockFileEx.restype=wintypes.BOOL
+  handle=msvcrt.get_osfhandle(self.stream.fileno())
+  success=self.kernel.UnlockFileEx(handle,0,1,0,ctypes.byref(self.overlapped)) if unlock else self.kernel.LockFileEx(handle,1|(0 if self.shared else 2),0,1,0,ctypes.byref(self.overlapped))
+  if not success:raise ctypes.WinError(ctypes.get_last_error())
  def require_owned(self,path):
   if not self.acquired or self.stream is None or self.stream.closed or self.path.resolve()!=Path(path).resolve() or self.owner_thread!=threading.get_ident():raise SafetyError('existing-same-owner-install-guard-required')
  def __enter__(self):
@@ -17,11 +31,10 @@ class FileLock:
    try:
     self.stream.seek(0)
     if os.name=='nt':
-     import msvcrt
-     msvcrt.locking(self.stream.fileno(),msvcrt.LK_NBLCK,1)
+     self._windows_lock()
     else:
      import fcntl
-     fcntl.flock(self.stream.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+     fcntl.flock(self.stream.fileno(),(fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX)|fcntl.LOCK_NB)
     self.acquired=True;self.owner_thread=threading.get_ident();return self
    except OSError:
     if time.monotonic()>=deadline:self.stream.close();raise SafetyError('resource-busy') from None
@@ -29,8 +42,7 @@ class FileLock:
  def __exit__(self,*args):
   self.stream.seek(0)
   if os.name=='nt':
-   import msvcrt
-   msvcrt.locking(self.stream.fileno(),msvcrt.LK_UNLCK,1)
+   self._windows_lock(unlock=True)
   else:
    import fcntl
    fcntl.flock(self.stream.fileno(),fcntl.LOCK_UN)
