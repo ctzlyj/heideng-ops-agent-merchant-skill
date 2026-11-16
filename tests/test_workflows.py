@@ -22,7 +22,7 @@ class WorkflowTests(unittest.TestCase):
  def test_listing_preserves_all_skus_and_no_fake_link(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);manifest=prepare_listing(self.fixture(root),root,root/'package')
-   self.assertEqual(len(manifest['skus']),2);self.assertNotIn('jdUrl',manifest);self.assertEqual(manifest['source']['kind'],'local-photos');self.assertEqual(manifest['publication']['status'],'not_submitted')
+   self.assertEqual(len(manifest['skus']),2);self.assertNotIn('jdUrl',manifest);self.assertEqual(manifest['source']['kind'],'local-photos');self.assertEqual(manifest['publication']['status'],'not_submitted');self.assertEqual(manifest['generation']['model'],'gpt-image-2.5');self.assertTrue(manifest['generation']['generationEnabled']);self.assertTrue(manifest['generation']['requiresExactBudgetApproval'])
  def test_listing_escape_and_duplicate_sku(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);x=self.fixture(root);x['images']=['../secret']
@@ -31,7 +31,7 @@ class WorkflowTests(unittest.TestCase):
    with self.assertRaises(SafetyError):prepare_listing(x,root,root/'out')
  def test_material_audit_keeps_every_sku(self):
   r=material_audit([{'spuId':'1','skuId':'a','white':'ok'},{'spuId':'1','skuId':'b'},{'spuId':'2','skuId':'c'}])
-  self.assertEqual(r['skuCount'],3);self.assertEqual(r['spuCount'],2);self.assertEqual(r['batches'][0]['spuCount'],2)
+  self.assertEqual(r['skuCount'],3);self.assertEqual(r['spuCount'],2);self.assertEqual(r['batches'][0]['spuCount'],2);self.assertEqual(r['generation'],'adapter-ready-if-new-images-needed')
  def test_snapshot_requires_sku_order_and_native_price_context(self):
   snapshot={'title':'test','url':'https://item.jd.com/1.html','selectedSkuId':'1','skuOrder':['1','2'],'skus':[{'skuId':'1','handPrice':'10','priceEvidence':'native-sku-context'},{'skuId':'2','handPrice':'11','priceEvidence':'native-sku-context'}],'assets':[]}
   with tempfile.TemporaryDirectory() as d:

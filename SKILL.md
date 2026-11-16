@@ -13,7 +13,7 @@ version: 0.1.0
 1. 执行 python "<skill-root>/scripts/merchant.py" onboarding；用一两句话说明已就绪和当前确实需要的动作，不念整份清单。
 2. 只有店铺功能需要CLI且未安装时，Agent执行 doctor --install-cli，从京麦官方公开源校验下载，不使用O2/内部SkillHub。
 3. 问清当前目标和必要商品/店铺/报表。纯本地分析/采集/准备无需先授权店铺。已有明确目标店的授权只在实时核验后使用；新授权先遵守 references/shop-connection.md。商家只用京麦App扫码、完成平台本人确认；同一上下文衔接官方OAuth。
-4. 图片/视频生成来源尚待产品负责人补充。保持awaiting-provider，不弹员工Key窗口、不读取旧模型Key、不静默选择任何付费平台。宿主自身的文本与识图能力可用于理解商品、策划及复核，不额外调用公司网关。
+4. 生图服务已由用户选定：LTS4AI，base URL=https://api.lts4ai.com/v1，model=gpt-image-2.5。先读 references/lts4ai-image.md；当前adapter-ready，已复用MIT客户端接入文生图/参考图编辑/本地原图保存；image-plan→本次确切预算批准→image-execute，商家自有Key从安全进程环境读取。没有真实付费实测，但不以此无条件禁用调用。unknown查原记录不重投，不能虚构任务查询端点。视频服务仍awaiting-provider。不弹员工Key窗口、不读取旧模型Key、不静默切换付费平台。宿主自身的文本与识图能力可用于理解商品、策划及复核，不额外调用公司网关。
 
 ## 开放工具箱，不是目录白名单
 
@@ -32,7 +32,7 @@ version: 0.1.0
 - product-list / sku-list / health-list / product-detail / price-plan / price-status：实时原生商品、完整SKU、健康分和受控京东价更新。改价前先读 references/native-products.md，绑定旧价/类目与两阶段验证；待审匹配不是线上生效，unknown不换Profile或接着执行另一写任务。
 - diagnose：用户CSV/JSON/XLSX经营广告资料的定量诊断，缺指标标记partial/unavailable，不造黄金眼/EasyBI数据。
 - compare：有逐SKU原生上下文价格证据和结构化规格的同规格TOP10。不能把京东价与到手价混用，不依照片就猜规格。
-- material-audit：保留所有SKU，按199个SPU拆批，列缺口；优先复用用户已有合规素材，新增图片生成等待来源。
+- material-audit：保留所有SKU，按199个SPU拆批，列缺口；优先复用用户已有合规素材，新增图片使用已接入LTS4AI客户端，商家Key及本次预算批准后执行，不调用公司模型。
 - prepare-listing：真实实拍、用户卖点、真实类目和全部规格→独立listing-package；保留所有SKU，不为未上架产品造京东链接。
 - package-snapshot：把宿主在商品原生上下文实际采集的SKU顺序、每SKU到手价和素材整理为包。采集前读 references/collection.md；不把静态搜索价当真实到手价。
 - attach-video：用户已有视频/封面进入manifest；独立全帧/音轨解码、真实封面、视频/封面/商品上下文hash及实际视觉/试听确认齐全才bindable；技术检查不由布尔标志替代。上传前video-preflight复核。见references/local-video-handoff.md；本地就绪≠原生上传/绑定已完成；原生已有视频上传/保存使用video-delivery-plan/approve/execute/status/cancel批准会话，见references/native-video-delivery.md。SKU绑定使用video-binding-preview/plan/approve/execute/status独立批准，见references/native-video-binding.md；当前仅经离线/合成验证，真实平台未实测，不调用生成模型。

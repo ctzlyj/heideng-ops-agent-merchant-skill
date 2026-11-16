@@ -1,4 +1,4 @@
-"""Explicitly deferred media contracts. No model selection or network fallback."""
+"""Explicit user-selected media metadata. Selection never authorizes paid calls."""
 import ipaddress,re,urllib.parse
 from pathlib import Path
 from .safety import SafetyError,atomic_json,read_json
@@ -17,7 +17,11 @@ def validate_external_endpoint(url):
  return url
 
 def media_status():
- return {kind:{'status':'awaiting-provider','reason':'生图和生成视频来源等待用户确认；不读取旧Key，不调用任何内部或默认付费模型','paidCalls':0} for kind in ('image','video')}
+ # Product-owner selection is public metadata, not a credential or spend approval.
+ return {
+  'image':{'status':'adapter-ready','provider':'lts4ai','endpoint':'https://api.lts4ai.com/v1','model':'gpt-image-2.5','documentedExamplePath':'/v1/chat/completions','documentation':'https://api.lts4ai.com/pricing','reference':'references/lts4ai-image.md','generationEnabled':True,'adapterAvailable':True,'requiresMerchantKey':True,'requiresExactBudgetApproval':True,'imageProtocolVerified':False,'liveVerified':False,'paidCalls':0,'reason':'LTS4AI / gpt-image-2.5已接入现成生图与参考图编辑客户端；需要商家自己的Key及本次预算批准，真实网关调用未实测'},
+  'video':{'status':'awaiting-provider','generationEnabled':False,'paidCalls':0,'reason':'视频生成服务尚未选择；不读取旧Key，不调用内部或默认付费模型'}
+ }
 
 class MediaConfiguration:
  def __init__(self,state):self.path=Path(state)/'media-contracts.json'
@@ -34,6 +38,19 @@ class MediaConfiguration:
   if not contract.get('model') or not contract.get('documentation') or not contract.get('pricingEvidence'):raise SafetyError('current-model-and-pricing-evidence-required')
   config=read_json(self.path,{});config[kind]=contract;atomic_json(self.path,config)
   return self.status()[kind]
+ def image_plan(self,request):
+  from .image_generation import ImageGeneration
+  return ImageGeneration(self.path.parent).plan(request)
+ def image_approve(self,plan_id,fingerprint,*,confirmed=False):
+  from .image_generation import ImageGeneration
+  return ImageGeneration(self.path.parent).approve(plan_id,fingerprint,confirmed=confirmed)
+ def image_status(self,plan_id):
+  from .image_generation import ImageGeneration
+  return ImageGeneration(self.path.parent).status(plan_id)
  def generation_request(self,kind,payload):
-  # User intentionally reserved these actual model sources. Recording a contract is not spend approval.
-  raise SafetyError('media-generation-deferred-until-selected-adapter-and-explicit-budget-approval')
+  if kind!='image':raise SafetyError('video-generation-provider-not-selected')
+  if not isinstance(payload,dict) or set(payload)!={'planId'}:raise SafetyError('approved-image-plan-required')
+  contract=read_json(self.path,{}).get('image')
+  if contract and (contract.get('provider')!='lts4ai' or contract.get('model')!='gpt-image-2.5' or contract.get('endpoint')!='https://api.lts4ai.com/v1'):raise SafetyError('selected-image-provider-mismatch')
+  from .image_generation import ImageGeneration
+  return ImageGeneration(self.path.parent).execute(payload['planId'])

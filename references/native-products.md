@@ -6,7 +6,7 @@
 
 - `product-list --profile <profile> [--filters <json-file>] [--page-size 20 --max-pages 100 --start-page 1]`：原生商品分页，字段级scopeSet为productId/productName/productStatus。
 - `sku-list --profile <profile> --product-id <actual-id> [...]`：某个真实商品下的全部SKU分页；不猜ID、保留原生顺序，回包productId须匹配目标。
-- `health-list --profile <profile> [--filters <json-file>] [...]`：商家合法权限的原生健康分/待提升项；缺权限不转员工黄金眼/EasyBI。可据实际字段整理素材缺口，新增图片仍awaiting-provider。
+- `health-list --profile <profile> [--filters <json-file>] [...]`：商家合法权限的原生健康分/待提升项；缺权限不转员工黄金眼/EasyBI。可据实际字段整理素材缺口，新增图片已选LTS4AI / gpt-image-2.5，已接通客户端，需商家Key及本次预算批准（references/lts4ai-image.md）。
 - `product-detail --profile <profile> --product-id <actual-id>`：原生完整详情，scene=pop；定位真实类目、SKU及priceInfo.jdPrice。
 
 上述读取不复用旧GET任务缓存，每页均实时核对同店身份。complete只代表从第1页覆盖本次API返回的记录数，不代表原子快照、也不保证所有业务字段非空；仍检查列缺项。startPage>1的segmentComplete只代表该续读段到末尾，不能把缺少前页的段说成全店齐全。重复ID、总量变化、失败或达到本地页预算返回partial与nextPage；保留已读事实，不通过跳过异常页造“全部完成”。续接时核对同查询/每页大小/来源时间及跨段ID重复，不能直接拼出未经验证的快照。

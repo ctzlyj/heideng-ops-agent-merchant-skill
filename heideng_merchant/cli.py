@@ -87,6 +87,10 @@ def parser():
  ms=sub.add_parser('material-upload-status');ms.add_argument('--task-id',required=True);ms.add_argument('--refresh',action='store_true')
  rv=sub.add_parser('task-result-readback');rv.add_argument('--task-id',required=True)
  for name in ('onboarding','catalog','media-status','video-source-status','update-check','update-apply','video-source-check','video-runtime-status','video-runtime-prepare'):sub.add_parser(name)
+ ip=sub.add_parser('image-plan');ip.add_argument('--request',required=True)
+ ia=sub.add_parser('image-approve');ia.add_argument('--plan-id',required=True);ia.add_argument('--fingerprint',required=True);ia.add_argument('--confirm',action='store_true')
+ for name in ('image-execute','image-status'):
+  ip=sub.add_parser(name);ip.add_argument('--plan-id',required=True)
  r=sub.add_parser('route');r.add_argument('request')
  d=sub.add_parser('doctor');d.add_argument('--install-cli',action='store_true')
  od=sub.add_parser('official-doc');od.add_argument('skill_id');od.add_argument('--reference',default='SKILL.md');od.add_argument('--refresh',action='store_true')
@@ -161,11 +165,15 @@ def run(args):
  if command=='route':return route(args.request)
  if command=='media-status':return MediaConfiguration(state).status()
  if command=='video-source-status':return VideoSource(state).status()
+ if command=='image-plan':return MediaConfiguration(state).image_plan(_json_file(args.request))
+ if command=='image-approve':return MediaConfiguration(state).image_approve(args.plan_id,args.fingerprint,confirmed=args.confirm)
+ if command=='image-status':return MediaConfiguration(state).image_status(args.plan_id)
+ if command=='image-execute':return MediaConfiguration(state).generation_request('image',{'planId':args.plan_id})
  if command=='doctor':
   install=client.install() if args.install_cli else None
   return {'status':'ready-for-local-workflows','version':VERSION,'officialCli':{'ready':client.ready(),'install':install},'media':MediaConfiguration(state).status(),'requiresEmployeeAccess':False,'shopAuthorization':'not-implied-by-installation'}
  if command=='onboarding':
-  return {'displayName':'黑灯运营智能体商家版','skill':SKILL_NAME,'version':VERSION,'requiresEmployeeAccess':False,'requiresManualCommands':False,'officialCli':{'ready':client.ready()},'media':MediaConfiguration(state).status(),'steps':[{'id':'installed','text':'商家版已安装，可直接描述目标。'},{'id':'official-cli','text':'需要店铺查询或操作时，Agent自动安装校验官方京麦CLI；离线任务不需要店铺登录。','action':None if client.ready() else 'doctor --install-cli'},{'id':'goal','text':'告诉我你想处理哪家店或哪份商品资料；需要新授权时，只请你用京麦App扫码并完成平台本人确认。'},{'id':'models','text':'生图和视频来源等待方案补充；已有素材、报表分析和业务准备可继续，不弹员工Key窗口。'}]}
+  return {'displayName':'黑灯运营智能体商家版','skill':SKILL_NAME,'version':VERSION,'requiresEmployeeAccess':False,'requiresManualCommands':False,'officialCli':{'ready':client.ready()},'media':MediaConfiguration(state).status(),'steps':[{'id':'installed','text':'商家版已安装，可直接描述目标。'},{'id':'official-cli','text':'需要店铺查询或操作时，Agent自动安装校验官方京麦CLI；离线任务不需要店铺登录。','action':None if client.ready() else 'doctor --install-cli'},{'id':'goal','text':'告诉我你想处理哪家店或哪份商品资料；需要新授权时，只请你用京麦App扫码并完成平台本人确认。'},{'id':'models','text':'生图已接入LTS4AI / gpt-image-2.5；商家安全设置自己的Key并批准本次数量/预算后可执行，真实网关调用尚未实测；视频服务未选择。已有素材、报表分析和业务准备可继续，不读取员工Key。'}]}
  if command=='official-doc':return {'path':str(client.document(args.skill_id,args.reference,refresh=args.refresh)),'source':'official-policy-sha256-verified','execution':'read-rules-before-preparing-request'}
  if command=='shop-connect':return ops.connect(args.profile,args.shop_name,args.vender_id)
  if command=='auth-plan':return client.login_plan(args.profile,args.shop_name,args.vender_id)

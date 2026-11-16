@@ -5,6 +5,7 @@ from decimal import Decimal,InvalidOperation
 from pathlib import Path
 from .safety import SafetyError,safe_join,atomic_json,read_json,file_sha,redact
 from .operations import digest
+from .providers import media_status
 
 METRICS=('revenue','orders','adSpend','adRevenue','stock','uv','pv')
 
@@ -103,7 +104,7 @@ def prepare_listing(product,source_root,output):
  photos=[]
  for i,(p,sha) in enumerate(refs):
   relative='images/'+str(i+1).zfill(2)+'-'+sha[:12]+p.suffix.lower();shutil.copyfile(p,safe_join(output,relative));photos.append({'localPath':relative,'sha256':sha,'source':'user-supplied','visualReview':'pending'})
- manifest={'merchantPackageSchemaVersion':1,'sourceProduct':product,'title':product['title'],'categoryId':str(product['categoryId']),'skus':skus,'sellingPoints':product.get('sellingPoints',[]),'source':{'kind':'local-photos','fingerprint':digest({'product':product,'photoHashes':[sha for _,sha in refs]})},'images':photos,'publication':{'intentId':uuid.uuid4().hex,'status':'not_submitted','needsCategorySchemaValidation':True},'video':None,'generation':{'status':'awaiting-provider','paidCalls':0}}
+ manifest={'merchantPackageSchemaVersion':1,'sourceProduct':product,'title':product['title'],'categoryId':str(product['categoryId']),'skus':skus,'sellingPoints':product.get('sellingPoints',[]),'source':{'kind':'local-photos','fingerprint':digest({'product':product,'photoHashes':[sha for _,sha in refs]})},'images':photos,'publication':{'intentId':uuid.uuid4().hex,'status':'not_submitted','needsCategorySchemaValidation':True},'video':None,'generation':media_status()['image']}
  if product.get('jdUrl'):manifest['jdUrl']=product['jdUrl']
  atomic_json(output/'manifest.json',manifest);return manifest
 
@@ -117,7 +118,7 @@ def material_audit(rows):
  entries=[]
  for spu,skus in groups.items():entries.append({'spuId':spu,'skuIds':[str(s['skuId']) for s in skus],'missingBySku':{str(s['skuId']):[slot for slot in slots if not s.get(slot)] for s in skus}})
  batches=[{'spuCount':len(entries[i:i+199]),'products':entries[i:i+199]} for i in range(0,len(entries),199)]
- return {'spuCount':len(groups),'skuCount':len(ids),'batches':batches,'writes':0,'generation':'awaiting-provider-if-new-images-needed','next':'reuse-valid-existing-assets-or-prepare-host-copy; official-upload-only-after-approval'}
+ return {'spuCount':len(groups),'skuCount':len(ids),'batches':batches,'writes':0,'generation':media_status()['image']['status']+'-if-new-images-needed','next':'reuse-valid-existing-assets-or-prepare-host-copy; official-upload-only-after-approval'}
 
 def _asset_download(url,*,require_complete=False):
  parsed=urllib.parse.urlsplit(url);host=parsed.hostname or ''

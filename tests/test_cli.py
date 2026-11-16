@@ -14,7 +14,17 @@ class CliTests(unittest.TestCase):
  def test_onboarding_does_not_require_model_key(self):
   with tempfile.TemporaryDirectory() as d:
    p=subprocess.run([sys.executable,'scripts/merchant.py','--home',d,'onboarding'],capture_output=True,text=True,encoding='utf-8')
-   self.assertEqual(p.returncode,0,p.stderr);r=json.loads(p.stdout);self.assertEqual(r['media']['image']['status'],'awaiting-provider');self.assertFalse(r['requiresEmployeeAccess']);self.assertEqual(r['version'],'0.1.0')
+   self.assertEqual(p.returncode,0,p.stderr);r=json.loads(p.stdout);self.assertEqual(r['media']['image']['status'],'adapter-ready');self.assertFalse(r['requiresEmployeeAccess']);self.assertEqual(r['version'],'0.1.0')
+ def test_onboarding_identifies_selected_image_and_unselected_video(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=subprocess.run([sys.executable,'scripts/merchant.py','--home',d,'onboarding'],capture_output=True,text=True,encoding='utf-8')
+   self.assertEqual(p.returncode,0,p.stderr)
+   r=json.loads(p.stdout)
+   self.assertEqual(r['media']['image']['model'],'gpt-image-2.5')
+   self.assertEqual(r['media']['video']['status'],'awaiting-provider')
+   models=next(step['text'] for step in r['steps'] if step['id']=='models')
+   self.assertIn('LTS4AI',models)
+   self.assertIn('gpt-image-2.5',models)
  def test_cli_offline_diagnosis(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);source=root/'input.json';source.write_text('[{"skuId":"1","revenue":"20","orders":"2"}]')

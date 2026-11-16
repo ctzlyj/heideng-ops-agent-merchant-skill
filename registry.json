@@ -33,7 +33,7 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "awaiting-provider",
+      "mediaGeneration": "adapter-ready",
       "readCommands": [
         "health-list",
         "sku-list",
@@ -143,7 +143,7 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "awaiting-provider",
+      "mediaGeneration": "adapter-ready",
       "readCommands": [
         "publish-categories",
         "publish-brands",
@@ -184,7 +184,7 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "awaiting-provider",
+      "mediaGeneration": "adapter-ready",
       "readCommands": [
         "product-detail",
         "sku-list",
@@ -320,5 +320,33 @@
     "when": "idle-only",
     "allowDowngrade": false
   },
-  "credentialPolicy": "independent-merchant-namespace-no-employee-model-keys"
+  "credentialPolicy": "independent-merchant-namespace-no-employee-model-keys",
+  "imageProvider": {
+    "provider": "lts4ai",
+    "endpoint": "https://api.lts4ai.com/v1",
+    "model": "gpt-image-2.5",
+    "selection": "explicit-product-owner-choice",
+    "documentedExamplePath": "/v1/chat/completions",
+    "activation": "adapter-ready",
+    "reference": "references/lts4ai-image.md",
+    "generationEnabled": true,
+    "imageProtocolVerified": false,
+    "liveVerified": false,
+    "adapterAvailable": true,
+    "requiresMerchantKey": true,
+    "requiresExactBudgetApproval": true,
+    "clientSource": {
+      "repository": "ctzlyj/sufy-image2",
+      "commit": "b2b5724d77787b49469f43308f9e1de57438ee08",
+      "license": "MIT",
+      "sourceSha256": "24a38c11f267924352d3ecfbe0b3fcbe33adf54ff0b211d0648e3fa1d4ac51ef",
+      "integration": "reused-core-without-standalone-cli-or-legacy-key-lookup"
+    },
+    "commands": [
+      "image-plan",
+      "image-approve",
+      "image-execute",
+      "image-status"
+    ]
+  }
 }
