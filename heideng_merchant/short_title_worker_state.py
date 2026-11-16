@@ -9,10 +9,10 @@ from .short_title_imports import ShortTitleImports
 from .video_delivery import _once
 
 ID=re.compile('[a-f0-9]{24}');REQ=re.compile('[a-f0-9]{32}');HASH=re.compile('[a-f0-9]{64}')
-ACTIONS={'approve','execute','recover','results','effects','stop'}
+ACTIONS={'approve','execute','recover','results','effects','stop','repair-plan','repair-approve'}
 COMMAND_FOLDERS=('short-title-worker-commands','short-title-worker-dispatches','short-title-worker-results')
-NATIVE_FOLDERS=('short-title-import-attempts','short-title-import-dispatches','short-title-import-acks','short-title-import-observations','short-title-import-anchors','short-title-import-approvals','short-title-result-observations','short-title-result-receipts','short-title-effect-observations','short-title-effect-receipts')
-PUBLIC={'status','reason','importId','fingerprint','submittedBatchCount','unknownBatchCount','rowResultsVerified','actualTitlesVerified','formalAuditVerified','portalVerified','healthVerified','imported','retryAuthorized','effectObservationSequence','currentEffectSourceVerified','currentTaskAnchorMatched','currentResultSourceVerified','runtimeVersion','approvalCurrentlyValid','batchCount','proposedRowCount','approvedRowCount','effectEvidenceVersion','nativeHealthSourcesVerified','targetHealthRequirementsSatisfied','currentNativeHealthSourceVerified'}
+NATIVE_FOLDERS=('short-title-import-attempts','short-title-import-dispatches','short-title-import-acks','short-title-import-observations','short-title-import-anchors','short-title-import-approvals','short-title-result-observations','short-title-result-receipts','short-title-effect-observations','short-title-effect-receipts','short-title-repair-plans','short-title-repair-intents','short-title-repair-approvals','short-title-repair-approval-receipts')
+PUBLIC={'status','reason','importId','fingerprint','submittedBatchCount','unknownBatchCount','rowResultsVerified','actualTitlesVerified','formalAuditVerified','portalVerified','healthVerified','imported','retryAuthorized','effectObservationSequence','currentEffectSourceVerified','currentTaskAnchorMatched','currentResultSourceVerified','runtimeVersion','approvalCurrentlyValid','batchCount','proposedRowCount','approvedRowCount','effectEvidenceVersion','nativeHealthSourcesVerified','targetHealthRequirementsSatisfied','currentNativeHealthSourceVerified','repairPlanId','repairFingerprint','repairRowCount','newApprovalRecorded','currentRepairNeedVerified','repairEvidenceHistorical','planningOnly','childImportExecutionAvailable'}
 
 def _error():raise SafetyError('original-short-title-worker-evidence-required')
 def _id(value,pattern=ID):
@@ -152,14 +152,31 @@ def begin_run(state,job,*,resume=False):
  run={'workerId':job['workerId'],'workerFingerprint':job['fingerprint'],'runId':uuid.uuid4().hex[:24],'runtime':job['scope']['runtime'],'resumeReadOnly':resume}
  _once(file(state,'short-title-worker-runs',job['workerId'],run['runId']),run);return run
 
-def _check_command(state,job,run,value):
+def command_keys(action):
+ if not isinstance(action,str) or action not in ACTIONS:_error()
  keys={'requestId','action','importId','fingerprint','confirmed','ttl'}
- if not isinstance(value,dict) or set(value)!=keys or redact(value)!=value or not isinstance(value['action'],str) or value['action'] not in ACTIONS or type(value['confirmed']) is not bool or type(value['ttl']) is not int or not 30<=value['ttl']<=3600:_error()
+ if action=='repair-plan':keys.add('changes')
+ if action=='repair-approve':keys.update(('repairPlanId','repairFingerprint'))
+ return keys
+
+def _check_command(state,job,run,value):
+ if not isinstance(value,dict):_error()
+ keys=command_keys(value.get('action'))
+ if set(value)!=keys or redact(value)!=value or type(value['confirmed']) is not bool or type(value['ttl']) is not int or not 30<=value['ttl']<=3600:_error()
  _id(value['requestId'],REQ)
- if value['action']=='approve':
+ if value['action'] in ('approve','repair-approve'):
   if value['confirmed'] is not True:_error()
  elif value['confirmed'] is not False:_error()
- if run['resumeReadOnly'] and value['action'] in ('approve','execute'):raise SafetyError('original-worker-resume-is-readonly-no-replay')
+ if value['action']=='repair-plan':
+  from .short_title_contract import title_checked
+  from .products import identifier
+  changes=value['changes']
+  if not isinstance(changes,list) or not 0<len(changes)<=1000000:_error()
+  for row in changes:
+   if not isinstance(row,dict) or set(row)!={'productId','skuId','shortTitle','review'} or row['review']!='passed':_error()
+   identifier(row['productId']);identifier(row['skuId']);title_checked(row['shortTitle'])
+ if value['action']=='repair-approve':_id(value['repairPlanId']);_id(value['repairFingerprint'],HASH)
+ if run['resumeReadOnly'] and value['action'] in ('approve','execute','repair-approve'):raise SafetyError('original-worker-resume-is-readonly-no-replay')
  if value['action']=='stop' and value['importId'] is None and value['fingerprint'] is None:return
  link=read_link(state,job)
  if link is None or value['importId']!=link['importId'] or value['fingerprint']!=link['fingerprint']:_error()

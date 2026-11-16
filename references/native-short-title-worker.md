@@ -20,3 +20,7 @@
 - 安装 archive 与完整文件集合 hash 固定到 job；native 动作前再核验实际已管理安装，不只看 VERSION。代码、原范围或原件变更即停。未知/活动/孤立 worker 阻止新写入、安装更新与回滚，精确当前 actor 只可用实际同线程同路径的两把锁作为 witness。
 - 状态及 command-status 是历史回执/最后观察，不替代本次 fresh effects 读取。closed 仅代表本机资源关闭，不能代表平台任务结束或标题生效。已导入未完整 C3 核验依然隔离。
 - IPC 仅绑定 127.0.0.1，精确 Host/job/fingerprint/local headers；拒绝 Origin/Referer/cross-site、重头、重复 JSON 键与超限正文。不保存或返回签名 URL、原 HTTP 正文、设备信息、Cookie、Token 或 Key。
+
+## 确认失败修复准备
+
+原owner worker现支持repair-plan/repair-approve，完整原C2失败和实际当前health/标题/全部兄弟目录核对、新精确批准、原稳定命令/证据保留；先读native-short-title-repair.md。仍未提供native子上传/创建及其恢复，retryAuthorized/childImportExecutionAvailable为false；readonly resume不允许新批准，不借准备阶段解锁其他写入或更新。

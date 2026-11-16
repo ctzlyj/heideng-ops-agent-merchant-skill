@@ -126,6 +126,12 @@ class ShortTitleWorker:
                     result = self.manager.collect_results(ident, self.browser)
                 elif action == "effects":
                     result = self.manager.collect_effects(ident, self.browser)
+                elif action == "repair-plan":
+                    self.manager.repair_stop_requested=self.broker.stop_requested.is_set
+                    result = self.manager.prepare_repair(ident,self.browser,command["changes"])
+                elif action == "repair-approve":
+                    self.manager.repair_stop_requested=self.broker.stop_requested.is_set
+                    result = self.manager.approve_repair(ident,command["repairPlanId"],command["repairFingerprint"],self.browser,confirmed=command["confirmed"],ttl=command["ttl"],approval_id=command["requestId"])
                 else:
                     raise SafetyError("exact-native-worker-action-required")
                 if "stoppedReason" in result:

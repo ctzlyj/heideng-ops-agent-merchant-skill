@@ -24,7 +24,7 @@ def parse_command(raw,length):
   return out
  try:value=json.loads(raw.decode('utf-8'),object_pairs_hook=unique,parse_constant=lambda value:(_ for _ in ()).throw(SafetyError('finite-worker-command-required')))
  except (ValueError,UnicodeError,RecursionError):raise SafetyError('worker-command-json-required') from None
- if not isinstance(value,dict) or set(value)!={'requestId','action','importId','fingerprint','confirmed','ttl'} or redact(value)!=value:raise SafetyError('exact-public-worker-command-required')
+ if not isinstance(value,dict) or set(value)!=original.command_keys(value.get('action')) or redact(value)!=value:raise SafetyError('exact-public-worker-command-required')
  return value
 
 class CommandBroker:

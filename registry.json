@@ -103,12 +103,16 @@
         "short-title-worker-recover",
         "short-title-worker-results",
         "short-title-worker-effects",
-        "short-title-worker-stop"
+        "short-title-worker-stop",
+        "short-title-worker-repair-plan",
+        "short-title-worker-repair-approve",
+        "short-title-repair-status",
+        "short-title-repair-rows"
       ],
       "reference": "references/native-short-title-planning.md",
       "templateOriginVerified": false,
       "manualUploadDefault": false,
-      "remaining": "original-title-audit-health-portal-verification-verified-failure-repair-live-merchant-acceptance",
+      "remaining": "original-title-audit-health-portal-verification-native-failure-child-execution-live-merchant-acceptance",
       "importExecutionApi": true,
       "importCLIWorkerIntegrated": true,
       "importReference": "references/native-short-title-import.md",
@@ -119,7 +123,11 @@
       "C3Complete": false,
       "workerReference": "references/native-short-title-worker.md",
       "nativeHealthDetailReadApi": true,
-      "nativeHealthReference": "references/native-short-title-health.md"
+      "nativeHealthReference": "references/native-short-title-health.md",
+      "verifiedFailureRepairPlanningApi": true,
+      "verifiedFailureNewApprovalApi": true,
+      "verifiedFailureChildImportExecutionApi": false,
+      "repairReference": "references/native-short-title-repair.md"
     },
     {
       "id": "listing",

@@ -13,6 +13,8 @@ def entries(state,relative):
  if not root.is_dir():raise SafetyError('unreviewed-native-title-import-layout')
  return [safe_join(state,relative+'/'+p.name) for p in root.iterdir()]
 def busy(state):
+ from .short_title_repair import validate_layout
+ if validate_layout(state):return True
  state=Path(state).absolute();roots={};expected_files=set();intents=set()
  for p in entries(state,'short-title-imports'):
   if p.is_file() and p.suffix=='.lock' and ID.fullmatch(p.stem):continue

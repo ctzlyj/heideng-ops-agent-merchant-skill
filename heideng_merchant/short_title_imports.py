@@ -114,6 +114,21 @@ class ShortTitleImports:
    self._browser(p,browser);browser.install_lock.require_owned(self.state/'install.lock')
    observed.update(C3ReceiptPersisted=True,effectObservationSequence=sequence,currentEffectSourceVerified=observed['sourceDetailsStable'] and observed['currentOriginalScopeComplete'],currentNativeHealthSourceVerified=observed.get('nativeHealthSourcesVerified',False))
    return observed
+ def prepare_repair(self,import_id,browser,changes):
+  from .short_title_repair import ShortTitleRepairPlans
+  return ShortTitleRepairPlans(self).prepare(import_id,browser,changes)
+ def repair_record(self,import_id,repair_id):
+  from .short_title_repair import ShortTitleRepairPlans
+  return ShortTitleRepairPlans(self).record(import_id,repair_id)
+ def repair_status(self,import_id,repair_id):
+  from .short_title_repair import ShortTitleRepairPlans
+  return ShortTitleRepairPlans(self).status(import_id,repair_id)
+ def repair_rows(self,import_id,repair_id,**kwargs):
+  from .short_title_repair import ShortTitleRepairPlans
+  return ShortTitleRepairPlans(self).rows(import_id,repair_id,**kwargs)
+ def approve_repair(self,import_id,repair_id,fingerprint,browser,**kwargs):
+  from .short_title_repair import ShortTitleRepairPlans
+  return ShortTitleRepairPlans(self).approve(import_id,repair_id,fingerprint,browser,**kwargs)
  def _browser(self,p,browser):
   from .short_title_import_browser import ShortTitleImportBrowser
   if not isinstance(browser,ShortTitleImportBrowser) or browser.manager.state!=self.state or browser.import_id!=p['importId'] or browser.root_fingerprint!=p['fingerprint'] or browser.session_id!=p['scope']['sourceId'] or browser.page is None or browser.context is None or browser.install_lock is None or not browser.owns_lifecycle or read_json(browser.lifecycle_path,{}).get('status')!='open':raise SafetyError('original-owned-native-import-browser-required')

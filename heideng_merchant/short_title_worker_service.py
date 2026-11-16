@@ -185,13 +185,18 @@ class ShortTitleWorkerService:
             _once(original.file(self.state, LAUNCHES, job["workerId"], run["runId"]), claim_record(job, run))
         return self._spawn(job, run)
 
-    def command(self, worker_id, action, *, import_id=None, fingerprint=None, confirmed=False, ttl=900, request_id=None):
+    def command(self, worker_id, action, *, import_id=None, fingerprint=None, confirmed=False, ttl=900, request_id=None, changes=None, repair_id=None, repair_fingerprint=None):
         job, run = self._job_run(worker_id)
         if run is None:
             raise SafetyError("original-active-worker-required-readonly-resume-first")
         stable = {"workerId": worker_id, "runId": run["runId"], "action": action, "importId": import_id, "fingerprint": fingerprint, "confirmed": confirmed, "ttl": ttl}
-        rid = request_id or (digest(stable)[:32] if action in ("approve", "execute", "stop") else uuid.uuid4().hex)
+        extra = {"changes": changes} if action=="repair-plan" else {"repairPlanId":repair_id,"repairFingerprint":repair_fingerprint} if action=="repair-approve" else {}
+        if action not in ("repair-plan","repair-approve") and any(value is not None for value in (changes,repair_id,repair_fingerprint)):
+            raise SafetyError("repair-controls-only-on-exact-repair-action")
+        stable.update(extra)
+        rid = request_id or (digest(stable)[:32] if action in ("approve", "execute", "stop", "repair-plan", "repair-approve") else uuid.uuid4().hex)
         command = {"requestId": rid, "action": action, "importId": import_id, "fingerprint": fingerprint, "confirmed": confirmed, "ttl": ttl}
+        command.update(extra)
         original._check_command(self.state, job, run, command)
         try:
             result = self.request(self.state, job, run, "POST", "/commands", command)

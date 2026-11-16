@@ -18,6 +18,8 @@ def _entries(state, folder):
 
 
 def assert_resolved(ops, shop, exclude_import_id=None):
+    from .short_title_repair import validate_layout
+    validate_layout(ops.state,ops.client)
     state = Path(ops.state).absolute()
     if exclude_import_id is not None and (not isinstance(exclude_import_id, str) or ID.fullmatch(exclude_import_id) is None):
         raise SafetyError("exact-own-native-import-exclusion-required")

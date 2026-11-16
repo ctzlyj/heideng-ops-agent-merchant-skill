@@ -46,13 +46,18 @@ def parser():
  sp=sub.add_parser('short-title-rows');sp.add_argument('--plan-id',required=True);sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=['coverage','chunks','siblings'],default='coverage')
  sp=sub.add_parser('short-title-workbooks');sp.add_argument('--plan-id',required=True);sp.add_argument('--template',required=True)
  sp=sub.add_parser('short-title-worker-start');sp.add_argument('--plan-id',required=True);sp.add_argument('--foreground',action='store_true')
- for action in ('resume','status','command-status','approve','execute','recover','results','effects','stop'):
+ for action in ('resume','status','command-status','approve','execute','recover','results','effects','stop','repair-plan','repair-approve'):
   sp=sub.add_parser('short-title-worker-'+action);sp.add_argument('--worker-id',required=True)
   if action=='command-status':sp.add_argument('--request-id',required=True)
   elif action not in ('resume','status'):
    sp.add_argument('--request-id')
    if action!='stop':sp.add_argument('--import-id',required=True);sp.add_argument('--fingerprint',required=True)
-   if action=='approve':sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
+   if action in ('approve','repair-approve'):sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
+   if action=='repair-plan':sp.add_argument('--changes',required=True)
+   if action=='repair-approve':sp.add_argument('--repair-plan-id',required=True);sp.add_argument('--repair-fingerprint',required=True)
+ for action in ('status','rows'):
+  sp=sub.add_parser('short-title-repair-'+action);sp.add_argument('--import-id',required=True);sp.add_argument('--repair-plan-id',required=True)
+  if action=='rows':sp.add_argument('--page',type=int,default=1);sp.add_argument('--page-size',type=int,default=50);sp.add_argument('--view',choices=('changes','siblings'),default='changes')
  sp=sub.add_parser('short-title-import-plan');sp.add_argument('--plan-id',required=True);sp.add_argument('--source-id',required=True)
  sp=sub.add_parser('short-title-import-approve');sp.add_argument('--import-id',required=True);sp.add_argument('--fingerprint',required=True);sp.add_argument('--confirm',action='store_true');sp.add_argument('--ttl-seconds',type=int,default=900)
  sp=sub.add_parser('short-title-import-status');sp.add_argument('--import-id',required=True)
@@ -185,7 +190,9 @@ def run(args):
   if action=='resume':return worker.resume(args.worker_id)
   if action=='status':return worker.status(args.worker_id)
   if action=='command-status':return worker.command_status(args.worker_id,args.request_id)
-  return worker.command(args.worker_id,action,import_id=getattr(args,'import_id',None),fingerprint=getattr(args,'fingerprint',None),confirmed=getattr(args,'confirm',False),ttl=getattr(args,'ttl_seconds',900),request_id=args.request_id)
+  return worker.command(args.worker_id,action,import_id=getattr(args,'import_id',None),fingerprint=getattr(args,'fingerprint',None),confirmed=getattr(args,'confirm',False),ttl=getattr(args,'ttl_seconds',900),request_id=args.request_id,changes=read_input_json(args.changes)[0] if getattr(args,'changes',None) is not None else None,repair_id=getattr(args,'repair_plan_id',None),repair_fingerprint=getattr(args,'repair_fingerprint',None))
+ if command=='short-title-repair-status':return ShortTitleImports(state,client).repair_status(args.import_id,args.repair_plan_id)
+ if command=='short-title-repair-rows':return ShortTitleImports(state,client).repair_rows(args.import_id,args.repair_plan_id,page=args.page,page_size=args.page_size,view=args.view)
  if command=='short-title-import-plan':return ShortTitleImports(state,client).prepare(args.plan_id,args.source_id)
  if command=='short-title-import-approve':return ShortTitleImports(state,client).approve(args.import_id,args.fingerprint,confirmed=args.confirm,ttl=args.ttl_seconds)
  if command=='short-title-import-status':return ShortTitleImports(state,client).status(args.import_id)
