@@ -78,3 +78,34 @@ class InstallHostFeedbackTests(unittest.TestCase):
    self.assertFalse(result['shopCapability']['authAvailable'])
    self.assertTrue(any('平台' in x['text'] for x in result['steps']))
    self.assertFalse(any('扫码' in x['text'] for x in result['steps']))
+
+ def test_install_output_preserves_known_capability_boolean(self):
+  for platform,expected in (('unsupported',False),('macos-arm64',False),('windows-x64',True)):
+   with self.subTest(platform=platform),tempfile.TemporaryDirectory() as d:
+    client=OfficialClient(Path(d)/'synthetic-state',platform_name=platform)
+    with patch('install.OfficialClient',return_value=client),patch.object(client,'install',side_effect=AssertionError('offline installer must not download CLI')):
+     output=io.StringIO()
+     with contextlib.redirect_stdout(output):exitcode=install.main(['--home',d,'--host','joycode','--offline'])
+    result=json.loads(output.getvalue());self.assertEqual(exitcode,0)
+    self.assertIs(result['shopCapability']['credentialExecutionAvailable'],expected)
+    self.assertEqual(result['status'],'installed')
+ def test_optional_cli_failure_keeps_capability_false_visible(self):
+  with tempfile.TemporaryDirectory() as d:
+   client=OfficialClient(Path(d)/'synthetic-state',platform_name='unsupported')
+   with patch('install.OfficialClient',return_value=client),patch.object(client,'install',side_effect=SafetyError('official-platform-not-supported')):
+    output=io.StringIO()
+    with contextlib.redirect_stdout(output):exitcode=install.main(['--home',d,'--host','joycode','--with-official'])
+   result=json.loads(output.getvalue());self.assertEqual(exitcode,0)
+   self.assertIs(result['shopCapability']['credentialExecutionAvailable'],False)
+   self.assertEqual(result['status'],'installed');self.assertIn('warnings',result)
+ def test_install_boolean_exception_never_exposes_nonboolean_or_secret_fields(self):
+  for value in ('synthetic-private-value',0,1,{'token':'synthetic-private-value'}):
+   with self.subTest(value=value),tempfile.TemporaryDirectory() as d,patch('install.OfficialClient') as client:
+    client.return_value.ready.return_value=False
+    client.return_value.shop_capability.return_value={'credentialExecutionAvailable':value,'apiKey':False,'token':1}
+    output=io.StringIO()
+    with contextlib.redirect_stdout(output):exitcode=install.main(['--home',d,'--host','joycode','--offline'])
+    result=json.loads(output.getvalue());self.assertEqual(exitcode,0)
+    self.assertEqual(result['shopCapability']['credentialExecutionAvailable'],'[REDACTED]')
+    self.assertEqual(result['shopCapability']['apiKey'],'[REDACTED]');self.assertEqual(result['shopCapability']['token'],'[REDACTED]')
+    self.assertNotIn('synthetic-private',output.getvalue())
