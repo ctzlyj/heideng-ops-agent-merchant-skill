@@ -10,8 +10,8 @@ from .safety import redact
 PUBLIC_FIELDS = {"kind", "taskId", "profile", "shopName", "venderId", "status", "stage", "ready",
                  "runtimeVersion", "createdAt", "updatedAt", "finishedAt", "reason", "cleanupIncomplete",
                  "authorizationOutcomeUnknown", "authorizationStarted", "sameContextNavigation", "targetStateVerified",
-                 "workerExitVerified", "safeToRestart", "workerExitPreviousStage",
-                 "requestedShopName", "identityConfirmed", "identityDiagnostic", "confirmationRejected"}
+                 "workerExitVerified", "workerOwnershipEvidence", "safeToRestart", "workerExitPreviousStage",
+                 "requestedShopName", "identityConfirmed", "identityDiagnostic", "confirmationRejected", "browserProvider"}
 
 
 def public_candidates(candidates):
@@ -31,6 +31,8 @@ def public_status(data):
     result = {key: value for key, value in data.items() if key in PUBLIC_FIELDS}
     if result.get('stage') == 'waiting_login' and result.get('status') == 'running':
         result['userAction'] = '请在本次任务窗口内完成登录；如显示京麦首页，先点击“登录”，再用京麦App扫码，等待返回目标店工作台。'
+        if result.get('browserProvider')=='original-linker-host-controller':
+            result['userAction']='Agent正在通过现有浏览器核对真实店铺；如需登录或本人验证，请在本次窗口完成，已登录时不重复扫码。'
     elif result.get('stage') == 'waiting_shop_confirmation' and result.get('status') == 'running':
         result['userAction'] = '已读取实际店铺，请确认候选中的完整店名及venderId；保持本次窗口和长命令，不取消重扫。'
     elif result.get('stage') == 'waiting_oauth' and result.get('status') == 'running':
@@ -40,7 +42,7 @@ def public_status(data):
     return result
 
 
-OBSERVATION_FIELDS={'browserStage','observedIdentityResponses','matchingIdentityCount','ambiguous','privatePageContent','taskOwnedContext','identityCandidateCount','candidateOverflow','taskPageCount','observedResponseCount','untrustedResponseCount','nonJsonResponseCount','identityDiagnostic'}
+OBSERVATION_FIELDS={'browserStage','observedIdentityResponses','matchingIdentityCount','ambiguous','privatePageContent','taskOwnedContext','identityCandidateCount','candidateOverflow','taskPageCount','observedResponseCount','untrustedResponseCount','nonJsonResponseCount','identityDiagnostic','browserProvider'}
 
 def allowed_request(method, path, headers, port, *, task_id=None):
     headers = {str(k).lower(): str(v) for k, v in headers.items()}

@@ -17,7 +17,7 @@ class ManagerTests(unittest.TestCase):
  def manager(self,d):
   self.calls=[];self.runtime=Runtime();self.client=Client()
   def start(args,**options):self.calls.append((args,options));return type('P',(),{'pid':123})()
-  return AuthManager(Path(d),client=self.client,runtime=self.runtime,starter=start,request=lambda *a,**k:None,startup_wait=0)
+  return AuthManager(Path(d),client=self.client,runtime=self.runtime,starter=start,request=lambda *a,**k:None,startup_wait=0,browser_controller=["python","synthetic-controller.py"])
  def test_start_requires_foreground_and_has_no_side_effects_otherwise(self):
   with tempfile.TemporaryDirectory() as d:
    m=self.manager(d)

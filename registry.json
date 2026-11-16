@@ -2,8 +2,9 @@
   "schemaVersion": 1,
   "skill": "heideng-ops-agent-merchant",
   "displayName": "黑灯运营智能体商家版",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "toolboxIsNotWhitelist": true,
+  "reusePolicy": "verified-existing-capabilities-first-thin-adapters-only",
   "capabilities": [
     {
       "id": "shop-connection",
@@ -26,10 +27,10 @@
           "auth-wait"
         ],
         "reconciliationCommand": "auth-reconcile",
-        "reconciliation": "only-proven-dead-before-oauth-may-explicitly-restart",
+        "reconciliation": "task-bound-worker-and-launch-both-exited-lock-recheck-before-oauth-only",
         "diagnostics": "bounded-public-events-no-private-streams",
         "workbuddyLiveRetestPending": true,
-        "identityCapture": "task-context-all-pages-live-evidence-only",
+        "identityCapture": "original-linker-host-controller-observed-interface-or-verified-dom",
         "identityConfirmationCommand": "auth-confirm-shop",
         "identityConfirmation": "explicit-current-candidate-in-original-worker-no-relogin",
         "identityDomainExpansion": "none-without-live-evidence"

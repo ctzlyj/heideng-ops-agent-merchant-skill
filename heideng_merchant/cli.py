@@ -97,10 +97,10 @@ def parser():
  connect=sub.add_parser('shop-connect');connect.add_argument('--profile',required=True);connect.add_argument('--shop-name',required=True);connect.add_argument('--vender-id',required=True)
  auth=sub.add_parser('auth-plan');auth.add_argument('--profile',required=True);auth.add_argument('--shop-name',required=True);auth.add_argument('--vender-id')
  for name in ('auth-start','ensure-shop'):
-  c=sub.add_parser(name);c.add_argument('--shop-name',required=True);c.add_argument('--vender-id');c.add_argument('--foreground',action='store_true');c.add_argument('--wait',action='store_true');c.add_argument('--wait-timeout',type=int,default=960)
+  c=sub.add_parser(name);c.add_argument('--shop-name',required=True);c.add_argument('--vender-id');c.add_argument('--foreground',action='store_true');c.add_argument('--wait',action='store_true');c.add_argument('--wait-timeout',type=int,default=960);c.add_argument('--browser-controller')
  for name in ('auth-status','auth-observe','auth-cancel','auth-recover'):
   c=sub.add_parser(name);c.add_argument('--task-id',required=True)
- retry=sub.add_parser('auth-restart');retry.add_argument('--task-id',required=True);retry.add_argument('--foreground',action='store_true');retry.add_argument('--wait',action='store_true');retry.add_argument('--wait-timeout',type=int,default=960)
+ retry=sub.add_parser('auth-restart');retry.add_argument('--task-id',required=True);retry.add_argument('--foreground',action='store_true');retry.add_argument('--wait',action='store_true');retry.add_argument('--wait-timeout',type=int,default=960);retry.add_argument('--browser-controller')
  confirm=sub.add_parser('auth-confirm-shop');confirm.add_argument('--task-id',required=True);confirm.add_argument('--shop-name',required=True);confirm.add_argument('--vender-id',required=True);confirm.add_argument('--fingerprint',required=True);confirm.add_argument('--confirm',action='store_true')
  reconcile=sub.add_parser('auth-reconcile');reconcile.add_argument('--task-id',required=True)
  aw=sub.add_parser('auth-wait');aw.add_argument('--task-id',required=True);aw.add_argument('--wait-timeout',type=int,default=960)
@@ -177,7 +177,7 @@ def run(args):
   return {'status':'ready-for-local-workflows','version':VERSION,'officialCli':{'ready':client.ready(),'install':install},'media':MediaConfiguration(state).status(),'requiresEmployeeAccess':False,'shopAuthorization':'not-implied-by-installation'}
  if command=='onboarding':
   shop_capability=client.shop_capability()
-  shop_hint='告诉我你想处理哪家店或哪份商品资料；需要新授权时，只请你用京麦App扫码并完成平台本人确认。' if shop_capability['authAvailable'] else shop_capability['guidance']
+  shop_hint='告诉我你想处理哪家店或哪份商品资料；需要新授权时，Agent先复用原连接器的宿主浏览器控制器；你只用京麦App扫码并完成平台本人确认，不配置控制器。' if shop_capability['authAvailable'] else shop_capability['guidance']
   return {'displayName':'黑灯运营智能体商家版','skill':SKILL_NAME,'version':VERSION,'requiresEmployeeAccess':False,'requiresManualCommands':False,'shopCapability':shop_capability,'officialCli':{'ready':client.ready()},'media':MediaConfiguration(state).status(),'steps':[{'id':'installed','text':'商家版已安装，可直接描述目标。'},{'id':'official-cli','text':'需要店铺查询或操作时，Agent自动安装校验官方京麦CLI；离线任务不需要店铺登录。' if shop_capability['authAvailable'] else '当前平台店铺官方链路不可用，不下载必然不能使用的授权运行时；可继续离线任务和外部生图。','action':None if client.ready() or not shop_capability['authAvailable'] else 'doctor --install-cli'},{'id':'goal','text':shop_hint},{'id':'models','text':'生图已接入LTS4AI / gpt-image-2.5；商家安全设置自己的Key并批准本次数量/预算后可执行，真实网关调用尚未实测；视频服务未选择。已有素材、报表分析和业务准备可继续，不读取员工Key。'}]}
  if command=='official-doc':return {'path':str(client.document(args.skill_id,args.reference,refresh=args.refresh)),'source':'official-policy-sha256-verified','execution':'read-rules-before-preparing-request'}
  if command=='shop-connect':return ops.connect(args.profile,args.shop_name,args.vender_id)
@@ -186,10 +186,12 @@ def run(args):
   manager=AuthManager(state,client=client)
   method=manager.start if command=='auth-start' else manager.ensure_shop
   wait_options={'wait':True,'wait_timeout':args.wait_timeout,'progress':auth_progress} if args.wait else {}
-  return method(args.shop_name,vender_id=args.vender_id,foreground=args.foreground,**wait_options)
+  controller_options={'browser_controller':_json_file(args.browser_controller)} if args.browser_controller else {}
+  return method(args.shop_name,vender_id=args.vender_id,foreground=args.foreground,**wait_options,**controller_options)
  if command=='auth-restart':
   wait_options={'wait':True,'wait_timeout':args.wait_timeout,'progress':auth_progress} if args.wait else {}
-  return AuthManager(state,client=client).restart(args.task_id,foreground=args.foreground,**wait_options)
+  controller_options={'browser_controller':_json_file(args.browser_controller)} if args.browser_controller else {}
+  return AuthManager(state,client=client).restart(args.task_id,foreground=args.foreground,**wait_options,**controller_options)
  if command=='auth-confirm-shop':return AuthManager(state,client=client).confirm_shop(args.task_id,args.shop_name,args.vender_id,args.fingerprint,confirmed=args.confirm)
  if command=='auth-reconcile':return AuthManager(state,client=client).reconcile(args.task_id)
  if command=='auth-wait':return AuthManager(state,client=client).wait(args.task_id,timeout=args.wait_timeout,progress=auth_progress)

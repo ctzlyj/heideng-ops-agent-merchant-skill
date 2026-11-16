@@ -21,7 +21,7 @@ class Runtime:
 p=argparse.ArgumentParser();p.add_argument('--worker',action='store_true');p.add_argument('--contender',action='store_true');p.add_argument('--state');p.add_argument('--job');args=p.parse_args()
 if args.worker:
  from heideng_merchant import auth_worker
- auth_worker.OfficialClient=lambda state:Client();auth_worker.PlaywrightBrowser=Browser
+ auth_worker.OfficialClient=lambda state:Client();auth_worker.HostControllerBrowser=lambda state,job,shop,controller,**kw:Browser(shop,kw.get("vender_id"))
  auth_worker.run_worker(Path(args.state),args.job)
  raise SystemExit(0)
 if args.contender:
@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix='merchant-auth-smoke-') as d:
  def start(command,**options):
   command[2]=str(Path(__file__).resolve());command.insert(3,'--worker')
   process=subprocess.Popen(command,**options);owned.append(process);return process
- m=AuthManager(state,runtime=Runtime(),client=Client(),starter=start,startup_wait=10)
+ m=AuthManager(state,runtime=Runtime(),client=Client(),starter=start,startup_wait=10,browser_controller=["python","synthetic-controller.py"])
  try:
   first=m.start('process-test-shop',foreground=True,vender_id='1')
   contenders=[subprocess.Popen([sys.executable,'-I',str(Path(__file__).resolve()),'--contender','--state',str(state)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=clean_environment(state)) for _ in range(2)]

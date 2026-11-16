@@ -1,7 +1,7 @@
 ---
 name: heideng-ops-agent-merchant
 description: Use when 京东POP商家希望安装黑灯运营智能体，或以自然语言处理店铺连接、商品上新复刻、信息分素材、主图详情、经营广告诊断、素材到手价采集、同规格比价和电商视频交接。不用于员工自营/招商/内网办公。
-version: 0.1.2
+version: 0.1.3
 ---
 
 # 黑灯运营智能体商家版
@@ -12,8 +12,12 @@ version: 0.1.2
 
 1. 执行 python "<skill-root>/scripts/merchant.py" onboarding；用一两句话说明已就绪和当前确实需要的动作，不念整份清单。
 2. 只有店铺功能需要CLI且未安装时，Agent执行 doctor --install-cli，从京麦官方公开源校验下载，不使用O2/内部SkillHub。
-3. 问清当前目标和必要商品/店铺/报表。纯本地分析/采集/准备无需先授权店铺。已有明确目标店的授权只在实时核验后使用；新授权先遵守 references/shop-connection.md。商家只用京麦App扫码、完成平台本人确认；同一上下文衔接官方OAuth。
+3. 问清当前目标和必要商品/店铺/报表。纯本地分析/采集/准备无需先授权店铺。已有明确目标店的授权只在实时核验后使用；新授权先遵守 references/shop-connection.md。商家只用京麦App扫码、完成平台本人确认；同一上下文衔接官方OAuth。新授权由Agent先按references/shop-connection.md复用原连接器的宿主浏览器控制器契约，再将控制器JSON传给auth-start；不使用固定域名/字段的自动采集器。
 4. 生图服务已由用户选定：LTS4AI，base URL=https://api.lts4ai.com/v1，model=gpt-image-2.5。先读 references/lts4ai-image.md；当前adapter-ready，已复用MIT客户端接入文生图/参考图编辑/本地原图保存；image-plan→本次确切预算批准→image-execute，商家自有Key从安全进程环境读取。没有真实付费实测，但不以此无条件禁用调用。unknown查原记录不重投，不能虚构任务查询端点。视频服务仍awaiting-provider。不弹员工Key窗口、不读取旧模型Key、不静默切换付费平台。宿主自身的文本与识图能力可用于理解商品、策划及复核，不额外调用公司网关。
+
+## 已验收能力优先复用
+
+用户已明确：所有成熟能力先复用原实现和真实接口契约。不要因为换生图渠道重写店铺连接、短标题、上架、素材或诊断流程；仅做商家隔离、公开安装和外部provider的必要薄适配。存在可用能力时先调用，不另建功能重复的服务/状态机/采集器，不重新对成熟业务做全量验收。新增/修复验证只覆盖实际适配差异；无现成合法路径时报告具体缺项，不编造接口或把规划当执行。
 
 ## 开放工具箱，不是目录白名单
 
@@ -25,7 +29,7 @@ version: 0.1.2
 
 - short-title-plan / short-title-status / short-title-rows / short-title-workbooks：先读 references/native-short-title-planning.md。完整原库存与health问题、宿主审核稿和模板编译的前置阶段，当前planning-only；不能把文件/稿称导入成功，不能给商家默认人工上传。该A入口不是导入执行入口；原生B2/C1-C2 API另外核对原件，持久 worker 入口见 references/native-short-title-worker.md，完整 C3 生效闭环仍待实现，不猜CLI写接口或用job类型ID冒充实例。
 
-- ensure-shop / auth-start / auth-status / auth-observe / auth-cancel / auth-recover / auth-restart / auth-wait / auth-reconcile / auth-confirm-shop：独立店铺连接和同会话扫码OAuth。严格先读 references/shop-connection.md；只保存公开taskId，不导出私有授权页面；WorkBuddy等命令结束会清理子进程树的宿主使用auth-start --foreground --wait（安全重启也--wait），保持同一长命令直到终态；阶段变化JSON中userAction指引登录。简称可用作连接目标，观察真实店名/venderId后在waiting_shop_confirmation展示候选，取得商家明确确认后用auth-confirm-shop送达原worker；保留同一长命令和窗口，不取消重扫、不模糊授权。只监听本任务context全部标签页，身份标签关闭或跳转后旧证据不能授权。失联不等于失败；auth-reconcile仅在原worker确认退出且未开始OAuth时标记可安全显式重启，原unknown只读恢复。当前Windows新授权已实现但真实商家链路尚未实测，macOS新授权因官方secret argv风险禁用。
+- ensure-shop / auth-start / auth-status / auth-observe / auth-cancel / auth-recover / auth-restart / auth-wait / auth-reconcile / auth-confirm-shop：独立店铺连接和同会话扫码OAuth。严格先读 references/shop-connection.md；只保存公开taskId，不导出私有授权页面；WorkBuddy等命令结束会清理子进程树的宿主使用auth-start --foreground --wait（安全重启也--wait），保持同一长命令直到终态；阶段变化JSON中userAction指引登录。简称可用作连接目标，观察真实店名/venderId后在waiting_shop_confirmation展示候选，取得商家明确确认后用auth-confirm-shop送达原worker；保留同一长命令和窗口，不取消重扫、不模糊授权。默认由现有宿主浏览器工具从当前已观察接口/可靠DOM返回标准身份，使用原连接器的open_login/observe/open_oauth/close控制器契约；controller由Agent准备，商家不配置。原固定网络采集器不再是生产默认路径。失联不等于失败；auth-reconcile仅在taskId绑定的实际worker及launch进程均确认退出、锁内回执复核且未开始OAuth时标记可安全显式重启，原unknown只读恢复。当前Windows新授权已实现但真实商家链路尚未实测，macOS新授权因官方secret argv风险禁用。
 - sku-material-shop-audit / sku-material-shop-status / sku-material-shop-rows：全店在售商品与全部兄弟SKU、原生信息健康分/素材的完整来源核对；分页摘要不会冒充全店，不以有分值的SKU当库存，未取得分值不补0。先读 references/native-shop-material-audit.md。
 - shop-material-plan / shop-material-approve / shop-material-execute / shop-material-status / shop-material-rows：原完整审计上的整店可用素材统一范围、逐商品50SKU分块与原件恢复。默认覆盖全部已支持槽位、缺模型只报告等待素材不静默缩范围；未知不重提/不推进，根批准不能被子批准替代。先读 references/native-shop-material-execution.md；明确驳回/空槽修复再读 references/native-shop-material-repair.md，旧状态/理由和原图字节留证，新图不能换URL复用旧字节；部分成功≠整店信息分维护完成，真实商家链路未实测。
 - sku-material-audit / sku-material-plan / sku-material-approve / sku-material-execute / sku-material-status：本店完整 SKU 和原生素材缺口审计、原上传回执或宿主审核文字的缺失槽位绑定；先读 references/native-sku-materials.md。批准整个明确计划一次，各块单独留账；unknown、内容漂移和待审/驳回旧槽位不自动重提。

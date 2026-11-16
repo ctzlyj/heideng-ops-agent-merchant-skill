@@ -9,10 +9,10 @@ import time
 from pathlib import Path
 
 from . import VERSION
-from .auth_browser import PlaywrightBrowser
+from .auth_browser_host import HostControllerBrowser
 from .auth_broker import BrokerState, make_server, public_status
 from .auth_flow import AuthFlow
-from .auth_lifecycle import record_event
+from .auth_lifecycle import process_identity, record_event
 from .official import OfficialClient
 from .operations import Operations
 from .safety import SafetyError, atomic_json, read_json, safe_join
@@ -80,14 +80,26 @@ def _run_owned(state, job, data):
     broker.update(data)
     server = make_server(broker)
     handle_path = safe_join(state, "auth/handles/" + job + ".json")
-    handle = {"taskId": job, "workerPid": os.getpid(), "port": server.server_port,
+    handle = {"taskId": job, "workerPid": os.getpid(), "parentPid": os.getppid(), "port": server.server_port,
               "brokerStopped": False, "startedAt": time.time()}
+    launch_path=safe_join(state,"auth/launches/"+job+".json")
+    deadline=time.monotonic()+1
+    launch=read_json(launch_path,{})
+    while not launch and time.monotonic()<deadline:
+        time.sleep(.02);launch=read_json(launch_path,{})
+    own=process_identity(os.getpid());parent=process_identity(os.getppid())
+    if launch.get('processProof') and own.get('creationTime') is not None:
+        proof={'pid':os.getpid(),'creationTime':own['creationTime']}
+        if launch.get('workerPid')==os.getpid():
+            handle['processProof']=proof
+        elif launch.get('workerPid')==os.getppid() and parent.get('creationTime')==launch['processProof'].get('creationTime'):
+            handle['processProof']={**proof,'parentPid':os.getppid(),'parentCreationTime':parent['creationTime']}
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     atomic_json(handle_path, handle)
     try:
         client = OfficialClient(state)
-        browser = PlaywrightBrowser(data["shopName"], data.get("venderId") or None)
+        browser = HostControllerBrowser(state, job, data["shopName"], data.get("browserController"), vender_id=data.get("venderId") or None)
         flow = AuthFlow(state, job, data["profile"], data["shopName"], client, browser,
                         expected_vender_id=data.get("venderId") or None)
         result = drive_flow(flow, broker, Operations(state, client))

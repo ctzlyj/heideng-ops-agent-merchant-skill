@@ -93,6 +93,9 @@ class AuthFlow:
   self.state=Path(state);self.path=safe_join(self.state,'tasks/'+job_id+'.json');self.client=client;self.browser=browser;self.clock=clock or time.time;self.deadline=self.clock()+timeout;self.process=None;self._urls=queue.Queue(maxsize=1);self._stdout=[];self._stdout_done=threading.Event();self._overflow=False;self._oauth_url=None;self._navigated=False;self._started=False
   self.data={'kind':'shop-auth','taskId':job_id,'profile':profile,'shopName':shop_name,'requestedShopName':shop_name,'requestedVenderId':str(expected_vender_id or ''),'venderId':str(expected_vender_id or ''),'status':'running','stage':'created','ready':False,'runtimeVersion':VERSION,'createdAt':self.clock()}
   prior=read_json(self.path,{})
+  if prior.get('kind')=='shop-auth' and prior.get('taskId')==job_id and prior.get('profile')==profile:
+   for key in ('browserProvider','browserController'):
+    if key in prior:self.data[key]=prior[key]
   if prior.get('kind')=='shop-auth' and prior.get('taskId')==job_id and prior.get('profile')==profile and re.fullmatch('[a-f0-9]{24}',str(prior.get('restartOf',''))):self.data['restartOf']=prior['restartOf']
   self.registrar=Operations(self.state,self.client);self._confirmed_identity=None;self._confirmation_required=False;self._expected_vender_id=str(expected_vender_id or '')
   self._save()
@@ -148,7 +151,8 @@ class AuthFlow:
   self.data['stage']='verifying_cli';self._save()
   try:identity=self.client.identity(self.data['profile'])
   except Exception:self.data.update(stage='auth_outcome_unknown',status='unknown',reason='token-outcome-awaits-realtime-query');self._close();return
-  if identity.get('shopType')!='POP' or identity.get('shopName')!=self.data['shopName'] or str(identity.get('venderId'))!=self.data['venderId']:
+  expected_shop_id=self.data.get('browserIdentityProof',{}).get('shopId')
+  if identity.get('shopType')!='POP' or identity.get('shopName')!=self.data['shopName'] or str(identity.get('venderId'))!=self.data['venderId'] or (expected_shop_id and str(identity.get('shopId'))!=expected_shop_id):
    self.data.update(stage='identity_mismatch',status='failed',reason='authorized-shop-does-not-match-target');self._close();return
   try:registered=self.registrar.connect(self.data['profile'],self.data['shopName'],self.data['venderId'])
   except Exception:self.data.update(stage='auth_outcome_unknown',status='unknown',ready=False,reason='shop-registration-awaits-realtime-recovery');self._close();return
@@ -179,6 +183,7 @@ class AuthFlow:
    self.data['stage']='waiting_login';self._save();return self.status()
   try:self.browser.poll()
   except Exception:self.data.update(stage='browser_failed',status='unknown' if self.process else 'failed');self._close();return self.status()
+  if self.clock()>self.deadline:self.cancel(timeout=True);return self.status()
   if self.data['stage'] in ('waiting_login','waiting_shop_confirmation'):
    candidates=self.browser.candidates() if hasattr(self.browser,'candidates') else []
    confirmed=next((p for p in candidates if self._confirmed_identity and p.get('fingerprint')==self._confirmed_identity.get('fingerprint')),None)
@@ -196,7 +201,7 @@ class AuthFlow:
     elif self.data['stage']=='waiting_shop_confirmation':self.data.update(stage='waiting_login',reason='await-live-task-shop-evidence')
     if changed:self._save()
     return self.status()
-   if proof.get('shopName')!=self.data['shopName'] or not str(proof.get('venderId','')).isdigit() or (self.data['venderId'] and str(proof['venderId'])!=self.data['venderId']) or not eligible_identity_source(proof.get('source','')):return self.status()
+   if proof.get('shopName')!=self.data['shopName'] or not str(proof.get('venderId','')).isdigit() or (self.data['venderId'] and str(proof['venderId'])!=self.data['venderId']) or not (self.browser.validates_identity(proof) if hasattr(self.browser,'validates_identity') else eligible_identity_source(proof.get('source',''))):return self.status()
    self.data['venderId']=str(proof['venderId']);self.data['browserIdentityProof']=redact(proof)
    try:
     if hasattr(self.browser,'select_identity'):
@@ -204,6 +209,7 @@ class AuthFlow:
      if selected is None:raise SafetyError('live-task-identity-page-required')
      self.browser.select_identity(selected)
     self.client.initialize(self.data['profile'],vender_id=self.data['venderId'],shop_name=self.data['shopName'])
+    if self.clock()>self.deadline:self.cancel(timeout=True);return self.status()
     self.data['authorizationStarted']=True;self._save()
     self.process=self.client.login_process(self.data['profile'],self.data['shopName'],self.data['venderId'])
    except Exception:self.data.update(stage='auth_outcome_unknown' if self.data.get('authorizationStarted') else 'oauth_failed',status='unknown' if self.data.get('authorizationStarted') else 'failed',reason='official-auth-start-not-confirmed-no-replay');self._close();return self.status()
