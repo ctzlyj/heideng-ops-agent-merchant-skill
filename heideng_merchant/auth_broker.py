@@ -30,7 +30,7 @@ def public_candidates(candidates):
 def public_status(data):
     result = {key: value for key, value in data.items() if key in PUBLIC_FIELDS}
     if result.get('stage') == 'waiting_login' and result.get('status') == 'running':
-        result['userAction'] = '请在本次任务窗口内完成登录；如显示京麦首页，先点击“登录”，再用京麦App扫码，等待返回目标店工作台。'
+        result['userAction'] = '请在本次任务窗口的登录页用京麦App扫码并完成本人确认，等待返回目标店工作台；已登录会话不重复扫码。'
         if result.get('browserProvider')=='original-linker-host-controller':
             result['userAction']='Agent正在通过现有浏览器核对真实店铺；如需登录或本人验证，请在本次窗口完成，已登录时不重复扫码。'
     elif result.get('stage') == 'waiting_shop_confirmation' and result.get('status') == 'running':

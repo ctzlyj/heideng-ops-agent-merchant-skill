@@ -31,9 +31,9 @@
 ## 最小执行流程
 
 1. 明确目标店铺称呼，简称可以开始连接，不要求商家提前提供一字不差的完整名；只读取商家独立shops登记，不扫描员工或其他宿主Profiles。先尝试ensure-shop。纯本地分析/素材准备不用授权。
-2. 缺新授权时，商家在当前前台已要求连接，Agent先按下方宿主控制器契约复用现有浏览器工具与已验证页面，再执行一次auth-start --foreground --wait --browser-controller。告知“请在本次任务窗口完成登录；如显示京麦首页，先点击登录，再用京麦App扫码，等待返回目标店工作台”。保持本次context及其全部任务标签页，不复制passport Cookie；身份证据仍来自登录后工作台响应，不扩宽到passport。不要打开工作浏览器已有标签或替用户做平台本人确认。
+2. 缺新授权时，商家在当前前台已要求连接，Agent先按下方宿主控制器契约复用现有浏览器工具与已验证页面，再执行一次auth-start --foreground --wait --browser-controller。告知“请在本次任务窗口完成登录；未登录时直接打开passport登录页，用京麦App扫码，等待返回目标店工作台”。保持本次context及其全部任务标签页，不复制passport Cookie；身份证据仍来自登录后工作台响应，不扩宽到passport。不要打开工作浏览器已有标签或替用户做平台本人确认。
 3. 保存返回taskId；--wait模式会自动报告阶段变化，Agent只等待同一工具会话；异步模式才每2~5秒用auth-status查询同任务，需要说明页面阶段时用auth-observe。CLI签发URL只在worker内存，确认回调监听属于本次CLI后在采集到已核对身份的同一任务标签页/context导航OAuth，不用另一个未核验页替代。用户不复制URL、code或Cookie。
-4. `waiting_login`需先确认页面：京麦首页先点登录，passport页扫码，然后等返回目标工作台；`waiting_shop_confirmation`先展示真实候选并明确确认，再送达原worker；`waiting_callback_server`等自己CLI监听就绪；`waiting_oauth`需本人确认；`verifying_cli`在实时核验。`running + workerReachable=false`不是失败、未受理或安全重启的证据。不要因查不到broker/进程看似过期而重复auth-start、换Profile或换工具。只有auth-reconcile的严格退出与未开始OAuth核对成功才允许显式restart。
+4. `waiting_login`需先确认页面：未登录直接打开passport登录页扫码（已登录会话复用），然后等返回目标工作台；`waiting_shop_confirmation`先展示真实候选并明确确认，再送达原worker；`waiting_callback_server`等自己CLI监听就绪；`waiting_oauth`需本人确认；`verifying_cli`在实时核验。`running + workerReachable=false`不是失败、未受理或安全重启的证据。不要因查不到broker/进程看似过期而重复auth-start、换Profile或换工具。只有auth-reconcile的严格退出与未开始OAuth核对成功才允许显式restart。
 5. 异步worker启动等待最多10秒，OAuth任务总时限900秒；--wait默认960秒、可设0~1800秒，等待过时不自动取消或重启。过时、浏览器退出或结果不明时保留原回执；可以查询/观察/请求取消，但不能重新提交。失联时不强杀任意PID、不改回执伪造终态。只在状态改变、需扫码/确认或真正失败时通知，不刷屏。
 6. 只有官方完整非mock回执、实时POP身份（完整店名/venderId/shopId/Profile）及独立店铺登记全部通过才ready。错店不登记、不执行业务。不把扫码、exit0、本地登记、mock成功或目标状态匹配说成真实签发已验收。
 
@@ -95,7 +95,7 @@ Agent的顺序：
 4. auth-start --foreground --wait --browser-controller <该文件>；--wait-timeout保持默认960。worker调用控制器时仅通过stdin传动作，控制器只输出标准观察JSON；OAuth URL不进argv、文件、普通日志、截图或聊天。
 5. 简称候选仍由商家确认完整店名/ID，用auth-confirm-shop送达原任务；同一实际context接官方OAuth，平台本人确认由商家完成；最后以完整官方回执、实时POP身份和登记为ready。
 
-控制器stdin沿用原契约：`{jobId,action:{id,kind,target或url}}`。kind只包含open_login/observe/open_oauth/close；target只有店铺称呼，url只在open_oauth工具内部内存。stdout为`{contextId,owned:true,isolated:true或verifiedReuse:true,ok:true}`；observe另外返回`{loggedIn:boolean,identity:{shopName,venderId,shopId},challenge:""}`。这些值必须来自当前工具的实际会话/页面，不能伪造；身份丢失、挑战或context变化就暂停/停止，不凭旧候选授权。close只关本任务页面。
+控制器stdin沿用原契约：`{jobId,action:{id,kind,target或url}}`。kind只包含open_login/observe/open_oauth/close；open_login携带target店铺称呼和公开url=https://passport.shop.jd.com/login/index.action，未登录时必须用原浏览器导航能力直接打开该url，不能忽略url改开首页；open_oauth的私有url仍只在工具内部内存。stdout为`{contextId,owned:true,isolated:true或verifiedReuse:true,ok:true}`；observe另外返回`{loggedIn:boolean,identity:{shopName,venderId,shopId},challenge:""}`。这些值必须来自当前工具的实际会话/页面，不能伪造；身份丢失、挑战或context变化就暂停/停止，不凭旧候选授权。close只关本任务页面。
 
 控制器源码在正式授权开始前根据已验证的现成工具准备，进行中不换代码。open_login复用本任务已登录页面；observe只读，open_oauth只受控导航，不替商家完成新增权限或本人确认。错误/超时不重复该未知动作；固定枚举错误与最小动作回执可查，原始stdout/stderr不落盘。
 

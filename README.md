@@ -12,7 +12,7 @@
 
 ## 0.1.1 内测授权兼容修复
 
-HD-001：WorkBuddy等会在命令退出时清理子进程的宿主，Agent使用`auth-start --foreground --wait`，保持同一长命令直到授权终态。旧死任务先用`auth-reconcile`严格核对，不手改回执；确证未开始OAuth才可`auth-restart --foreground --wait`。HD-002：登录提示说明京麦首页先点登录，再用京麦App扫码，等待回到目标店工作台。详细更新与诊断说明见`references/shop-connection.md`。本修复的真实WorkBuddy复测仍待内测反馈。
+HD-001：WorkBuddy等会在命令退出时清理子进程的宿主，Agent使用`auth-start --foreground --wait`，保持同一长命令直到授权终态。旧死任务先用`auth-reconcile`严格核对，不手改回执；确证未开始OAuth才可`auth-restart --foreground --wait`。HD-002在0.1.1仅改善提示；0.1.4已改实际登录入口，不再要求先去首页点登录。详细更新与诊断说明见`references/shop-connection.md`。本修复的真实WorkBuddy复测仍待内测反馈。
 
 HD-003～HD-006开发修复：任务context统一监听工作台新标签页；简称/多店登录后展示真实候选，由商家明确确认并用`auth-confirm-shop`在原窗口继续，不取消重扫；旧页面证据失效不授权；公开授权布尔字段不再被字段名误脱敏。成功授权的精确Profile需实时核验后才复用。已验证合成身份/回执、真实loopback及全请求拦截的系统浏览器popup；真实WorkBuddy和现网OAuth仍未验收。仅推送开发分支，现有发行ZIP不替换，不创建Release。
 
@@ -98,3 +98,7 @@ Agent先取得全部在售商品、完整兄弟SKU和素材来源，再把已有
 已接入精确root批准、原抽屉上传/创建实例、独立回执与查询恢复API，以及原任务结果文件的只读获取、完整逐行处理结果和独立观察/回执/head校验。CLI 已有持久 worker 的 start/精确 approve/execute/recover/results/effects/status/command-status/stop 与确认关闭后的 readonly resume；用法见 references/native-short-title-worker.md。C3 完整正式审核/health/门户回读仍必须补齐。rowResultsVerified只说明原完整批次处理结果，不是标题生效或重试批准；unknown、审核延迟不重投。详见 references/native-short-title-import.md 与 references/native-short-title-results.md。
 
 原范围实际短标题/health 回读与持久化证据已接入部分原生来源 API；持久 worker 已接入；完整正式审核/门户/health 与确认失败子计划仍待完成，不称整店生效。Agent 用法与历史 effects 分页见 `references/native-short-title-effects.md`。
+
+## 0.1.4 HD-002：直接打开登录页
+
+未登录的任务窗口直接打开https://passport.shop.jd.com/login/index.action。宿主open_login动作明确传入该登录url，Agent控制器使用原浏览器导航能力执行；已登录且已校验归属的会话仍复用，不重新扫码。登录后继续同context的工作台身份核对和官方OAuth，不将passport加入身份响应白名单。本次只修入口与相应提示，不改生图或成熟业务流程；仍仅推送开发分支。

@@ -10,6 +10,7 @@ from .auth_lifecycle import record_event
 from .auth_broker import public_candidates
 
 JINGMAI_HOSTS={'jingmai.jd.com','api.m.jd.com'}
+JINGMAI_LOGIN_URL='https://passport.shop.jd.com/login/index.action'
 
 def eligible_identity_source(url):
  if not isinstance(url,str) or len(url)>16384 or any(ord(c)<32 for c in url):return False

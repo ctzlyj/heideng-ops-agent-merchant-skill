@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 
-from .auth_flow import BrowserIdentityProof, eligible_identity_source, valid_oauth_url
+from .auth_flow import BrowserIdentityProof, eligible_identity_source, valid_oauth_url, JINGMAI_LOGIN_URL
 from .safety import SafetyError
 
 MAX_IDENTITY_BYTES = 1024 * 1024
@@ -49,7 +49,7 @@ class PlaywrightBrowser:
             self._page_opened(self.page)
             if not hasattr(self.context,'on'):self.page.on('response',self._response)
             self.stage = "jingmai-login"
-            self.page.goto("https://jingmai.jd.com/", wait_until="domcontentloaded", timeout=30000)
+            self.page.goto(JINGMAI_LOGIN_URL, wait_until="domcontentloaded", timeout=30000)
         except Exception:
             self.close()
             raise SafetyError("task-browser-unavailable") from None

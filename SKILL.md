@@ -1,7 +1,7 @@
 ---
 name: heideng-ops-agent-merchant
 description: Use when 京东POP商家希望安装黑灯运营智能体，或以自然语言处理店铺连接、商品上新复刻、信息分素材、主图详情、经营广告诊断、素材到手价采集、同规格比价和电商视频交接。不用于员工自营/招商/内网办公。
-version: 0.1.3
+version: 0.1.4
 ---
 
 # 黑灯运营智能体商家版
@@ -12,7 +12,7 @@ version: 0.1.3
 
 1. 执行 python "<skill-root>/scripts/merchant.py" onboarding；用一两句话说明已就绪和当前确实需要的动作，不念整份清单。
 2. 只有店铺功能需要CLI且未安装时，Agent执行 doctor --install-cli，从京麦官方公开源校验下载，不使用O2/内部SkillHub。
-3. 问清当前目标和必要商品/店铺/报表。纯本地分析/采集/准备无需先授权店铺。已有明确目标店的授权只在实时核验后使用；新授权先遵守 references/shop-connection.md。商家只用京麦App扫码、完成平台本人确认；同一上下文衔接官方OAuth。新授权由Agent先按references/shop-connection.md复用原连接器的宿主浏览器控制器契约，再将控制器JSON传给auth-start；不使用固定域名/字段的自动采集器。
+3. 问清当前目标和必要商品/店铺/报表。纯本地分析/采集/准备无需先授权店铺。已有明确目标店的授权只在实时核验后使用；新授权先遵守 references/shop-connection.md。商家只用京麦App扫码、完成平台本人确认；同一上下文衔接官方OAuth。新授权由Agent先按references/shop-connection.md复用原连接器的宿主浏览器控制器契约，再将控制器JSON传给auth-start；不使用固定域名/字段的自动采集器。未登录时open_login必须直接导航动作中的https://passport.shop.jd.com/login/index.action，不打开京麦首页再让商家点登录；已登录且归属/身份已校验的同会话直接复用。
 4. 生图服务已由用户选定：LTS4AI，base URL=https://api.lts4ai.com/v1，model=gpt-image-2.5。先读 references/lts4ai-image.md；当前adapter-ready，已复用MIT客户端接入文生图/参考图编辑/本地原图保存；image-plan→本次确切预算批准→image-execute，商家自有Key从安全进程环境读取。没有真实付费实测，但不以此无条件禁用调用。unknown查原记录不重投，不能虚构任务查询端点。视频服务仍awaiting-provider。不弹员工Key窗口、不读取旧模型Key、不静默切换付费平台。宿主自身的文本与识图能力可用于理解商品、策划及复核，不额外调用公司网关。
 
 ## 已验收能力优先复用

@@ -7,7 +7,7 @@ private action URLs. Only action id/kind/phase receipts are persisted.
 from __future__ import annotations
 import hashlib,json,os,re,subprocess,time,uuid
 from pathlib import Path
-from .auth_flow import valid_oauth_url
+from .auth_flow import valid_oauth_url, JINGMAI_LOGIN_URL
 from .safety import SafetyError,atomic_json,clean_environment,redact,safe_join
 
 SHELLS={'cmd','cmd.exe','powershell','powershell.exe','pwsh','pwsh.exe','sh','bash','zsh','wscript.exe','cscript.exe'}
@@ -51,7 +51,7 @@ class HostControllerBrowser:
   return result
  def open_jingmai(self):
   if self.stage!='not-opened' or self.action_uncertain:raise SafetyError('task-browser-already-opened-or-dispatch-unknown')
-  self._call('open_login',target=self.shop_name);self.stage='jingmai-login'
+  self._call('open_login',target=self.shop_name,url=JINGMAI_LOGIN_URL);self.stage='jingmai-login'
  def poll(self,*,force=False):
   if self.stage=='closed':raise SafetyError('task-browser-closed')
   if self.stage!='jingmai-login' or (not force and self.clock()<self.next_observe):return

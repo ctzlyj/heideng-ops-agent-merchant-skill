@@ -23,14 +23,18 @@ context=page.context
 html='<html><title>task-owned-workbench</title><div id="shop" data-vender="1" data-id="9">actual-shop</div></html>'
 def route(handler):
  url=handler.request.url
- if url.startswith('https://new-workbench.example.invalid/'):
+ if url=='https://passport.shop.jd.com/login/index.action':
+  handler.fulfill(content_type='text/html',body='<html><title>fixture-login</title><div id=login>synthetic login page</div></html>')
+ elif url.startswith('https://new-workbench.example.invalid/'):
   handler.fulfill(content_type='text/html',body=html)
  elif url.startswith('https://open-oauth.jd.com/oauth2/'):
   handler.fulfill(content_type='text/html',body='<html><title>fixture-oauth</title></html>')
  else:handler.abort()
 context.route('**/*',route)
 result={'contextId':context_id,'owned':True,'isolated':True,'ok':True}
-if action['kind']=='open_login':page.goto('https://new-workbench.example.invalid/jdm/home',wait_until='domcontentloaded')
+if action['kind']=='open_login':
+ if page.locator('#shop').count():result['verifiedReuse']=True
+ else:page.goto(action['url'],wait_until='domcontentloaded')
 elif action['kind']=='observe':
  result.update(page.evaluate("() => { const s=document.querySelector('#shop'); return {loggedIn:!!s,identity:s?{shopName:s.textContent,venderId:s.dataset.vender,shopId:s.dataset.id}:{},challenge:''}; }"))
 elif action['kind']=='open_oauth':page.goto(action['url'],wait_until='domcontentloaded')
@@ -48,12 +52,28 @@ def main():
  with tempfile.TemporaryDirectory(prefix='host-auth-smoke-') as d:
   state=Path(d);driver=sync_playwright().start();browser=driver.chromium.launch(channel='msedge',headless=True,args=['--remote-debugging-port='+str(port)])
   try:
-   context=browser.new_context();page=context.new_page();cdp=context.new_cdp_session(page);info=cdp.send('Target.getTargetInfo')['targetInfo'];cdp.detach()
+   context=browser.new_context()
+   def fixture_route(handler):
+    url=handler.request.url
+    if url=='https://passport.shop.jd.com/login/index.action':handler.fulfill(content_type='text/html',body='<html><title>fixture-login</title></html>')
+    elif url.startswith('https://new-workbench.example.invalid/'):handler.fulfill(content_type='text/html',body='<html><title>task-owned-workbench</title><div id="shop" data-vender="1" data-id="9">actual-shop</div></html>')
+    elif url.startswith('https://open-oauth.jd.com/oauth2/'):handler.fulfill(content_type='text/html',body='<html><title>fixture-oauth</title></html>')
+    else:handler.abort()
+   context.route('**/*',fixture_route)
+   page=context.new_page();cdp=context.new_cdp_session(page);info=cdp.send('Target.getTargetInfo')['targetInfo'];cdp.detach()
    assert info.get('browserContextId')
    script=state/'fixture-controller.py';script.write_text('ENDPOINT='+repr('http://127.0.0.1:'+str(port))+'\nTARGET='+repr(info['targetId'])+'\n'+CONTROLLER,encoding='utf-8')
    host=HostControllerBrowser(state,'a'*24,'alias',[sys.executable,'-I',str(script)],observe_interval=30)
    client=Client();flow=AuthFlow(state,'a'*24,'merchant-local-a1','alias',client,host)
-   flow.tick();flow.tick();assert flow.data['stage']=='waiting_shop_confirmation'
+   flow.tick()
+   assert page.title()=='fixture-login'
+   assert page.url=='https://passport.shop.jd.com/login/index.action', 'first navigation did not open the login page'
+   # Simulate the user's login completion without contacting the real service.
+   page.goto('https://new-workbench.example.invalid/jdm/home',wait_until='domcontentloaded')
+   reuse=HostControllerBrowser(state,'a'*24,'alias',[sys.executable,'-I',str(script)])
+   reuse.open_jingmai()
+   assert page.title()=='task-owned-workbench' and page.url=='https://new-workbench.example.invalid/jdm/home', 'authenticated session was navigated back to login'
+   flow.tick();assert flow.data['stage']=='waiting_shop_confirmation'
    choice=flow.status()['identityCandidates'][0];flow.confirm_shop(choice['fingerprint'],'actual-shop','1');flow.tick()
    for _ in range(20):
     flow.tick()
@@ -71,7 +91,7 @@ def main():
    assert flow.data['ready'] and page.is_closed() and len(client.calls)==2, (flow.data['status'],flow.data['stage'],page.is_closed(),len(client.calls),flow.data.get('reason'))
    for path in state.rglob('*.json'):
     assert 'fake-private' not in path.read_text(encoding='utf-8')
-   record={'status':'passed','systemBrowser':'msedge','realControllerSubprocess':True,'allPageRequestsIntercepted':True,'nonWhitelistedWorkbenchHandledByHost':True,'samePhysicalContext':True,'samePhysicalPage':True,'aliasConfirmation':True,'syntheticOfficialReceiptVerified':True,'ownedPageClosed':True,'oauthUrlNotPersisted':True,'realMerchantOAuth':'not-run','realCredentials':'none'}
+   record={'status':'passed','systemBrowser':'msedge','realControllerSubprocess':True,'allPageRequestsIntercepted':True,'nonWhitelistedWorkbenchHandledByHost':True,'directPassportLoginEntry':True,'verifiedLoggedInSessionReused':True,'samePhysicalContext':True,'samePhysicalPage':True,'aliasConfirmation':True,'syntheticOfficialReceiptVerified':True,'ownedPageClosed':True,'oauthUrlNotPersisted':True,'realMerchantOAuth':'not-run','realCredentials':'none'}
   finally:browser.close();driver.stop()
  print(json.dumps(record))
 if __name__=='__main__':main()
