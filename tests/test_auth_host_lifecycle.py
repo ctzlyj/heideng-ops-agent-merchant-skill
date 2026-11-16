@@ -180,4 +180,5 @@ class AuthHotfixVersionTests(unittest.TestCase):
  def test_patch_is_new_installable_version_not_changed_same_version(self):
   from heideng_merchant import VERSION
   from heideng_merchant.catalog import load_catalog
-  self.assertEqual(VERSION,'0.1.1');self.assertEqual(load_catalog()['version'],VERSION)
+  from heideng_merchant.distribution import version_key
+  self.assertGreaterEqual(version_key(VERSION),version_key('0.1.1'));self.assertEqual(load_catalog()['version'],VERSION)

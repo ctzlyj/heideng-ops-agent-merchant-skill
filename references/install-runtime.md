@@ -26,3 +26,14 @@
 平台检查只证明本地实现准入，不证明商家授权。当前Windows x64提供官方授权链路；macOS arm64可下载二进制，但当前带凭据执行因上游secret argv风险不开放；其它平台不提供本地官方执行。Intel Mac无官方构建不能以arm64包、明文凭据或猜接口代替。店铺授权前先报告平台限制，不先安装Playwright再失败。
 
 受影响平台可安装Skill、分析报表、整理本地素材、使用独立外部生图；不能因此宣称店铺查询/改价/上架已可执行。需要真实店铺链路时报告该平台缺项，后续统一优化，不自动切换别的平台或复制凭据。
+
+
+## 开发修复的版本与升级（HD-2026-11-16-006）
+
+可安装的代码、SKILL.md、registry.json、README.md、references或其他包内文件改变时，交付源码必须递增版本号，并同步VERSION、runtime VERSION和元数据。tests/docs下不入包的纯测试记录提交不必单独升版；它们不能弥补先前包内容改变却漏升版的问题。源码检查点与正式Release分开：不通知商家、不发Release，也不免除可安装源码的版本递增要求。
+
+0.1.2承接此前0.1.1的开发修复；已安装0.1.1应直接用核验过的0.1.2候选升级，无需先回滚到0.1.0。已有进行中/unknown任务、用户修改或校验失败仍遵守原门禁，不为升级清除记录。
+
+`same-version-different-artifact`表示同版本内容发生变化，保护不能关闭。安装器的updateAction=obtain-newer-version要求取得版本递增且来源/SHA已核验的候选，rollbackRequired=false不是批准同版本替换。Agent不得自动rollback→install、修改安装收据、删除已安装文件或伪造版本绕过；rollback仅用于明确故障恢复，不是常规升级步骤。完全相同版本及SHA仍返回unchanged。
+
+默认目录和显式skills-dir都会规范化为真实路径；macOS的/var→/private/var属于系统路径别名，测试必须用resolve后的期望值。规范化不放宽安装器对链接目标/不安全父路径的检查。

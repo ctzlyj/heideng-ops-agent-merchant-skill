@@ -12,12 +12,12 @@ from tests import test_auth_manager as fixture
 class InstallHostFeedbackTests(unittest.TestCase):
  def test_joycode_defaults_to_observed_host_directory(self):
   with tempfile.TemporaryDirectory() as d:
-   self.assertEqual(install.target_directory('joycode',home=d),Path(d)/'.joycode'/'skills'/SKILL_NAME)
-   self.assertEqual(install.target_directory('universal',home=d),Path(d)/'.agents'/'skills'/SKILL_NAME)
+   self.assertEqual(install.target_directory('joycode',home=d),Path(d).resolve()/'.joycode'/'skills'/SKILL_NAME)
+   self.assertEqual(install.target_directory('universal',home=d),Path(d).resolve()/'.agents'/'skills'/SKILL_NAME)
  def test_explicit_host_directory_is_preserved(self):
   with tempfile.TemporaryDirectory() as d:
    custom=Path(d)/'custom-skills'
-   self.assertEqual(install.target_directory('joycode',home=d,skills_dir=str(custom)),custom/SKILL_NAME)
+   self.assertEqual(install.target_directory('joycode',home=d,skills_dir=str(custom)),custom.resolve()/SKILL_NAME)
  def install_with_failure(self,error):
   with tempfile.TemporaryDirectory() as d,patch('install.OfficialClient') as client:
    client.return_value.ready.return_value=False
@@ -27,7 +27,7 @@ class InstallHostFeedbackTests(unittest.TestCase):
    with contextlib.redirect_stdout(output):exitcode=install.main(['--home',d,'--host','joycode','--with-official'])
    result=json.loads(output.getvalue())
    self.assertEqual(exitcode,0);self.assertEqual(result['status'],'installed')
-   self.assertTrue(verify_install(Path(d)/'.joycode'/'skills'/SKILL_NAME)['valid'])
+   self.assertTrue(verify_install(Path(d).resolve()/'.joycode'/'skills'/SKILL_NAME)['valid'])
    self.assertFalse(result['officialCli']['ready']);self.assertEqual(result['officialCli']['status'],'unavailable')
    self.assertIn('warnings',result);self.assertNotIn('internalVersionUntouched',result)
    self.assertNotIn('synthetic-private',json.dumps(result))
@@ -109,3 +109,14 @@ class InstallHostFeedbackTests(unittest.TestCase):
     self.assertEqual(result['shopCapability']['credentialExecutionAvailable'],'[REDACTED]')
     self.assertEqual(result['shopCapability']['apiKey'],'[REDACTED]');self.assertEqual(result['shopCapability']['token'],'[REDACTED]')
     self.assertNotIn('synthetic-private',output.getvalue())
+
+ def test_linked_tmp_directory_preserves_canonical_path_expectations(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d).resolve();real=root/'real';real.mkdir();alias=root/'alias'
+   try:os.symlink(real,alias,target_is_directory=True)
+   except OSError as error:self.skipTest('directory symlink unavailable: '+str(error.errno))
+   self.assertNotEqual(alias,alias.resolve())
+   with patch('tempfile.tempdir',str(alias)):
+    self.test_joycode_defaults_to_observed_host_directory()
+    self.test_explicit_host_directory_is_preserved()

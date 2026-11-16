@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "skill": "heideng-ops-agent-merchant",
   "displayName": "黑灯运营智能体商家版",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "toolboxIsNotWhitelist": true,
   "capabilities": [
     {

@@ -52,6 +52,10 @@ def main(argv=None):
   result.update(skill=SKILL_NAME,requiresManualCommands=False,employeeDependencies=False,next='由Agent运行已安装scripts/merchant.py onboarding；先核对平台支持，店铺链路可用时再准备官方CLI及扫码授权。')
   print(json.dumps(redact(result),ensure_ascii=False));return 0
  except (SafetyError,OSError,ValueError) as error:
-  print(json.dumps({'status':'blocked','error':redact(str(error)),'internalVersionUntouched':True},ensure_ascii=False));return 2
+  result={'status':'blocked','error':redact(str(error)),'internalVersionUntouched':True}
+  if isinstance(error,SafetyError) and str(error)=='same-version-different-artifact':
+   result.update(updateAction='obtain-newer-version',sameVersionReplacementAllowed=False,rollbackRequired=False,
+                 guidance='已安装包和候选包版本号相同但内容不同，防替换校验保持启用。请使用版本号递增且来源和SHA已核验的候选包；不要为升级自动回滚、修改收据或关闭校验。')
+  print(json.dumps(result,ensure_ascii=False));return 2
 
 if __name__=='__main__':raise SystemExit(main())

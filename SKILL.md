@@ -1,7 +1,7 @@
 ---
 name: heideng-ops-agent-merchant
 description: Use when 京东POP商家希望安装黑灯运营智能体，或以自然语言处理店铺连接、商品上新复刻、信息分素材、主图详情、经营广告诊断、素材到手价采集、同规格比价和电商视频交接。不用于员工自营/招商/内网办公。
-version: 0.1.1
+version: 0.1.2
 ---
 
 # 黑灯运营智能体商家版
@@ -55,7 +55,7 @@ Key/Token/Cookie/授权码/设备凭据不进聊天、argv、源码、日志、�
 
 ## 安装与更新
 
-入口 install.py；官方依赖由Agent按需要自动补齐，商家不用另找仓库。启动时或显式做更新发现，候选下载/SHA/兼容检查通过且无进行中/unknown任务、无用户修改才切换；失败恢复，禁止静默降级。后台不扫码、不弹窗、不建未经请求的定时任务。原生视频与绑定独立证据也纳入空闲门禁；unknown/丢失证据时恢复清理、安装和回滚都不得进行。新视频计划冻结运行时版本；只有明确取消且无业务尝试的本地计划可保留取消证明后重新规划，不能取消unknown。详见 references/native-video-delivery.md。
+入口 install.py；官方依赖由Agent按需要自动补齐，商家不用另找仓库。候选同版本同SHA才可unchanged；same-version-different-artifact需取得递增版本的核验包，不自动rollback→install或修改收据绕过保护。开发源的包内内容改变也须升版，详见references/install-runtime.md。启动时或显式做更新发现，候选下载/SHA/兼容检查通过且无进行中/unknown任务、无用户修改才切换；失败恢复，禁止静默降级。后台不扫码、不弹窗、不建未经请求的定时任务。原生视频与绑定独立证据也纳入空闲门禁；unknown/丢失证据时恢复清理、安装和回滚都不得进行。新视频计划冻结运行时版本；只有明确取消且无业务尝试的本地计划可保留取消证明后重新规划，不能取消unknown。详见 references/native-video-delivery.md。
 
 每轮简报已完成、真实证据、未验证部分、输出绝对路径；媒体生成、官方授权、店铺线上生效分别描述，不能编造。
 

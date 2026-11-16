@@ -16,6 +16,12 @@ HD-001：WorkBuddy等会在命令退出时清理子进程的宿主，Agent使用
 
 HD-003～HD-006开发修复：任务context统一监听工作台新标签页；简称/多店登录后展示真实候选，由商家明确确认并用`auth-confirm-shop`在原窗口继续，不取消重扫；旧页面证据失效不授权；公开授权布尔字段不再被字段名误脱敏。成功授权的精确Profile需实时核验后才复用。已验证合成身份/回执、真实loopback及全请求拦截的系统浏览器popup；真实WorkBuddy和现网OAuth仍未验收。仅推送开发分支，现有发行ZIP不替换，不创建Release。
 
+## 0.1.2 开发升级修复
+
+JoyCode HD-2026-11-16-005由商家报告在ed40310实机复测关闭；HD-006通过递增到0.1.2支持从0.1.1直接升级，不关闭同版本防替换保护，不要求rollback→install。安装器遇到same-version-different-artifact给出取得更高版本候选的明确指引。HD-007修正测试对macOS临时目录别名的期望值，产品的resolve行为不改。详见references/install-runtime.md。
+
+包内内容变更的可安装源码也必须升版；仅不入包的测试/docs提交不必单独升版。本轮仍只推送开发分支，不创建Release，不覆盖原0.1.1 ZIP，不通知商家更新。
+
 ## 安装前置与平台支持
 
 Agent先复用宿主或用户独立的Python 3.11+；缺少时按 `references/install-runtime.md` 准备可信便携运行时，不替换系统Python或要求商家装包管理器。JoyCode默认目录为 `.joycode/skills`，宿主明确提供的实际目录可用 `--skills-dir` 指定；文件校验与宿主识别分开报告。`--with-official`失败只报告官方组件未就绪，不把已安装Skill误报失败。当前macOS店铺官方链路不可用，应在授权前提示；离线任务与独立外部生图不因此禁用。
