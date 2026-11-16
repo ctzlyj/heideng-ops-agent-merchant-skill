@@ -95,7 +95,7 @@ Agent的顺序：
 4. auth-start --foreground --wait --browser-controller <该文件>；--wait-timeout保持默认960。worker调用控制器时仅通过stdin传动作，控制器只输出标准观察JSON；OAuth URL不进argv、文件、普通日志、截图或聊天。
 5. 简称候选仍由商家确认完整店名/ID，用auth-confirm-shop送达原任务；同一实际context接官方OAuth，平台本人确认由商家完成；最后以完整官方回执、实时POP身份和登记为ready。
 
-控制器stdin沿用原契约：`{jobId,action:{id,kind,target或url}}`。kind只包含open_login/observe/open_oauth/close；open_login携带target店铺称呼和公开url=https://passport.shop.jd.com/login/index.action，未登录时必须用原浏览器导航能力直接打开该url，不能忽略url改开首页；open_oauth的私有url仍只在工具内部内存。stdout为`{contextId,owned:true,isolated:true或verifiedReuse:true,ok:true}`；observe另外返回`{loggedIn:boolean,identity:{shopName,venderId,shopId},challenge:""}`。这些值必须来自当前工具的实际会话/页面，不能伪造；身份丢失、挑战或context变化就暂停/停止，不凭旧候选授权。close只关本任务页面。
+控制器stdin沿用原契约：`{jobId,action:{id,kind,target或url}}`。kind的原有任务动作包含open_login/observe/open_oauth/close，0.1.5另增只读verify_cleanup（见下文）；open_login携带target店铺称呼和公开url=https://passport.shop.jd.com/login/index.action，未登录时必须用原浏览器导航能力直接打开该url，不能忽略url改开首页；open_oauth的私有url仍只在工具内部内存。stdout为`{contextId,owned:true,isolated:true或verifiedReuse:true,ok:true}`；observe另外返回`{loggedIn:boolean,identity:{shopName,venderId,shopId},challenge:""}`。这些值必须来自当前工具的实际会话/页面，不能伪造；身份丢失、挑战或context变化就暂停/停止，不凭旧候选授权。close只关本任务页面。
 
 控制器源码在正式授权开始前根据已验证的现成工具准备，进行中不换代码。open_login复用本任务已登录页面；observe只读，open_oauth只受控导航，不替商家完成新增权限或本人确认。错误/超时不重复该未知动作；固定枚举错误与最小动作回执可查，原始stdout/stderr不落盘。
 
@@ -108,3 +108,25 @@ Windows venv的launch PID与实际worker PID可能不同。原任务handle中tas
 旧任务没有创建时间时，只能称legacy-task-bound，不能宣称补出了历史父子关系：两个任务回执均正确、不同PID的startedAt均为有限正数且属于同次启动（相差不超过30秒）、两个PID均已退出、原worker锁和任务锁取得后再次复核全部原件未变，且未开始OAuth/无授权未知/无清理未知，才failed＋safeToRestart。任一PIDalive/unknown、回执缺失/错误/变化、锁占用都拒绝；已开始OAuth仍unknown，不重发。
 
 等待总时限默认960秒，大于任务900秒并留收尾余量。WorkBuddy等会清理子进程树的宿主不要设成900或更短；短等待结束/中断不是失败证明，也不意味着worker能在命令之外存活。不要手改回执或强杀。
+
+## 0.1.5：只读清理核验与简称绑定
+
+`auth-prove-cleanup --task-id <原taskId> [--browser-controller <Agent准备的修正版控制器JSON>]` 不关闭浏览器、不重发授权，只检查原任务资源。
+
+Agent 先用原控制器/已有宿主工具核对本任务的确切 context、page、浏览器 profile 和已保存的进程归属证据。若仍有资源，只能用该工具的任务自有清理能力释放并核对结果；不得按进程名、全局“没看到Edge”、猜测目录或扫描其它工作浏览器推断，也不手改回执。随后控制器支持只读 `verify_cleanup`：
+
+输入沿用 `{jobId, action}`，action 包含 `{id, kind:"verify_cleanup", profile, actionIds, receiptSha256}`。它必须检查所列原动作涉及的本任务资源，不能创建窗口或执行关闭/登录/OAuth。输出 `{ok:true, taskId:jobId, inspectionId:action.id, actionIds:action.actionIds, owned:true, inspectionVerified:true, noLiveTaskResources:true}`；布尔值必须来自这次实际工具检查，不从旧日志或“应该没有”推断。回执不含路径、命令行、Cookie、页面内容或凭据。缺能力、不能证实归属、仍有资源或查不到原件就返回失败，保留原未知现场。没有 context 的首次启动失败也用原任务/动作归属检查，不能编造 contextId。
+
+Manager 还会独立复核原 launcher/worker 都已退出、双锁可取、任务/launch/handle/动作原件未变化，且 OAuth 未开始、授权结果非未知，才保存 cleanupVerified=true、cleanupIncomplete=false、safeToRestart=true。之后显式 `auth-restart --foreground --wait`，不自动启动新授权。
+
+普通 `open_oauth/close` 动作若带 expectedContextId，控制器必须在操作前核对实际归属。观察到 context/owned 不符后 Skill 停止，不再向可能已变成其它页面的控制器派发 close；按原任务清理核验路径处理。
+
+导航期只读 observe 的 Timeout/控制器非零退出/明确 navigation-in-progress 可继续等待原会话；公开 observeConsecutiveFailures/observeFailureCount/preNavigationConsecutiveFailures/observeError。成功的实际观察清零连续次数，节流跳过不清零；连续5次才终态，原 taskId 和商家扫码窗口保持。身份/归属协议错误不是可忽略的瞬时错误。OAuth 前再次只读核对失败时也只等待，不重启官方 CLI、不派发 OAuth；恢复后仍须与原锁定身份一致。
+
+简称只在明确确认与实时官方身份核对后绑定。`auth-bind-alias --shop-name "确认过的简称" --profile <已登记Profile> --confirm` 复用现有授权，不打开扫码页；同名跨店/跨Profile歧义拒绝。别名保存在 shops.json，后续官方 refresh/ensure-shop 保留；历史已确认任务映射仍兼容。商家只确认候选，不手敲命令或填写 ID。
+
+auth-start 的 newTask:false/reusedExisting:true 是原任务记录，不是新启动。终态旧任务按 nextAction 做原任务恢复/安全重启；unknown不重投。待清理时 nextAction 为 auth-prove-cleanup，OAuth未知仍是 auth-recover。
+
+普通观察和OAuth前强制观察分别计连续失败：普通观察成功不清零preNavigationConsecutiveFailures，前导航连续5次失败同样收敛。已经启动官方login后的短暂观察失败不撤销商家已确认的目标/简称决定，但清空活身份缓存，恢复时必须当前证据仍与原锁定身份一致才继续。错误回执如同时含owned否定/context变更，必须优先按归属失效处理，不能被ok:false、非零退出或“导航中”标签掩盖。
+
+如已确认简称与后来登记的真实店名相同，不自动删除/转移原简称，也不阻断新真实店铺的授权登记。不带venderId的模糊复用必须拒绝；Agent展示已登记完整店名让商家确认，再带确定的venderId核验复用对应授权，两店都不重新扫码。

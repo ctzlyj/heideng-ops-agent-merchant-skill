@@ -11,7 +11,9 @@ PUBLIC_FIELDS = {"kind", "taskId", "profile", "shopName", "venderId", "status", 
                  "runtimeVersion", "createdAt", "updatedAt", "finishedAt", "reason", "cleanupIncomplete",
                  "authorizationOutcomeUnknown", "authorizationStarted", "sameContextNavigation", "targetStateVerified",
                  "workerExitVerified", "workerOwnershipEvidence", "safeToRestart", "workerExitPreviousStage",
-                 "requestedShopName", "identityConfirmed", "identityDiagnostic", "confirmationRejected", "browserProvider"}
+                 "requestedShopName", "identityConfirmed", "identityDiagnostic", "confirmationRejected", "browserProvider",
+                 "observeConsecutiveFailures", "observeFailureCount", "preNavigationConsecutiveFailures", "observeError", "cleanupVerified",
+                 "cleanupVerificationRequired", "newTask", "reusedExisting", "nextAction"}
 
 
 def public_candidates(candidates):
@@ -29,6 +31,9 @@ def public_candidates(candidates):
 
 def public_status(data):
     result = {key: value for key, value in data.items() if key in PUBLIC_FIELDS}
+    if result.get('cleanupIncomplete'):
+        result['cleanupVerificationRequired']=True
+        result['nextAction']='auth-recover' if result.get('authorizationStarted') or result.get('authorizationOutcomeUnknown') else 'auth-prove-cleanup'
     if result.get('stage') == 'waiting_login' and result.get('status') == 'running':
         result['userAction'] = '请在本次任务窗口的登录页用京麦App扫码并完成本人确认，等待返回目标店工作台；已登录会话不重复扫码。'
         if result.get('browserProvider')=='original-linker-host-controller':

@@ -165,10 +165,10 @@ class AuthHostCliTests(unittest.TestCase):
    managers.return_value.reconcile.return_value={'status':'failed'}
    run(parser().parse_args(['--home',d,'auth-reconcile','--task-id','a'*24]))
    managers.return_value.reconcile.assert_called_once_with('a'*24)
- def test_login_guidance_matches_homepage_and_requires_workbench_return(self):
+ def test_login_guidance_opens_login_page_and_requires_workbench_return(self):
   from heideng_merchant.auth_broker import public_status
   result=public_status({'taskId':'a'*24,'stage':'waiting_login','status':'running'})
-  self.assertIn('点击',result['userAction']);self.assertIn('登录',result['userAction']);self.assertIn('京麦App',result['userAction']);self.assertIn('工作台',result['userAction'])
+  self.assertNotIn('先点击',result['userAction']);self.assertIn('登录',result['userAction']);self.assertIn('京麦App',result['userAction']);self.assertIn('工作台',result['userAction'])
  def test_diagnostics_never_export_private_exception_or_page_fields(self):
   from heideng_merchant.auth_lifecycle import record_event
   with tempfile.TemporaryDirectory() as d:

@@ -103,6 +103,8 @@ def parser():
  retry=sub.add_parser('auth-restart');retry.add_argument('--task-id',required=True);retry.add_argument('--foreground',action='store_true');retry.add_argument('--wait',action='store_true');retry.add_argument('--wait-timeout',type=int,default=960);retry.add_argument('--browser-controller')
  confirm=sub.add_parser('auth-confirm-shop');confirm.add_argument('--task-id',required=True);confirm.add_argument('--shop-name',required=True);confirm.add_argument('--vender-id',required=True);confirm.add_argument('--fingerprint',required=True);confirm.add_argument('--confirm',action='store_true')
  reconcile=sub.add_parser('auth-reconcile');reconcile.add_argument('--task-id',required=True)
+ cp=sub.add_parser('auth-prove-cleanup');cp.add_argument('--task-id',required=True);cp.add_argument('--browser-controller')
+ ab=sub.add_parser('auth-bind-alias');ab.add_argument('--shop-name',required=True);ab.add_argument('--profile',required=True);ab.add_argument('--confirm',action='store_true')
  aw=sub.add_parser('auth-wait');aw.add_argument('--task-id',required=True);aw.add_argument('--wait-timeout',type=int,default=960)
  plan=sub.add_parser('task-plan');plan.add_argument('--profile',required=True);plan.add_argument('--operation',required=True);plan.add_argument('--verification');plan.add_argument('--precondition');plan.add_argument('--online-verification');plan.add_argument('--result-verification')
  approval=sub.add_parser('task-approve');approval.add_argument('--task-id',required=True);approval.add_argument('--fingerprint',required=True);approval.add_argument('--confirm',action='store_true')
@@ -194,6 +196,10 @@ def run(args):
   return AuthManager(state,client=client).restart(args.task_id,foreground=args.foreground,**wait_options,**controller_options)
  if command=='auth-confirm-shop':return AuthManager(state,client=client).confirm_shop(args.task_id,args.shop_name,args.vender_id,args.fingerprint,confirmed=args.confirm)
  if command=='auth-reconcile':return AuthManager(state,client=client).reconcile(args.task_id)
+ if command=='auth-prove-cleanup':
+  controller_options={'browser_controller':_json_file(args.browser_controller)} if args.browser_controller else {}
+  return AuthManager(state,client=client).prove_cleanup(args.task_id,**controller_options)
+ if command=='auth-bind-alias':return AuthManager(state,client=client).bind_alias(args.shop_name,args.profile,confirmed=args.confirm)
  if command=='auth-wait':return AuthManager(state,client=client).wait(args.task_id,timeout=args.wait_timeout,progress=auth_progress)
  if command in ('auth-status','auth-observe','auth-cancel','auth-recover'):
   return getattr(AuthManager(state,client=client),command.removeprefix('auth-'))(args.task_id)

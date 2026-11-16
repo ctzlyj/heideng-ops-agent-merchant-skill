@@ -6,7 +6,7 @@ from pathlib import Path
 from .safety import SafetyError,atomic_json,read_json,safe_join
 from .state import FileLock
 
-EVENTS={'worker-start','worker-failed','worker-finished','flow-stage','worker-reconciled'}
+EVENTS={'cleanup-verified','worker-start','worker-failed','worker-finished','flow-stage','worker-reconciled'}
 STAGES={'starting_worker','initializing_worker','created','waiting_login','waiting_shop_confirmation','waiting_callback_server','waiting_oauth','verifying_cli','ready','identity_mismatch','oauth_failed','auth_outcome_unknown','cancelled','timed_out','browser_failed'}
 
 

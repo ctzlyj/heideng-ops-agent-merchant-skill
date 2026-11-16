@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "skill": "heideng-ops-agent-merchant",
   "displayName": "黑灯运营智能体商家版",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "toolboxIsNotWhitelist": true,
   "reusePolicy": "verified-existing-capabilities-first-thin-adapters-only",
   "capabilities": [
@@ -33,7 +33,13 @@
         "identityCapture": "original-linker-host-controller-observed-interface-or-verified-dom",
         "identityConfirmationCommand": "auth-confirm-shop",
         "identityConfirmation": "explicit-current-candidate-in-original-worker-no-relogin",
-        "identityDomainExpansion": "none-without-live-evidence"
+        "identityDomainExpansion": "none-without-live-evidence",
+        "cleanupVerificationCommand": "auth-prove-cleanup",
+        "cleanupVerification": "owned-readonly-inspection-after-dual-pid-exit-before-oauth",
+        "aliasBindingCommand": "auth-bind-alias",
+        "observationTransientLimit": 5,
+        "reportedMerchantConnectionVerifiedAtVersion": "0.1.3",
+        "reportedAuthorizationReuseVerified": true
       }
     },
     {

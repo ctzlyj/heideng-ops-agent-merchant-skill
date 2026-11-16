@@ -143,9 +143,10 @@ class ProductService:
     def _list_records(self, profile, url, id_field, *, fields=None, filters=None, skill='jdo-product-status',
                       parent=None, page_size=20, max_pages=100, start_page=1, maximum_page=50):
         if any(isinstance(value, bool) or not isinstance(value, int) for value in (page_size, max_pages, start_page)) or not 1 <= page_size <= maximum_page or not 1 <= max_pages <= 1000 or start_page < 1:
-            raise SafetyError('bounded-pagination-required')
+            raise SafetyError(f'bounded-pagination-required: pageSize must be 1..{maximum_page}; maxPages must be 1..1000; startPage must be >= 1')
         filters = _validate_filters(url,filters)
         rows = []; seen = set(); total = None; hashes = []; end_reached = False; next_page = start_page; reason = 'page-budget-reached'
+        observed_rows = 0; observed_ids = set(); observed_totals = []
         for page in range(start_page, start_page + max_pages):
             params = {**filters, 'page': page, 'pageSize': page_size}
             if fields is not None:params['scopeSet'] = fields
@@ -162,6 +163,10 @@ class ProductService:
                 if not rows:
                     raise SafetyError('native-product-read-incomplete') from None
                 next_page = page; reason = 'native-product-read-incomplete'; break
+            # Count validated observations before rejecting a page, without accepting it.
+            observed_rows += len(data); observed_ids.update(ids)
+            if page_total is not None and page_total not in observed_totals:
+                observed_totals.append(page_total)
             if len(ids) != len(set(ids)) or seen.intersection(ids):
                 next_page = page; reason = 'pagination-identity-repeat'; break
             if page_total is not None:
@@ -178,9 +183,26 @@ class ProductService:
                 end_reached = total is None or len(rows) == remaining
                 next_page = None if end_reached else page + 1; reason = None if end_reached else 'pagination-total-incomplete'; break
         if end_reached and start_page > 1:reason = 'earlier-pages-not-in-this-result'
-        return {'items': rows, 'complete': end_reached and start_page == 1, 'segmentComplete': end_reached,
+        complete = end_reached and start_page == 1
+        # Observations include the validated stopping page; returned rows/hashes do not
+        # include rejected pages. Gaps are comparisons to reported totals, not proof of
+        # missing records (and include unread earlier pages for a resumed segment).
+        # totalStable is agreement among available totals, not snapshot consistency.
+        total_stable = len(observed_totals) == 1 if observed_totals else None
+        diagnostic_total = observed_totals[0] if total_stable else None
+        diagnostics = {
+            'statisticsScope': 'complete-result' if complete else 'partial-result',
+            'returnedRowCount': len(rows), 'returnedUniqueCount': len(seen),
+            'observedRowCount': observed_rows, 'observedUniqueCount': len(observed_ids),
+            'duplicateRowCount': observed_rows - len(observed_ids),
+            'unreturnedObservedUniqueCount': len(observed_ids) - len(seen),
+            'reportedTotals': observed_totals, 'totalStable': total_stable,
+            'unobservedReportedCount': max(diagnostic_total - len(observed_ids), 0) if diagnostic_total is not None else None,
+            'unreturnedReportedCount': max(diagnostic_total - len(seen), 0) if diagnostic_total is not None else None,
+        }
+        return {'items': rows, 'complete': complete, 'segmentComplete': end_reached,
                 'startPage': start_page, 'nextPage': next_page, 'reason': reason,
-                'reportedTotal': total, 'sourcePageHashes': hashes, 'profile': profile,
+                'reportedTotal': total, 'paginationDiagnostics': diagnostics, 'sourcePageHashes': hashes, 'profile': profile,
                 'source': 'official-realtime-pop', 'observedAt': time.time()}
 
     def prepare_price(self, profile, product_id, changes):

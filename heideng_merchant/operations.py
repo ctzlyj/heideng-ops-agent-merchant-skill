@@ -50,15 +50,22 @@ def _match_count(result,expected):
 
 class Operations:
  def __init__(self,state,client):self.state=Path(state).resolve();self.client=client
- def connect(self,profile,shop_name,vender_id):
+ def connect(self,profile,shop_name,vender_id,*,confirmed_alias=None):
   validate_profile(profile)
   if not str(vender_id).isdigit() or not shop_name:raise SafetyError('explicit-shop-identity-required')
+  if confirmed_alias is not None and (not isinstance(confirmed_alias,str) or not confirmed_alias.strip() or len(confirmed_alias)>128 or any(ord(c)<32 for c in confirmed_alias) or redact(confirmed_alias)!=confirmed_alias):raise SafetyError('safe-confirmed-shop-alias-required')
   actual=self.client.identity(profile)
   if actual.get('shopType')!='POP' or actual.get('shopName')!=shop_name or actual.get('venderId')!=str(vender_id):raise SafetyError('shop-identity-mismatch')
   actual={**actual,'profile':profile,'verifiedAt':time.time()}
   with FileLock(self.state/'shops.lock'):
    shops=read_json(self.state/'shops.json',{});previous=shops.get(profile)
    if previous and (previous['venderId']!=actual['venderId'] or previous['shopName']!=actual['shopName']):raise SafetyError('profile-already-bound-to-another-shop')
+   aliases=previous.get('aliases',[]) if previous else []
+   if not isinstance(aliases,list) or any(not isinstance(alias,str) or not alias.strip() or len(alias)>128 or any(ord(c)<32 for c in alias) or redact(alias)!=alias for alias in aliases):raise SafetyError('registered-shop-aliases-invalid')
+   if confirmed_alias and confirmed_alias!=shop_name and confirmed_alias not in aliases:
+    if any(other_profile!=profile and (other.get('shopName')==confirmed_alias or confirmed_alias in other.get('aliases',[])) for other_profile,other in shops.items()):raise SafetyError('shop-alias-already-bound-select-exact-profile')
+    aliases=list(dict.fromkeys([*aliases,confirmed_alias]))
+   if aliases:actual['aliases']=aliases
    shops[profile]=actual;atomic_json(self.state/'shops.json',shops)
   return actual
  def shop(self,profile):

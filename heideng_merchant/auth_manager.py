@@ -15,8 +15,8 @@ from . import VERSION
 from .auth_broker import public_status, OBSERVATION_FIELDS
 from .auth_lifecycle import process_state, process_identity, probe_owned_worker, record_event
 from .auth_runtime import BrowserRuntime
-from .auth_browser_host import validate_controller
-from .official import OfficialClient
+from .auth_browser_host import validate_controller, verify_host_cleanup
+from .official import OfficialClient, validate_profile
 from .operations import Operations
 from .safety import SafetyError, atomic_json, clean_environment, read_json, redact, safe_join
 from .state import FileLock
@@ -54,7 +54,7 @@ def validate_target(shop_name, vender_id=None):
 
 
 class AuthManager:
-    def __init__(self, state, *, client=None, runtime=None, starter=None, request=None, startup_wait=10, process_probe=None, sleep=None, browser_controller=None):
+    def __init__(self, state, *, client=None, runtime=None, starter=None, request=None, startup_wait=10, process_probe=None, sleep=None, browser_controller=None, controller_runner=None):
         self.state = Path(state).resolve()
         self.client = client or OfficialClient(self.state)
         self.runtime = runtime or BrowserRuntime(self.state)
@@ -64,6 +64,7 @@ class AuthManager:
         self.process_probe = process_probe or process_state
         self.sleep = sleep or time.sleep
         self.browser_controller = browser_controller
+        self.controller_runner = controller_runner
 
     def _path(self, job):
         if not isinstance(job, str) or not re.fullmatch("[a-f0-9]{24}", job):
@@ -114,7 +115,7 @@ class AuthManager:
             raise SafetyError('auth-wait-timeout-must-be-0-to-1800-seconds')
         result = self._start(shop_name, vender_id=vender_id, foreground=foreground, _retry_job=_retry_job, browser_controller=browser_controller)
         # Do not keep start/install locks while a merchant is logging in.
-        return self.wait(result['taskId'], timeout=wait_timeout, progress=progress) if wait else result
+        return {**self.wait(result['taskId'], timeout=wait_timeout, progress=progress), **{key:result[key] for key in ('newTask','reusedExisting') if key in result}, **({'nextAction':result['nextAction']} if result.get('reusedExisting') else {})} if wait else result
 
     def _start(self, shop_name, *, vender_id=None, foreground=False, _retry_job=None, browser_controller=None):
         shop_name, vender_id = validate_target(shop_name, vender_id)
@@ -132,7 +133,9 @@ class AuthManager:
             if slot in index:
                 prior = self._record(index[slot])
                 if _retry_job is None or prior.get("restartOf") == _retry_job:
-                    return self.status(index[slot])
+                    existing=self.status(index[slot])
+                    next_action='auth-prove-cleanup' if prior.get('cleanupIncomplete') and not prior.get('authorizationStarted') and not prior.get('authorizationOutcomeUnknown') else 'auth-recover' if prior.get('status')=='unknown' else 'auth-restart' if prior.get('status') in {'failed','cancelled'} else 'ensure-shop' if prior.get('ready') else 'auth-status'
+                    return {**existing,'newTask':False,'reusedExisting':True,'nextAction':next_action}
                 if prior["taskId"] != _retry_job or prior.get("status") not in {"failed", "cancelled"} or prior.get("authorizationStarted") or prior.get("authorizationOutcomeUnknown") or prior.get("cleanupIncomplete"):
                     raise SafetyError("original-auth-not-confirmed-safe-to-restart")
                 del index[slot]
@@ -182,7 +185,7 @@ class AuthManager:
                 if self._handle(job).get("port") or self._record(job).get("status") != "running":
                     break
                 time.sleep(.1)
-            return self.status(job)
+            return {**self.status(job),'newTask':True,'reusedExisting':False}
 
     def reconcile(self, job):
         data = self._record(job)
@@ -221,6 +224,47 @@ class AuthManager:
         except SafetyError as error:
             if str(error) != 'resource-busy': raise
             return {**self.status(job), 'reconciliation': 'original-worker-or-task-lock-busy', 'oauthReplayed': False}
+
+    def prove_cleanup(self, job, *, browser_controller=None):
+        data=self._record(job)
+        if (data.get('status') not in {'failed','cancelled','running'} or not data.get('cleanupIncomplete')
+                or data.get('authorizationStarted') or data.get('authorizationOutcomeUnknown') or data.get('stage')!='browser_failed'):
+            raise SafetyError('pre-oauth-owned-cleanup-verification-only')
+        validate_profile(data.get('profile'))
+        if not data['profile'].startswith('merchant-'):raise SafetyError('merchant-owned-auth-target-required')
+        launch_path=safe_join(self.state,'auth/launches/'+job+'.json');launch=read_json(launch_path,{})
+        handle=self._handle(job)
+        def worker_exited():return probe_owned_worker(launch,handle,job,self.process_probe).state=='exited'
+        def receipts_unchanged():return read_json(launch_path,{})==launch and self._handle(job)==handle
+        directory=safe_join(self.state,'auth/browser-actions/'+job)
+        def action_receipts():
+            paths=sorted(directory.glob('*.json'))
+            if not paths or len(paths)>1000:raise SafetyError('original-browser-action-receipts-required')
+            actions={}
+            for path in paths:
+                path=safe_join(self.state,'auth/browser-actions/'+job+'/'+path.name)
+                action=read_json(path,{})
+                if (re.fullmatch('[a-f0-9]{32}',path.stem) is None or action.get('taskId')!=job or action.get('actionId')!=path.stem
+                        or action.get('kind') not in {'open_login','close'} or action.get('phase') not in {'dispatched','accepted'}):
+                    raise SafetyError('pre-oauth-original-browser-action-receipts-required')
+                actions[path.stem]=action
+            return actions
+        actions=action_receipts()
+        controller=browser_controller if browser_controller is not None else data.get('browserController')
+        controller=validate_controller(controller)
+        if self.status(job).get('workerReachable') or not receipts_unchanged() or not worker_exited():raise SafetyError('worker-exit-not-proven-cleanup-preserved')
+        with FileLock(safe_join(self.state,'auth/worker-'+job+'.lock'),timeout=.1):
+            with FileLock(safe_join(self.state,'auth/'+job+'.lock'),timeout=.1):
+                if self._record(job)!=data or not receipts_unchanged() or not worker_exited() or action_receipts()!=actions:
+                    raise SafetyError('cleanup-owner-or-receipt-changed')
+                proof=verify_host_cleanup(self.state,job,data['profile'],controller,actions,runner=self.controller_runner)
+                if self._record(job)!=data or not receipts_unchanged() or not worker_exited() or action_receipts()!=actions:
+                    raise SafetyError('cleanup-owner-or-receipt-changed')
+                data.update(status='failed',stage='browser_failed',cleanupIncomplete=False,cleanupVerified=True,safeToRestart=True,
+                            workerExitVerified=True,cleanupProof=proof,browserController=controller,
+                            reason='owned-browser-cleanup-verified-before-oauth-safe-to-restart',updatedAt=time.time())
+                atomic_json(self._path(job),data);record_event(self.state,job,'cleanup-verified',data)
+                return {**public_status(data),'nextAction':'auth-restart','workerReachable':False,'oauthReplayed':False}
 
     def wait(self, job, *, timeout=960, progress=None):
         self._record(job)
@@ -273,10 +317,18 @@ class AuthManager:
             return {**public_status(data), "recoveredShopIdentity": {k: identity[k] for k in
                     ("profile", "shopName", "shopId", "venderId", "shopType")}, "oauthReplayed": False}
 
+    def bind_alias(self, alias, profile, *, confirmed=False):
+        alias, _ = validate_target(alias)
+        if confirmed is not True:
+            raise SafetyError('explicit-existing-shop-alias-confirmation-required')
+        shop=Operations(self.state,self.client).shop(profile)
+        actual=Operations(self.state,self.client).connect(profile,shop['shopName'],shop['venderId'],confirmed_alias=alias)
+        return {'ready':True,'status':'connected','source':'realtime-official-identity','aliasBound':alias,**actual}
+
     def ensure_shop(self, shop_name, *, vender_id=None, foreground=False, wait=False, wait_timeout=960, progress=None, browser_controller=None):
         shop_name, vender_id = validate_target(shop_name, vender_id)
         shops = read_json(self.state / "shops.json", {})
-        matches = [(profile, shop) for profile, shop in shops.items() if shop.get("shopName") == shop_name and
+        matches = [(profile, shop) for profile, shop in shops.items() if (shop.get("shopName") == shop_name or shop_name in shop.get("aliases",[])) and
                    (vender_id is None or shop.get("venderId") == vender_id)]
         if not matches:
             index=read_json(self.state/'auth/targets.json',{})
@@ -288,9 +340,9 @@ class AuthManager:
                     matches.append((profile,shop))
             matches=list({profile:(profile,shop) for profile,shop in matches}.values())
         if len(matches) > 1:
-            raise SafetyError("multiple-authorized-shop-profiles-select-exact-target")
+            raise SafetyError("multiple-authorized-shop-profiles-select-exact-target-confirm-vender-id")
         if matches:
             profile, shop = matches[0]
-            actual = Operations(self.state, self.client).connect(profile, shop["shopName"], shop["venderId"])
+            actual = Operations(self.state, self.client).connect(profile, shop["shopName"], shop["venderId"],confirmed_alias=shop_name if shop_name!=shop["shopName"] and shop_name not in shop.get("aliases",[]) else None)
             return {"ready": True, "status": "connected", "source": "realtime-official-identity", **actual}
         return self.start(shop_name, vender_id=vender_id, foreground=foreground, wait=wait, wait_timeout=wait_timeout, progress=progress, browser_controller=browser_controller)

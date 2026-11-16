@@ -178,8 +178,10 @@ class ConfirmationLoopbackTests(unittest.TestCase):
   import http.client
   connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=3)
   headers={'X-Heideng-Local':'1','X-Heideng-Task':'a'*24,'Content-Type':'application/json',**extra}
-  connection.request('POST','/confirm-shop',body=body,headers=headers)
-  response=connection.getresponse();code=response.status;payload=response.read();connection.close();return code,payload
+  try:
+   connection.request('POST','/confirm-shop',body=body,headers=headers)
+   response=connection.getresponse();code=response.status;payload=response.read();return code,payload
+  finally:connection.close()
  def test_exact_loopback_confirmation_queues_once(self):
   state,candidate,server=self.server();code,payload=self.post(server,json.dumps(candidate))
   self.assertEqual(code,200);self.assertTrue(json.loads(payload)['confirmationRequested'])
@@ -189,8 +191,15 @@ class ConfirmationLoopbackTests(unittest.TestCase):
  def test_loopback_rejects_origin_wrong_task_malformed_and_oversized_body(self):
   state,candidate,server=self.server()
   for body,headers,expected in ((json.dumps(candidate),{'Origin':'https://attacker.example'},403),(json.dumps(candidate),{'X-Heideng-Task':'c'*24},403),('{',{},400),('x'*4097,{},400),(json.dumps(candidate),{'Content-Type':'text/plain'},400)):
-   self.assertEqual(self.post(server,body,**headers)[0],expected)
+   with self.subTest(bodyLength=len(body),headers=headers):
+    try:self.assertEqual(self.post(server,body,**headers)[0],expected)
+    except (ConnectionAbortedError,ConnectionResetError):
+     # Early rejection of an unread body can reset TCP, especially on Windows.
+     # A reset is not enough: prove no action was queued and the broker stays usable.
+     self.assertIsNone(state.take_confirmation());self.assertFalse(state.cancelled.is_set())
   self.assertIsNone(state.take_confirmation())
+  code,payload=self.post(server,json.dumps(candidate))
+  self.assertEqual(code,200);self.assertTrue(json.loads(payload)['confirmationRequested']);self.assertEqual(state.take_confirmation(),candidate)
  def test_public_candidates_reject_invalid_types_and_sensitive_names(self):
   valid={'shopName':'real-shop','venderId':'1','fingerprint':'b'*64}
   invalid=[{**valid,'shopName':{'token':'private-test-token'}},{**valid,'shopName':'Bearer private-test-token'}, {**valid,'shopName':'x'*129},{**valid,'venderId':True},{**valid,'fingerprint':'invalid'}]

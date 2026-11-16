@@ -12,6 +12,10 @@ from .auth_broker import public_candidates
 JINGMAI_HOSTS={'jingmai.jd.com','api.m.jd.com'}
 JINGMAI_LOGIN_URL='https://passport.shop.jd.com/login/index.action'
 
+class ObservationUnavailable(SafetyError):
+ """A read-only host observation is temporarily unavailable; never a write retry."""
+ pass
+
 def eligible_identity_source(url):
  if not isinstance(url,str) or len(url)>16384 or any(ord(c)<32 for c in url):return False
  try:
@@ -93,6 +97,7 @@ class AuthFlow:
   if not profile.startswith('merchant-') or not shop_name:raise SafetyError('merchant-auth-namespace-required')
   self.state=Path(state);self.path=safe_join(self.state,'tasks/'+job_id+'.json');self.client=client;self.browser=browser;self.clock=clock or time.time;self.deadline=self.clock()+timeout;self.process=None;self._urls=queue.Queue(maxsize=1);self._stdout=[];self._stdout_done=threading.Event();self._overflow=False;self._oauth_url=None;self._navigated=False;self._started=False
   self.data={'kind':'shop-auth','taskId':job_id,'profile':profile,'shopName':shop_name,'requestedShopName':shop_name,'requestedVenderId':str(expected_vender_id or ''),'venderId':str(expected_vender_id or ''),'status':'running','stage':'created','ready':False,'runtimeVersion':VERSION,'createdAt':self.clock()}
+  self.data.update(observeConsecutiveFailures=0,observeFailureCount=0,preNavigationConsecutiveFailures=0)
   prior=read_json(self.path,{})
   if prior.get('kind')=='shop-auth' and prior.get('taskId')==job_id and prior.get('profile')==profile:
    for key in ('browserProvider','browserController'):
@@ -155,9 +160,11 @@ class AuthFlow:
   expected_shop_id=self.data.get('browserIdentityProof',{}).get('shopId')
   if identity.get('shopType')!='POP' or identity.get('shopName')!=self.data['shopName'] or str(identity.get('venderId'))!=self.data['venderId'] or (expected_shop_id and str(identity.get('shopId'))!=expected_shop_id):
    self.data.update(stage='identity_mismatch',status='failed',reason='authorized-shop-does-not-match-target');self._close();return
-  try:registered=self.registrar.connect(self.data['profile'],self.data['shopName'],self.data['venderId'])
+  alias_options={'confirmed_alias':self.data['requestedShopName']} if self.data.get('identityConfirmed') is True and self.data.get('requestedShopName')!=self.data['shopName'] else {}
+  try:registered=self.registrar.connect(self.data['profile'],self.data['shopName'],self.data['venderId'],**alias_options)
   except Exception:self.data.update(stage='auth_outcome_unknown',status='unknown',ready=False,reason='shop-registration-awaits-realtime-recovery');self._close();return
-  self.data.update(stage='ready',status='completed',ready=True,identity=registered,finishedAt=self.clock());self._close()
+  self.data.pop('reason',None);self.data.pop('observeError',None)
+  self.data.update(stage='ready',status='completed',ready=True,identity=registered,finishedAt=self.clock(),identityDiagnostic='official-shop-identity-verified',identityCandidates=public_candidates([self.data.get('browserIdentityProof',{})]));self._close()
  def _close(self):
   if self.process is not None:
    try:
@@ -174,6 +181,17 @@ class AuthFlow:
   started=self.process is not None or self.data.get('authorizationStarted',False)
   self.data.update(stage='auth_outcome_unknown' if timeout and started else 'timed_out' if timeout else 'cancelled',status='unknown' if started else 'cancelled',ready=False,authorizationOutcomeUnknown=started)
   self._close()
+ def _observation_unavailable(self,*,before_navigation=False):
+  self.data['observeConsecutiveFailures']+=1;self.data['observeFailureCount']+=1
+  if before_navigation:self.data['preNavigationConsecutiveFailures']+=1
+  self.data.update(identityCandidates=[],identityDiagnostic='host-observe-transient-unavailable',observeError='host-observe-transient-unavailable',reason='host-observe-transient-unavailable')
+  if self._confirmed_identity and self.process is None and not self.data.get('authorizationStarted'):
+   self._confirmed_identity=None;self.data['identityConfirmed']=False
+  if self.data['stage']=='waiting_shop_confirmation':self.data['stage']='waiting_login'
+  if (self.data['preNavigationConsecutiveFailures'] if before_navigation else self.data['observeConsecutiveFailures'])>=5:
+   self.data.update(stage='browser_failed',status='unknown' if self.process else 'failed',reason='host-observe-repeated-unavailable');self._close()
+  else:self._save()
+  return self.status()
  def tick(self):
   if self.data['stage'] in self.TERMINAL:return self.status()
   if self.clock()>self.deadline:self.cancel(timeout=True);return self.status()
@@ -182,8 +200,14 @@ class AuthFlow:
    try:self.browser.open_jingmai()
    except Exception:self.data.update(stage='browser_failed',status='failed',reason='task-browser-unavailable');self._close();return self.status()
    self.data['stage']='waiting_login';self._save();return self.status()
-  try:self.browser.poll()
-  except Exception:self.data.update(stage='browser_failed',status='unknown' if self.process else 'failed');self._close();return self.status()
+  try:
+   observed=self.browser.poll()
+   if observed is not False:
+    self.data['observeConsecutiveFailures']=0;self.data.pop('observeError',None)
+    if self.data.get('reason')=='host-observe-transient-unavailable':self.data.pop('reason',None)
+  except ObservationUnavailable:return self._observation_unavailable()
+  except Exception:
+   self.data.update(stage='browser_failed',status='unknown' if self.process else 'failed',reason='host-observe-invalid-or-unavailable',observeError='host-observe-invalid-or-unavailable');self._close();return self.status()
   if self.clock()>self.deadline:self.cancel(timeout=True);return self.status()
   if self.data['stage'] in ('waiting_login','waiting_shop_confirmation'):
    candidates=self.browser.candidates() if hasattr(self.browser,'candidates') else []
@@ -204,6 +228,8 @@ class AuthFlow:
     return self.status()
    if proof.get('shopName')!=self.data['shopName'] or not str(proof.get('venderId','')).isdigit() or (self.data['venderId'] and str(proof['venderId'])!=self.data['venderId']) or not (self.browser.validates_identity(proof) if hasattr(self.browser,'validates_identity') else eligible_identity_source(proof.get('source',''))):return self.status()
    self.data['venderId']=str(proof['venderId']);self.data['browserIdentityProof']=redact(proof)
+   self.data.update(identityCandidates=public_candidates([proof]),identityDiagnostic='browser-shop-identity-verified')
+   self.data.pop('observeError',None)
    try:
     if hasattr(self.browser,'select_identity'):
      selected=next((p for p in self.browser.candidates() if p['shopName']==proof['shopName'] and p['venderId']==proof['venderId'] and p['responseSha256']==proof['responseSha256']),None)
@@ -225,7 +251,15 @@ class AuthFlow:
     try:owned=self.client.callback_owned(self.process)
     except Exception:owned=False
     if owned:
-     try:self.browser.navigate_oauth(self._oauth_url)
+     try:
+      if hasattr(self.browser,'select_identity'):
+       expected=self.data.get('browserIdentityProof',{})
+       current=next((proof for proof in self.browser.candidates() if proof.get('shopName')==expected.get('shopName') and proof.get('venderId')==expected.get('venderId') and proof.get('responseSha256')==expected.get('responseSha256')),None)
+       if current is None:
+        self.data['reason']='await-original-shop-before-oauth';self._save();return self.status()
+       self.browser.select_identity(current)
+      self.browser.navigate_oauth(self._oauth_url)
+     except ObservationUnavailable:return self._observation_unavailable(before_navigation=True)
      except Exception:self.data.update(stage='auth_outcome_unknown',status='unknown',reason='oauth-navigation-outcome-unknown');self._close();return self.status()
-     self._navigated=True;self.data['stage']='waiting_oauth';self.data['sameContextNavigation']=True;self._save()
+     self._navigated=True;self.data['preNavigationConsecutiveFailures']=0;self.data['observeConsecutiveFailures']=0;self.data['stage']='waiting_oauth';self.data['sameContextNavigation']=True;self._save()
   return self.status()
