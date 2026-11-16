@@ -101,6 +101,7 @@ def parser():
  for name in ('auth-status','auth-observe','auth-cancel','auth-recover'):
   c=sub.add_parser(name);c.add_argument('--task-id',required=True)
  retry=sub.add_parser('auth-restart');retry.add_argument('--task-id',required=True);retry.add_argument('--foreground',action='store_true');retry.add_argument('--wait',action='store_true');retry.add_argument('--wait-timeout',type=int,default=960)
+ confirm=sub.add_parser('auth-confirm-shop');confirm.add_argument('--task-id',required=True);confirm.add_argument('--shop-name',required=True);confirm.add_argument('--vender-id',required=True);confirm.add_argument('--fingerprint',required=True);confirm.add_argument('--confirm',action='store_true')
  reconcile=sub.add_parser('auth-reconcile');reconcile.add_argument('--task-id',required=True)
  aw=sub.add_parser('auth-wait');aw.add_argument('--task-id',required=True);aw.add_argument('--wait-timeout',type=int,default=960)
  plan=sub.add_parser('task-plan');plan.add_argument('--profile',required=True);plan.add_argument('--operation',required=True);plan.add_argument('--verification');plan.add_argument('--precondition');plan.add_argument('--online-verification');plan.add_argument('--result-verification')
@@ -189,6 +190,7 @@ def run(args):
  if command=='auth-restart':
   wait_options={'wait':True,'wait_timeout':args.wait_timeout,'progress':auth_progress} if args.wait else {}
   return AuthManager(state,client=client).restart(args.task_id,foreground=args.foreground,**wait_options)
+ if command=='auth-confirm-shop':return AuthManager(state,client=client).confirm_shop(args.task_id,args.shop_name,args.vender_id,args.fingerprint,confirmed=args.confirm)
  if command=='auth-reconcile':return AuthManager(state,client=client).reconcile(args.task_id)
  if command=='auth-wait':return AuthManager(state,client=client).wait(args.task_id,timeout=args.wait_timeout,progress=auth_progress)
  if command in ('auth-status','auth-observe','auth-cancel','auth-recover'):

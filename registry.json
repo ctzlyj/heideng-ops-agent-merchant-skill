@@ -28,7 +28,11 @@
         "reconciliationCommand": "auth-reconcile",
         "reconciliation": "only-proven-dead-before-oauth-may-explicitly-restart",
         "diagnostics": "bounded-public-events-no-private-streams",
-        "workbuddyLiveRetestPending": true
+        "workbuddyLiveRetestPending": true,
+        "identityCapture": "task-context-all-pages-live-evidence-only",
+        "identityConfirmationCommand": "auth-confirm-shop",
+        "identityConfirmation": "explicit-current-candidate-in-original-worker-no-relogin",
+        "identityDomainExpansion": "none-without-live-evidence"
       }
     },
     {

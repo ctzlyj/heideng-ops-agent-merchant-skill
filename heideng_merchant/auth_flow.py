@@ -7,6 +7,7 @@ from .safety import SafetyError,atomic_json,redact,safe_join,read_json
 from .official import validate_profile
 from .operations import Operations
 from .auth_lifecycle import record_event
+from .auth_broker import public_candidates
 
 JINGMAI_HOSTS={'jingmai.jd.com','api.m.jd.com'}
 
@@ -20,10 +21,12 @@ def eligible_identity_source(url):
  return p.scheme=='https' and not p.username and not p.password and (host in JINGMAI_HOSTS or host.endswith('.jingmai.jd.com'))
 
 def public_source(url):
- p=urllib.parse.urlsplit(url);return urllib.parse.urlunsplit((p.scheme,p.netloc,p.path,'',''))
+ p=urllib.parse.urlsplit(url);return urllib.parse.urlunsplit((p.scheme,p.netloc,'','',''))
 
 class BrowserIdentityProof:
- def __init__(self,shop_name,vender_id=None):self.shop_name=shop_name;self.vender_id=str(vender_id) if vender_id else None;self.matches={};self.observed=0
+ def __init__(self,shop_name,vender_id=None):
+  self.shop_name=shop_name;self.vender_id=str(vender_id) if vender_id else None
+  self.discovered={};self.observed=0;self.overflow=False
  def observe_json(self,url,payload):
   if not eligible_identity_source(url) or not isinstance(payload,(dict,list)):return
   try:sha=hashlib.sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True,allow_nan=False).encode()).hexdigest()
@@ -35,15 +38,23 @@ class BrowserIdentityProof:
     if not name and isinstance(value.get('shopBaseInfo'),dict):name=value['shopBaseInfo'].get('shopName')
     shop_type=value.get('shopType')
     if isinstance(value.get('shopBaseInfo'),dict):shop_type=value['shopBaseInfo'].get('type',shop_type)
-    if name==self.shop_name and str(vid or '').isdigit() and (self.vender_id is None or str(vid)==self.vender_id) and str(shop_type)!='1':
-     self.matches[str(vid)]={'shopName':name,'venderId':str(vid),'source':public_source(url),'responseSha256':sha,'fieldPath':path or '$','evidence':'task-context-network-response'}
+    valid_name=isinstance(name,str) and bool(name.strip()) and len(name)<=128 and not any(ord(c)<32 for c in name) and redact(name)==name
+    if valid_name and re.fullmatch('[1-9][0-9]{0,19}',str(vid or '')) and str(shop_type)!='1':
+     candidate={'shopName':name,'venderId':str(vid),'source':public_source(url),'responseSha256':sha,'fieldPathSha256':hashlib.sha256((path or '$').encode()).hexdigest(),'evidence':'task-context-network-response'}
+     candidate['fingerprint']=hashlib.sha256(json.dumps(candidate,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+     if str(vid) in self.discovered or len(self.discovered)<20:self.discovered[str(vid)]=candidate
+     else:self.overflow=True
     for key,child in value.items():
      if isinstance(child,(dict,list)):visit(child,path+'.'+str(key))
    elif isinstance(value,list):
     for i,child in enumerate(value[:200]):visit(child,path+'['+str(i)+']')
   visit(payload)
- def proof(self):return next(iter(self.matches.values())) if len(self.matches)==1 else None
- def summary(self):return {'observedIdentityResponses':self.observed,'matchingIdentityCount':len(self.matches),'ambiguous':len(self.matches)>1}
+ def candidates(self):return [dict(value) for value in self.discovered.values()] if not self.overflow else []
+ def proof(self):
+  candidates=self.candidates()
+  return {k:v for k,v in candidates[0].items() if k!='fingerprint'} if len(candidates)==1 and candidates[0]['shopName']==self.shop_name and (self.vender_id is None or candidates[0]['venderId']==self.vender_id) else None
+ def summary(self):
+  return {'observedIdentityResponses':self.observed,'matchingIdentityCount':sum(p['shopName']==self.shop_name and (self.vender_id is None or p['venderId']==self.vender_id) for p in self.discovered.values()),'ambiguous':len(self.discovered)>1,'identityCandidateCount':len(self.discovered),'candidateOverflow':self.overflow}
 
 def valid_oauth_url(url):
  if not isinstance(url,str) or len(url)>16384 or any(ord(c)<32 for c in url):return False
@@ -80,10 +91,10 @@ class AuthFlow:
   validate_profile(profile)
   if not profile.startswith('merchant-') or not shop_name:raise SafetyError('merchant-auth-namespace-required')
   self.state=Path(state);self.path=safe_join(self.state,'tasks/'+job_id+'.json');self.client=client;self.browser=browser;self.clock=clock or time.time;self.deadline=self.clock()+timeout;self.process=None;self._urls=queue.Queue(maxsize=1);self._stdout=[];self._stdout_done=threading.Event();self._overflow=False;self._oauth_url=None;self._navigated=False;self._started=False
-  self.data={'kind':'shop-auth','taskId':job_id,'profile':profile,'shopName':shop_name,'venderId':str(expected_vender_id or ''),'status':'running','stage':'created','ready':False,'runtimeVersion':VERSION,'createdAt':self.clock()}
+  self.data={'kind':'shop-auth','taskId':job_id,'profile':profile,'shopName':shop_name,'requestedShopName':shop_name,'requestedVenderId':str(expected_vender_id or ''),'venderId':str(expected_vender_id or ''),'status':'running','stage':'created','ready':False,'runtimeVersion':VERSION,'createdAt':self.clock()}
   prior=read_json(self.path,{})
   if prior.get('kind')=='shop-auth' and prior.get('taskId')==job_id and prior.get('profile')==profile and re.fullmatch('[a-f0-9]{24}',str(prior.get('restartOf',''))):self.data['restartOf']=prior['restartOf']
-  self.registrar=Operations(self.state,self.client)
+  self.registrar=Operations(self.state,self.client);self._confirmed_identity=None;self._confirmation_required=False;self._expected_vender_id=str(expected_vender_id or '')
   self._save()
  def _save(self):
   self.data['updatedAt']=self.clock();atomic_json(self.path,self.data)
@@ -91,6 +102,19 @@ class AuthFlow:
   if marker!=getattr(self,'_diagnostic_marker',None):
    record_event(self.state,self.data['taskId'],'flow-stage',self.data);self._diagnostic_marker=marker
  def status(self):return dict(self.data)
+ def confirm_shop(self,fingerprint,shop_name,vender_id):
+  if self.data['stage']!='waiting_shop_confirmation' or self.process is not None or self.data.get('authorizationStarted'):
+   raise SafetyError('original-live-identity-confirmation-required')
+  candidates=self.browser.candidates() if hasattr(self.browser,'candidates') else []
+  chosen=next((p for p in candidates if p.get('fingerprint')==fingerprint and p.get('shopName')==shop_name and p.get('venderId')==str(vender_id)),None)
+  if chosen is None or (self._expected_vender_id and chosen['venderId']!=self._expected_vender_id):
+   raise SafetyError('exact-current-observed-shop-required')
+  if hasattr(self.browser,'select_identity'):self.browser.select_identity(chosen)
+  self.data['requestedShopName']=self.data.get('requestedShopName',self.data['shopName'])
+  self._confirmed_identity=dict(chosen)
+  self.data.update(shopName=chosen['shopName'],venderId=chosen['venderId'],identityConfirmed=True,stage='waiting_login',reason='observed-shop-confirmed-in-original-context')
+  self.data.pop('confirmationRejected',None)
+  self._save();return self.status()
  def _stderr_reader(self):
   try:
    for raw in iter(lambda:self.process.stderr.readline(16385),b''):
@@ -155,12 +179,30 @@ class AuthFlow:
    self.data['stage']='waiting_login';self._save();return self.status()
   try:self.browser.poll()
   except Exception:self.data.update(stage='browser_failed',status='unknown' if self.process else 'failed');self._close();return self.status()
-  if self.data['stage']=='waiting_login':
-   proof=self.browser.proof()
-   if not proof:return self.status()
+  if self.data['stage'] in ('waiting_login','waiting_shop_confirmation'):
+   candidates=self.browser.candidates() if hasattr(self.browser,'candidates') else []
+   confirmed=next((p for p in candidates if self._confirmed_identity and p.get('fingerprint')==self._confirmed_identity.get('fingerprint')),None)
+   proof=confirmed or (self.browser.proof() if self.data['stage']=='waiting_login' and self._confirmed_identity is None and not self._confirmation_required else None)
+   if not proof:
+    summary=self.browser.public_observation()
+    diagnostic=summary.get('identityDiagnostic','no-matching-observed-shop')
+    public=public_candidates(candidates)
+    changed=self.data.get('identityCandidates')!=public or self.data.get('identityDiagnostic')!=diagnostic
+    self.data.update(identityCandidates=public,identityDiagnostic=diagnostic)
+    if self._confirmed_identity and confirmed is None:
+     self._confirmed_identity=None;self.data['identityConfirmed']=False
+    if candidates:
+     self._confirmation_required=True;self.data.update(stage='waiting_shop_confirmation',reason='confirm-observed-shop-without-relogging-in')
+    elif self.data['stage']=='waiting_shop_confirmation':self.data.update(stage='waiting_login',reason='await-live-task-shop-evidence')
+    if changed:self._save()
+    return self.status()
    if proof.get('shopName')!=self.data['shopName'] or not str(proof.get('venderId','')).isdigit() or (self.data['venderId'] and str(proof['venderId'])!=self.data['venderId']) or not eligible_identity_source(proof.get('source','')):return self.status()
    self.data['venderId']=str(proof['venderId']);self.data['browserIdentityProof']=redact(proof)
    try:
+    if hasattr(self.browser,'select_identity'):
+     selected=next((p for p in self.browser.candidates() if p['shopName']==proof['shopName'] and p['venderId']==proof['venderId'] and p['responseSha256']==proof['responseSha256']),None)
+     if selected is None:raise SafetyError('live-task-identity-page-required')
+     self.browser.select_identity(selected)
     self.client.initialize(self.data['profile'],vender_id=self.data['venderId'],shop_name=self.data['shopName'])
     self.data['authorizationStarted']=True;self._save()
     self.process=self.client.login_process(self.data['profile'],self.data['shopName'],self.data['venderId'])

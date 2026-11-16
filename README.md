@@ -14,6 +14,8 @@
 
 HD-001：WorkBuddy等会在命令退出时清理子进程的宿主，Agent使用`auth-start --foreground --wait`，保持同一长命令直到授权终态。旧死任务先用`auth-reconcile`严格核对，不手改回执；确证未开始OAuth才可`auth-restart --foreground --wait`。HD-002：登录提示说明京麦首页先点登录，再用京麦App扫码，等待回到目标店工作台。详细更新与诊断说明见`references/shop-connection.md`。本修复的真实WorkBuddy复测仍待内测反馈。
 
+HD-003～HD-006开发修复：任务context统一监听工作台新标签页；简称/多店登录后展示真实候选，由商家明确确认并用`auth-confirm-shop`在原窗口继续，不取消重扫；旧页面证据失效不授权；公开授权布尔字段不再被字段名误脱敏。成功授权的精确Profile需实时核验后才复用。已验证合成身份/回执、真实loopback及全请求拦截的系统浏览器popup；真实WorkBuddy和现网OAuth仍未验收。仅推送开发分支，现有发行ZIP不替换，不创建Release。
+
 ## 安装前置与平台支持
 
 Agent先复用宿主或用户独立的Python 3.11+；缺少时按 `references/install-runtime.md` 准备可信便携运行时，不替换系统Python或要求商家装包管理器。JoyCode默认目录为 `.joycode/skills`，宿主明确提供的实际目录可用 `--skills-dir` 指定；文件校验与宿主识别分开报告。`--with-official`失败只报告官方组件未就绪，不把已安装Skill误报失败。当前macOS店铺官方链路不可用，应在授权前提示；离线任务与独立外部生图不因此禁用。

@@ -26,6 +26,11 @@ def drive_flow(flow, broker, operations, *, sleep=time.sleep):
             if broker.cancelled.is_set():
                 flow.cancel()
             else:
+                confirmation=broker.take_confirmation()
+                if confirmation is not None:
+                    try:flow.confirm_shop(confirmation['fingerprint'],confirmation['shopName'],confirmation['venderId'])
+                    except SafetyError:
+                        flow.data.update(confirmationRejected=True,reason='current-shop-evidence-changed-confirm-current-candidate');flow._save()
                 flow.tick()
             broker.update(flow.status(), flow.browser.public_observation())
             if flow.data["stage"] not in flow.TERMINAL:

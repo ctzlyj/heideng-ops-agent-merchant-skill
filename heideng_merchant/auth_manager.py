@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from . import VERSION
-from .auth_broker import public_status
+from .auth_broker import public_status, OBSERVATION_FIELDS
 from .auth_lifecycle import process_state, record_event
 from .auth_runtime import BrowserRuntime
 from .official import OfficialClient
@@ -21,15 +21,16 @@ from .safety import SafetyError, atomic_json, clean_environment, read_json, reda
 from .state import FileLock
 
 
-def broker_request(port, path, task_id=None):
+def broker_request(port, path, task_id=None, payload=None):
     if not isinstance(task_id, str) or not re.fullmatch("[a-f0-9]{24}", task_id):
         return None
-    if not isinstance(port, int) or not 1024 <= port <= 65535 or path not in {"/status", "/observe", "/cancel"}:
+    if not isinstance(port, int) or not 1024 <= port <= 65535 or path not in {"/status", "/observe", "/cancel", "/confirm-shop"}:
         return None
-    method = "POST" if path == "/cancel" else "GET"
+    method = "POST" if path in {"/cancel","/confirm-shop"} else "GET"
+    body=json.dumps(payload,ensure_ascii=False).encode() if path=="/confirm-shop" else b"" if method=="POST" else None
     request = urllib.request.Request("http://127.0.0.1:" + str(port) + path,
-                                     data=b"" if method == "POST" else None, method=method,
-                                     headers={"X-Heideng-Local": "1", "X-Heideng-Task": task_id})
+                                     data=body, method=method,
+                                     headers={"X-Heideng-Local": "1", "X-Heideng-Task": task_id, **({"Content-Type":"application/json"} if path=="/confirm-shop" else {})})
     try:
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=2) as response:
             raw = response.read(64 * 1024 + 1)
@@ -92,10 +93,19 @@ class AuthManager:
         handle = self._handle(job)
         reply = self.request(handle.get("port"), "/observe", job) if not handle.get("brokerStopped") else None
         if reply and reply.get("taskId") == job:
-            return {**public_status(reply), "observation": {k: v for k, v in reply.get("observation", {}).items()
-                    if k in {"browserStage", "observedIdentityResponses", "matchingIdentityCount", "ambiguous",
-                             "privatePageContent", "taskOwnedContext"}}, "workerReachable": True}
+            return {**public_status(reply), "observation": {k: v for k, v in reply.get("observation", {}).items() if k in OBSERVATION_FIELDS}, "workerReachable": True}
         return self.status(job)
+
+    def confirm_shop(self,job,shop_name,vender_id,fingerprint,*,confirmed=False):
+        self._record(job)
+        shop_name,vender_id=validate_target(shop_name,vender_id)
+        if not confirmed or vender_id is None or not isinstance(fingerprint,str) or not re.fullmatch('[a-f0-9]{64}',fingerprint):
+            raise SafetyError('explicit-observed-shop-confirmation-required')
+        handle=self._handle(job)
+        payload={'shopName':shop_name,'venderId':vender_id,'fingerprint':fingerprint}
+        reply=self.request(handle.get('port'),'/confirm-shop',job,payload) if not handle.get('brokerStopped') else None
+        accepted=bool(reply and reply.get('taskId')==job and reply.get('confirmationRequested') is True)
+        return {**self.status(job),'confirmationRequested':accepted,'oauthReplayed':False}
 
     def start(self, shop_name, *, vender_id=None, foreground=False, wait=False, wait_timeout=960, progress=None, _retry_job=None):
         if wait and (type(wait_timeout) not in (int, float) or not 0 <= wait_timeout <= 1800):
@@ -126,14 +136,16 @@ class AuthManager:
                 del index[slot]
             for other_job in index.values():
                 prior = self._record(other_job)
-                if prior.get("shopName") == shop_name and prior.get("status") in {"running", "unknown"}:
+                same_target = (shop_name in {prior.get('shopName'),prior.get('requestedShopName')}
+                               or (vender_id is not None and vender_id in {prior.get('venderId'),prior.get('requestedVenderId')}))
+                if same_target and prior.get("status") in {"running", "unknown"}:
                     raise SafetyError("active-auth-target-conflict-observe-original-task")
             self.runtime.ensure()
             if not self.client.ready():
                 self.client.install()
             job = uuid.uuid4().hex[:24]
             profile = "merchant-" + job
-            data = {"kind": "shop-auth", "taskId": job, "profile": profile, "shopName": shop_name,
+            data = {"kind": "shop-auth", "taskId": job, "profile": profile, "shopName": shop_name, "requestedShopName": shop_name, "requestedVenderId": vender_id or "",
                     "venderId": vender_id or "", "status": "running", "stage": "starting_worker",
                     "ready": False, "runtimeVersion": VERSION, "createdAt": time.time()}
             if _retry_job is not None:
@@ -190,7 +202,7 @@ class AuthManager:
                     # Recheck both PID and receipt after taking the worker's full-lifetime lock.
                     if current != data or not exact_owner() or not exited():
                         return {**self.status(job), 'reconciliation': 'owner-or-receipt-changed', 'oauthReplayed': False}
-                    before_oauth = (current.get('stage') in {'starting_worker','initializing_worker','created','waiting_login'}
+                    before_oauth = (current.get('stage') in {'starting_worker','initializing_worker','created','waiting_login','waiting_shop_confirmation'}
                                     and not current.get('authorizationStarted') and not current.get('authorizationOutcomeUnknown')
                                     and not current.get('cleanupIncomplete'))
                     current.update(status='failed' if before_oauth else 'unknown', ready=False,
@@ -217,7 +229,7 @@ class AuthManager:
                 result = self.status(job)
                 if result.get('status') == 'running' and not result.get('workerReachable'):
                     result = self.reconcile(job)
-                marker = (result.get('stage'), result.get('status'), result.get('workerReachable'))
+                marker = (result.get('stage'), result.get('status'), result.get('workerReachable'), result.get('identityDiagnostic'), result.get('confirmationRejected'), result.get('reason'), json.dumps(result.get('identityCandidates',[]),sort_keys=True))
                 if progress and marker != previous: progress({**result, 'event': 'auth-progress'})
                 previous = marker
                 if result.get('status') != 'running': return result
@@ -262,10 +274,19 @@ class AuthManager:
         shops = read_json(self.state / "shops.json", {})
         matches = [(profile, shop) for profile, shop in shops.items() if shop.get("shopName") == shop_name and
                    (vender_id is None or shop.get("venderId") == vender_id)]
+        if not matches:
+            index=read_json(self.state/'auth/targets.json',{})
+            for job in set(index.values()):
+                record=self._record(job)
+                if record.get('status')!='completed' or record.get('ready') is not True or record.get('identityConfirmed') is not True or record.get('requestedShopName')!=shop_name:continue
+                profile=record.get('profile');shop=shops.get(profile)
+                if shop and shop.get('shopName')==record.get('shopName') and shop.get('venderId')==record.get('venderId') and (vender_id is None or vender_id==shop.get('venderId')):
+                    matches.append((profile,shop))
+            matches=list({profile:(profile,shop) for profile,shop in matches}.values())
         if len(matches) > 1:
             raise SafetyError("multiple-authorized-shop-profiles-select-exact-target")
         if matches:
             profile, shop = matches[0]
-            actual = Operations(self.state, self.client).connect(profile, shop_name, shop["venderId"])
+            actual = Operations(self.state, self.client).connect(profile, shop["shopName"], shop["venderId"])
             return {"ready": True, "status": "connected", "source": "realtime-official-identity", **actual}
         return self.start(shop_name, vender_id=vender_id, foreground=foreground, wait=wait, wait_timeout=wait_timeout, progress=progress)
