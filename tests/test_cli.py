@@ -14,7 +14,7 @@ class CliTests(unittest.TestCase):
  def test_onboarding_does_not_require_model_key(self):
   with tempfile.TemporaryDirectory() as d:
    p=subprocess.run([sys.executable,'scripts/merchant.py','--home',d,'onboarding'],capture_output=True,text=True,encoding='utf-8')
-   self.assertEqual(p.returncode,0,p.stderr);r=json.loads(p.stdout);self.assertEqual(r['media']['image']['status'],'adapter-ready');self.assertFalse(r['requiresEmployeeAccess']);self.assertEqual(r['version'],'0.1.0')
+   self.assertEqual(p.returncode,0,p.stderr);r=json.loads(p.stdout);self.assertEqual(r['media']['image']['status'],'adapter-ready');self.assertFalse(r['requiresEmployeeAccess']);self.assertEqual(r['version'],'0.1.1')
  def test_onboarding_identifies_selected_image_and_unselected_video(self):
   with tempfile.TemporaryDirectory() as d:
    p=subprocess.run([sys.executable,'scripts/merchant.py','--home',d,'onboarding'],capture_output=True,text=True,encoding='utf-8')

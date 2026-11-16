@@ -12,6 +12,7 @@ from . import VERSION
 from .auth_browser import PlaywrightBrowser
 from .auth_broker import BrokerState, make_server, public_status
 from .auth_flow import AuthFlow
+from .auth_lifecycle import record_event
 from .official import OfficialClient
 from .operations import Operations
 from .safety import SafetyError, atomic_json, read_json, safe_join
@@ -30,8 +31,9 @@ def drive_flow(flow, broker, operations, *, sleep=time.sleep):
             if flow.data["stage"] not in flow.TERMINAL:
                 sleep(.1)
     except (Exception, KeyboardInterrupt):
-        flow.data.update(ready=False, status="unknown" if flow.process is not None else "failed",
-                         stage="auth_outcome_unknown" if flow.process is not None else "browser_failed",
+        unknown = flow.process is not None or flow.data.get("authorizationStarted", False)
+        flow.data.update(ready=False, status="unknown" if unknown else "failed",
+                         stage="auth_outcome_unknown" if unknown else "browser_failed",
                          reason="auth-worker-interrupted-no-replay")
         flow._close()
     broker.update(flow.status())
@@ -53,6 +55,7 @@ def run_worker(state, job):
             raise SafetyError("auth-already-started-no-replay")
         current["stage"] = "initializing_worker"
         atomic_json(path, current)
+        record_event(state, job, "worker-start", current)
         try:
             return _run_owned(state, job, data)
         except (Exception, KeyboardInterrupt):
@@ -63,6 +66,7 @@ def run_worker(state, job):
                                stage="auth_outcome_unknown" if unknown else "browser_failed",
                                reason="worker-start-or-cleanup-incomplete-no-replay")
                 atomic_json(path, current)
+            record_event(state, job, "worker-failed", current)
             return public_status(current)
 
 
@@ -83,6 +87,7 @@ def _run_owned(state, job, data):
                         expected_vender_id=data.get("venderId") or None)
         result = drive_flow(flow, broker, Operations(state, client))
         # Completed state remains on disk; brief linger permits a final live observation.
+        record_event(state, job, "worker-finished", result)
         broker.cancelled.wait(2)
         return result
     finally:

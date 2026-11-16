@@ -1,3 +1,3 @@
 """Independent, merchant-owned POP operations runtime."""
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 SKILL_NAME = "heideng-ops-agent-merchant"

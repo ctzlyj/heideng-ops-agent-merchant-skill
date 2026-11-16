@@ -97,10 +97,12 @@ def parser():
  connect=sub.add_parser('shop-connect');connect.add_argument('--profile',required=True);connect.add_argument('--shop-name',required=True);connect.add_argument('--vender-id',required=True)
  auth=sub.add_parser('auth-plan');auth.add_argument('--profile',required=True);auth.add_argument('--shop-name',required=True);auth.add_argument('--vender-id')
  for name in ('auth-start','ensure-shop'):
-  c=sub.add_parser(name);c.add_argument('--shop-name',required=True);c.add_argument('--vender-id');c.add_argument('--foreground',action='store_true')
+  c=sub.add_parser(name);c.add_argument('--shop-name',required=True);c.add_argument('--vender-id');c.add_argument('--foreground',action='store_true');c.add_argument('--wait',action='store_true');c.add_argument('--wait-timeout',type=int,default=960)
  for name in ('auth-status','auth-observe','auth-cancel','auth-recover'):
   c=sub.add_parser(name);c.add_argument('--task-id',required=True)
- retry=sub.add_parser('auth-restart');retry.add_argument('--task-id',required=True);retry.add_argument('--foreground',action='store_true')
+ retry=sub.add_parser('auth-restart');retry.add_argument('--task-id',required=True);retry.add_argument('--foreground',action='store_true');retry.add_argument('--wait',action='store_true');retry.add_argument('--wait-timeout',type=int,default=960)
+ reconcile=sub.add_parser('auth-reconcile');reconcile.add_argument('--task-id',required=True)
+ aw=sub.add_parser('auth-wait');aw.add_argument('--task-id',required=True);aw.add_argument('--wait-timeout',type=int,default=960)
  plan=sub.add_parser('task-plan');plan.add_argument('--profile',required=True);plan.add_argument('--operation',required=True);plan.add_argument('--verification');plan.add_argument('--precondition');plan.add_argument('--online-verification');plan.add_argument('--result-verification')
  approval=sub.add_parser('task-approve');approval.add_argument('--task-id',required=True);approval.add_argument('--fingerprint',required=True);approval.add_argument('--confirm',action='store_true')
  for name in ('task-execute','task-status'):
@@ -180,8 +182,13 @@ def run(args):
  if command in ('auth-start','ensure-shop'):
   manager=AuthManager(state,client=client)
   method=manager.start if command=='auth-start' else manager.ensure_shop
-  return method(args.shop_name,vender_id=args.vender_id,foreground=args.foreground)
- if command=='auth-restart':return AuthManager(state,client=client).restart(args.task_id,foreground=args.foreground)
+  wait_options={'wait':True,'wait_timeout':args.wait_timeout,'progress':auth_progress} if args.wait else {}
+  return method(args.shop_name,vender_id=args.vender_id,foreground=args.foreground,**wait_options)
+ if command=='auth-restart':
+  wait_options={'wait':True,'wait_timeout':args.wait_timeout,'progress':auth_progress} if args.wait else {}
+  return AuthManager(state,client=client).restart(args.task_id,foreground=args.foreground,**wait_options)
+ if command=='auth-reconcile':return AuthManager(state,client=client).reconcile(args.task_id)
+ if command=='auth-wait':return AuthManager(state,client=client).wait(args.task_id,timeout=args.wait_timeout,progress=auth_progress)
  if command in ('auth-status','auth-observe','auth-cancel','auth-recover'):
   return getattr(AuthManager(state,client=client),command.removeprefix('auth-'))(args.task_id)
  if command=='task-plan':return ops.prepare(args.profile,_json_file(args.operation),_json_file(args.verification),precondition=_json_file(args.precondition),online_verification=_json_file(args.online_verification),result_verification=_json_file(args.result_verification))
@@ -282,6 +289,9 @@ def run(args):
  if command=='video-preflight':return preflight_video(args.manifest,state=state)
  if command=='attach-video':return attach_video(args.manifest,args.video,args.cover,_json_file(args.review),state=state)
  raise SafetyError('unknown-command')
+
+def auth_progress(result):
+ print(json.dumps(public_result(redact(result)),ensure_ascii=False,allow_nan=False),flush=True)
 
 def main(argv=None):
  for stream in (sys.stdout,sys.stderr):

@@ -6,6 +6,7 @@ from . import VERSION
 from .safety import SafetyError,atomic_json,redact,safe_join,read_json
 from .official import validate_profile
 from .operations import Operations
+from .auth_lifecycle import record_event
 
 JINGMAI_HOSTS={'jingmai.jd.com','api.m.jd.com'}
 
@@ -84,7 +85,11 @@ class AuthFlow:
   if prior.get('kind')=='shop-auth' and prior.get('taskId')==job_id and prior.get('profile')==profile and re.fullmatch('[a-f0-9]{24}',str(prior.get('restartOf',''))):self.data['restartOf']=prior['restartOf']
   self.registrar=Operations(self.state,self.client)
   self._save()
- def _save(self):self.data['updatedAt']=self.clock();atomic_json(self.path,self.data)
+ def _save(self):
+  self.data['updatedAt']=self.clock();atomic_json(self.path,self.data)
+  marker=(self.data.get('stage'),self.data.get('status'),self.data.get('authorizationStarted'))
+  if marker!=getattr(self,'_diagnostic_marker',None):
+   record_event(self.state,self.data['taskId'],'flow-stage',self.data);self._diagnostic_marker=marker
  def status(self):return dict(self.data)
  def _stderr_reader(self):
   try:

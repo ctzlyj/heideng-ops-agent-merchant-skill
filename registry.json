@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "skill": "heideng-ops-agent-merchant",
   "displayName": "黑灯运营智能体商家版",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "toolboxIsNotWhitelist": true,
   "capabilities": [
     {
@@ -18,7 +18,18 @@
       "source": "builtin-independent-merchant-runtime",
       "preparation": "available",
       "shopExecution": "requires-verified-pop-profile-and-exact-write-approval",
-      "mediaGeneration": "not-required"
+      "mediaGeneration": "not-required",
+      "authHostLifecycle": {
+        "waitCommands": [
+          "auth-start --foreground --wait",
+          "auth-restart --foreground --wait",
+          "auth-wait"
+        ],
+        "reconciliationCommand": "auth-reconcile",
+        "reconciliation": "only-proven-dead-before-oauth-may-explicitly-restart",
+        "diagnostics": "bounded-public-events-no-private-streams",
+        "workbuddyLiveRetestPending": true
+      }
     },
     {
       "id": "materials",

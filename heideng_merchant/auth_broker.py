@@ -7,11 +7,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUBLIC_FIELDS = {"kind", "taskId", "profile", "shopName", "venderId", "status", "stage", "ready",
                  "runtimeVersion", "createdAt", "updatedAt", "finishedAt", "reason", "cleanupIncomplete",
-                 "authorizationOutcomeUnknown", "authorizationStarted", "sameContextNavigation", "targetStateVerified"}
+                 "authorizationOutcomeUnknown", "authorizationStarted", "sameContextNavigation", "targetStateVerified",
+                 "workerExitVerified", "safeToRestart", "workerExitPreviousStage"}
 
 
 def public_status(data):
-    return {key: value for key, value in data.items() if key in PUBLIC_FIELDS}
+    result = {key: value for key, value in data.items() if key in PUBLIC_FIELDS}
+    if result.get('stage') == 'waiting_login' and result.get('status') == 'running':
+        result['userAction'] = '请在本次任务窗口内完成登录；如显示京麦首页，先点击“登录”，再用京麦App扫码，等待返回目标店工作台。'
+    elif result.get('stage') == 'waiting_oauth' and result.get('status') == 'running':
+        result['userAction'] = '请在同一任务窗口完成平台授权确认，不关闭窗口；确认后等待官方回执及目标店身份核对。'
+    return result
 
 
 def allowed_request(method, path, headers, port, *, task_id=None):

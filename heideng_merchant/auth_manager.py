@@ -13,6 +13,7 @@ from pathlib import Path
 
 from . import VERSION
 from .auth_broker import public_status
+from .auth_lifecycle import process_state, record_event
 from .auth_runtime import BrowserRuntime
 from .official import OfficialClient
 from .operations import Operations
@@ -51,13 +52,15 @@ def validate_target(shop_name, vender_id=None):
 
 
 class AuthManager:
-    def __init__(self, state, *, client=None, runtime=None, starter=None, request=None, startup_wait=10):
+    def __init__(self, state, *, client=None, runtime=None, starter=None, request=None, startup_wait=10, process_probe=None, sleep=None):
         self.state = Path(state).resolve()
         self.client = client or OfficialClient(self.state)
         self.runtime = runtime or BrowserRuntime(self.state)
         self.starter = starter or subprocess.Popen
         self.request = request or broker_request
         self.startup_wait = startup_wait
+        self.process_probe = process_probe or process_state
+        self.sleep = sleep or time.sleep
 
     def _path(self, job):
         if not isinstance(job, str) or not re.fullmatch("[a-f0-9]{24}", job):
@@ -94,7 +97,14 @@ class AuthManager:
                              "privatePageContent", "taskOwnedContext"}}, "workerReachable": True}
         return self.status(job)
 
-    def start(self, shop_name, *, vender_id=None, foreground=False, _retry_job=None):
+    def start(self, shop_name, *, vender_id=None, foreground=False, wait=False, wait_timeout=960, progress=None, _retry_job=None):
+        if wait and (type(wait_timeout) not in (int, float) or not 0 <= wait_timeout <= 1800):
+            raise SafetyError('auth-wait-timeout-must-be-0-to-1800-seconds')
+        result = self._start(shop_name, vender_id=vender_id, foreground=foreground, _retry_job=_retry_job)
+        # Do not keep start/install locks while a merchant is logging in.
+        return self.wait(result['taskId'], timeout=wait_timeout, progress=progress) if wait else result
+
+    def _start(self, shop_name, *, vender_id=None, foreground=False, _retry_job=None):
         shop_name, vender_id = validate_target(shop_name, vender_id)
         if not foreground:
             raise SafetyError("foreground-merchant-login-required-no-background-auth")
@@ -149,6 +159,69 @@ class AuthManager:
                 time.sleep(.1)
             return self.status(job)
 
+    def reconcile(self, job):
+        data = self._record(job)
+        status = self.status(job)
+        if data.get('status') != 'running' or status.get('workerReachable'):
+            return {**status, 'oauthReplayed': False}
+        launch_path = safe_join(self.state, 'auth/launches/' + job + '.json')
+        launch = read_json(launch_path, {})
+        handle = self._handle(job)
+        pid = launch.get('workerPid')
+        def exited():
+            try: return self.process_probe(pid) == 'exited'
+            except Exception: return False
+        def exact_owner():
+            current_launch = read_json(launch_path, {})
+            current_handle = self._handle(job)
+            return (current_launch == launch and launch.get('taskId') == job and type(pid) == int and 0 < pid <= 0xffffffff
+                    and (not current_handle or (current_handle.get('taskId') == job and current_handle.get('workerPid') == pid)))
+        if not exact_owner() or not exited():
+            return {**status, 'reconciliation': 'worker-exit-not-proven', 'oauthReplayed': False}
+        try:
+            with FileLock(safe_join(self.state, 'auth/worker-' + job + '.lock'), timeout=.1):
+                with FileLock(safe_join(self.state, 'auth/' + job + '.lock'), timeout=.1):
+                    current = self._record(job)
+                    # Recheck both PID and receipt after taking the worker's full-lifetime lock.
+                    if current != data or not exact_owner() or not exited():
+                        return {**self.status(job), 'reconciliation': 'owner-or-receipt-changed', 'oauthReplayed': False}
+                    before_oauth = (current.get('stage') in {'starting_worker','initializing_worker','created','waiting_login'}
+                                    and not current.get('authorizationStarted') and not current.get('authorizationOutcomeUnknown')
+                                    and not current.get('cleanupIncomplete'))
+                    current.update(status='failed' if before_oauth else 'unknown', ready=False,
+                                   stage='browser_failed' if before_oauth else 'auth_outcome_unknown',
+                                   reason='worker-exited-before-oauth-safe-to-restart' if before_oauth else 'worker-exited-auth-outcome-unknown-no-replay',
+                                   workerExitVerified=True, safeToRestart=before_oauth, updatedAt=time.time())
+                    if not before_oauth: current['authorizationOutcomeUnknown'] = True
+                    current['workerExitPreviousStage'] = data.get('stage')
+                    atomic_json(self._path(job), current)
+                    record_event(self.state, job, 'worker-reconciled', current)
+                    return {**public_status(current), 'workerReachable': False, 'oauthReplayed': False}
+        except SafetyError as error:
+            if str(error) != 'resource-busy': raise
+            return {**self.status(job), 'reconciliation': 'original-worker-or-task-lock-busy', 'oauthReplayed': False}
+
+    def wait(self, job, *, timeout=960, progress=None):
+        self._record(job)
+        if type(timeout) not in (int, float) or not 0 <= timeout <= 1800:
+            raise SafetyError('auth-wait-timeout-must-be-0-to-1800-seconds')
+        deadline = time.monotonic() + timeout
+        previous = None
+        try:
+            while True:
+                result = self.status(job)
+                if result.get('status') == 'running' and not result.get('workerReachable'):
+                    result = self.reconcile(job)
+                marker = (result.get('stage'), result.get('status'), result.get('workerReachable'))
+                if progress and marker != previous: progress({**result, 'event': 'auth-progress'})
+                previous = marker
+                if result.get('status') != 'running': return result
+                if time.monotonic() >= deadline:
+                    return {**result, 'waitTimedOut': True, 'oauthReplayed': False}
+                self.sleep(.5)
+        except KeyboardInterrupt:
+            return {**self.status(job), 'waitInterrupted': True, 'oauthReplayed': False}
+
     def cancel(self, job):
         handle = self._handle(job)
         if self._record(job).get("status") != "running":
@@ -157,12 +230,12 @@ class AuthManager:
         return {**self.status(job), "cancelRequested": bool(reply and reply.get("taskId") == job and reply.get("cancelRequested")),
                 "note": "only-owned-worker-may-stop-auth-no-pid-kill"}
 
-    def restart(self, job, *, foreground=False):
+    def restart(self, job, *, foreground=False, wait=False, wait_timeout=960, progress=None):
         original = self._record(job)
         if original.get("status") not in {"failed", "cancelled"} or original.get("authorizationStarted") or original.get("authorizationOutcomeUnknown"):
             raise SafetyError("original-auth-not-confirmed-safe-to-restart")
         return self.start(original["shopName"], vender_id=original.get("venderId") or None,
-                          foreground=foreground, _retry_job=job)
+                          foreground=foreground, wait=wait, wait_timeout=wait_timeout, progress=progress, _retry_job=job)
 
     def recover(self, job):
         self._record(job)
@@ -179,7 +252,7 @@ class AuthManager:
             return {**public_status(data), "recoveredShopIdentity": {k: identity[k] for k in
                     ("profile", "shopName", "shopId", "venderId", "shopType")}, "oauthReplayed": False}
 
-    def ensure_shop(self, shop_name, *, vender_id=None, foreground=False):
+    def ensure_shop(self, shop_name, *, vender_id=None, foreground=False, wait=False, wait_timeout=960, progress=None):
         shop_name, vender_id = validate_target(shop_name, vender_id)
         shops = read_json(self.state / "shops.json", {})
         matches = [(profile, shop) for profile, shop in shops.items() if shop.get("shopName") == shop_name and
@@ -190,4 +263,4 @@ class AuthManager:
             profile, shop = matches[0]
             actual = Operations(self.state, self.client).connect(profile, shop_name, shop["venderId"])
             return {"ready": True, "status": "connected", "source": "realtime-official-identity", **actual}
-        return self.start(shop_name, vender_id=vender_id, foreground=foreground)
+        return self.start(shop_name, vender_id=vender_id, foreground=foreground, wait=wait, wait_timeout=wait_timeout, progress=progress)

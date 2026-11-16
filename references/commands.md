@@ -72,3 +72,7 @@ publish-categories、publish-brands、publish-context；publish-validation-plan 
 原生已有视频计划的本地取消：video-delivery-cancel --session-id --fingerprint --confirm。仅明确取消且尚无业务尝试时可用，保留原计划和独立取消证明；unknown/allocated等不可取消，不删除状态或换ID重提。运行时版本与更新门禁见 references/native-video-delivery.md。
 
 整店已准备好素材的一份根范围：shop-material-plan --audit-id [--changes] [--target-slots]；shop-material-approve --plan-id --fingerprint --confirm [--ttl-seconds]；shop-material-execute --plan-id；shop-material-status --plan-id [--refresh]；shop-material-rows --plan-id [--view coverage|chunks --page --page-size]。Agent组织清单、批准与余缺说明，商家不手填JSON；先读 references/native-shop-material-execution.md。独立父批准/原件/全覆盖摘要，不把部分成功和平台信息分混淆。
+
+## 授权宿主生命周期（0.1.1）
+
+auth-start/auth-restart/ensure-shop可用--wait（需商家在场--foreground）保持本次调用；--wait-timeout默认960秒。auth-wait只等待原taskId，auth-reconcile严格核对原worker退出且未开始OAuth，成功后才能显式restart。只在进度变化输出JSON，最后一行是结果。WorkBuddy旧死任务和更新顺序见references/shop-connection.md，不手改/删回执。
