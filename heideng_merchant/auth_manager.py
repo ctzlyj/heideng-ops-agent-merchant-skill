@@ -108,6 +108,11 @@ class AuthManager:
         shop_name, vender_id = validate_target(shop_name, vender_id)
         if not foreground:
             raise SafetyError("foreground-merchant-login-required-no-background-auth")
+        capability = getattr(self.client, 'shop_capability', None)
+        if capability is not None:
+            admission = capability()
+            if not admission.get('authAvailable'):
+                raise SafetyError(admission.get('reason') or 'official-auth-platform-not-admitted')
         slot = hashlib.sha256(json.dumps([shop_name, vender_id], ensure_ascii=False).encode()).hexdigest()[:24]
         with FileLock(self.state / "auth" / "start.lock"):
             index_path = safe_join(self.state, "auth/targets.json")

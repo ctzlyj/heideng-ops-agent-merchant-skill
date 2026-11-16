@@ -9,7 +9,7 @@ from heideng_merchant.safety import SafetyError,file_sha,redact
 from heideng_merchant.state import merchant_home
 from heideng_merchant.official import OfficialClient
 
-HOSTS={'codex':('.codex','skills'),'claude':('.claude','skills'),'joycode':('.agents','skills'),'universal':('.agents','skills')}
+HOSTS={'codex':('.codex','skills'),'claude':('.claude','skills'),'joycode':('.joycode','skills'),'universal':('.agents','skills')}
 
 def target_directory(host,home=None,skills_dir=None):
  if skills_dir:return Path(skills_dir).resolve()/SKILL_NAME
@@ -35,9 +35,21 @@ def main(argv=None):
     else:
      source=Path(__file__).resolve().parent;version=(source/'VERSION').read_text(encoding='utf-8-sig').strip();archive=build_bundle(source,Path(temporary)/'merchant.zip',version);sha=file_sha(archive)
     result=install_archive(archive,target,state,expected_sha=sha)
-  if args.with_official and not args.offline:result['officialCli']=OfficialClient(state).install()
-  else:result['officialCli']={'ready':OfficialClient(state).ready(),'deferred':True}
-  result.update(skill=SKILL_NAME,requiresManualCommands=False,employeeDependencies=False,next='由Agent运行已安装scripts/merchant.py onboarding；需要店铺时自动补官方CLI，商家只扫码。')
+  client=OfficialClient(state)
+  result['shopCapability']=client.shop_capability()
+  if args.with_official and not args.offline:
+   try:
+    component=client.install()
+    result['officialCli']={**component,'ready':client.ready(),'deferred':False}
+   except (SafetyError,OSError,ValueError) as error:
+    permitted={'official-platform-not-supported','official-network-unavailable','official-sha256-mismatch','official-version-mismatch','official-download-too-large','official-downgrade-refused','official-download-redirect-refused'}
+    code=str(error) if isinstance(error,SafetyError) and str(error) in permitted else 'official-cli-install-step-failed'
+    ready=client.ready()
+    result['officialCli']={'status':'unavailable','ready':ready,'deferred':False,'reason':code}
+    warning='Skill本体已安装；官方京麦CLI更新未完成，原已校验CLI仍可用，使用前按原版本核对。' if ready else 'Skill本体已安装；官方京麦CLI准备未完成。店铺官方链路不可用，离线任务仍可使用。'
+    result['warnings']=[{'component':'officialCli','reason':code,'text':warning}]
+  else:result['officialCli']={'ready':client.ready(),'deferred':True}
+  result.update(skill=SKILL_NAME,requiresManualCommands=False,employeeDependencies=False,next='由Agent运行已安装scripts/merchant.py onboarding；先核对平台支持，店铺链路可用时再准备官方CLI及扫码授权。')
   print(json.dumps(redact(result),ensure_ascii=False));return 0
  except (SafetyError,OSError,ValueError) as error:
   print(json.dumps({'status':'blocked','error':redact(str(error)),'internalVersionUntouched':True},ensure_ascii=False));return 2

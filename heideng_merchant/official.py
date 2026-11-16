@@ -47,6 +47,12 @@ class OfficialClient:
   self.state=Path(state).resolve();self.download=download or official_download;self.runner=runner or subprocess.run
   self.platform_name=platform_name or ('windows-x64' if os.name=='nt' and platform.machine().lower() in ('amd64','x86_64') else 'macos-arm64' if platform.system()=='Darwin' and platform.machine()=='arm64' else 'unsupported')
   self.receipt_path=self.state/'tools'/'official.json'
+ def shop_capability(self):
+  # Local execution admission, not a claim about account permissions or live policy.
+  supported=self.platform_name in ('windows-x64','macos-arm64')
+  auth=self.platform_name=='windows-x64'
+  reason=None if auth else 'official-auth-secret-argv-backend-not-admitted' if supported else 'official-platform-not-supported'
+  return {'platform':self.platform_name,'downloadSupported':supported,'authAvailable':auth,'credentialExecutionAvailable':auth,'reason':reason,'scope':'local-adapter-platform-admission-not-account-authorization','guidance':'当前平台支持官方CLI与扫码授权；仍需本人授权。' if auth else '当前平台的店铺官方链路不可用；Skill安装、报表分析、素材整理及外部生图不受此限制。'}
  def policy(self):
   try:p=json.loads(self.download(POLICY))
   except ValueError:raise SafetyError('invalid-official-policy') from None

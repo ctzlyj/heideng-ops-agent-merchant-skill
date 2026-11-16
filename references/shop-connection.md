@@ -24,6 +24,10 @@
 3. 只有safeToRestart=true的原任务才恢复成失败；所有阻塞原任务核对后再按标准install.py更新，保留原任务/cli-home/店铺资料。不要删任务或解除未知状态来绕更新门禁。0.1.1避免same-version-different-artifact。
 4. 更新后由Agent执行auth-restart --task-id <原taskId> --foreground --wait，用户在场完成登录；把同一长运行命令保持到终态。宿主若没有长会话能力，明确报告宿主限制，不反复启动。
 
+## 平台先检查
+
+进入扫码前先核对平台支持（onboarding的shopCapability），不支持时在任务记录/运行时下载之前返回明确原因。Windows x64可用；macOS arm64有二进制但当前凭据实现被安全门禁阻断；macOS x86_64没有本地官方构建。不能继续承诺扫码连接或先下载浏览器后失败。详见references/install-runtime.md；本体安装和离线任务仍可用。
+
 ## 最小执行流程
 
 1. 明确目标完整店名；只读取商家独立shops登记，不扫描员工或其他宿主Profiles。先尝试ensure-shop。纯本地分析/素材准备不用授权。
