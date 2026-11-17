@@ -24,6 +24,17 @@
     "heideng_merchant/merchant_key_ui.py",
     "scripts/with_image_key.py",
     "heideng_merchant/runtime_dependencies.py",
-    "heideng_merchant/external_endpoint.py"
+    "heideng_merchant/external_endpoint.py",
+    "references/experience-collection.md",
+    "references/experience-comparison.md",
+    "references/experience-connection.md",
+    "references/experience-diagnosis.md",
+    "references/experience-images.md",
+    "references/experience-listing.md",
+    "references/experience-materials.md",
+    "references/experience-navigation.md",
+    "references/experience-video.md",
+    "references/execution-policy.md",
+    "references/merchant-cli-environment.md"
   ]
 }

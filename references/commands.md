@@ -1,3 +1,7 @@
+> **历史源码资料（0.1.x旧builtin运行时），不是当前产品运行说明。**
+> 本文在0.3.0的24项根package-files声明中未分发；本轮也不把它装回产品。以下旧命令不能用于当前status/run包装器，不能为阅读本文启用builtin。
+> 当前产品入口见源码根SKILL.md及references/experience-navigation.md；历史内容仅保留用于开发追溯，不作为商家执行指令。
+
 # Agent命令约定
 
 所有命令由Agent定位实际安装根目录后执行，路径使用绝对路径并正确引用，商家不复制命令或填写凭据。统一入口scripts/merchant.py默认输出UTF-8 JSON，exit2表示缺条件/阻断，不是成功。

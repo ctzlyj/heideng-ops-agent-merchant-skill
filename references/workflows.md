@@ -1,3 +1,7 @@
+> **历史源码资料（0.1.x旧builtin运行时），不是当前产品运行说明。**
+> 本文在0.3.0的24项根package-files声明中未分发；本轮也不把它装回产品。以下旧命令不能用于当前status/run包装器，不能为阅读本文启用builtin。
+> 当前产品入口见源码根SKILL.md及references/experience-navigation.md；历史内容仅保留用于开发追溯，不作为商家执行指令。
+
 # 商家业务闭环
 
 ## 经营/广告诊断

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "skill": "heideng-ops-agent-merchant",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "architecture": "mature-skill-dispatch",
   "internalReference": {
     "version": "1.5.4",
@@ -36,7 +36,9 @@
       "knownBlockers": [
         "First authorization uses original HostBrowser actions; Agent must operate actual isolated browser and report actual session identity. New shop authorization requires user approval.",
         "Downstream browser tasks need actual merchant-owned persistent profileDir; no working-browser copy."
-      ]
+      ],
+      "experienceReference": "references/experience-connection.md",
+      "experienceIsAdvisory": true
     },
     {
       "id": "materials",
@@ -63,7 +65,9 @@
         "Neural cutout runtime is optional; original platform batch cutout path remains."
       ],
       "distributionPermission": "owner-confirmed-2026-11-16",
-      "titleImportSource": "scripts/pop_workflow.py::complete_short_title_import -> scripts/pop_browser.py::import_short_titles"
+      "titleImportSource": "scripts/pop_workflow.py::complete_short_title_import -> scripts/pop_browser.py::import_short_titles",
+      "experienceReference": "references/experience-materials.md",
+      "experienceIsAdvisory": true
     },
     {
       "id": "listing",
@@ -86,7 +90,9 @@
         "run --entry scripts/hot_replica_price_plan.py listing -- <original price parameters>",
         "run link-replica -- --sku <source SKU> --draft-root <actual drafts> --store-config <shop config> --reference <category reference> --decisions <actual preflight decisions> --confirm PUBLISH_TO_JD",
         "run --entry scripts/hot_replica_preflight.py listing -- --sku <source SKU> --draft-root <drafts> --reference <category reference> --analysis-file <actual host review JSON>"
-      ]
+      ],
+      "experienceReference": "references/experience-listing.md",
+      "experienceIsAdvisory": true
     },
     {
       "id": "images",
@@ -116,7 +122,9 @@
         "run --entry scripts/patch.py image-refresh -- <write-approved run>",
         "run --entry scripts/patch_detail.py image-refresh -- <original explicit pilot flags>",
         "run --entry scripts/verify.py image-refresh -- <run>"
-      ]
+      ],
+      "experienceReference": "references/experience-images.md",
+      "experienceIsAdvisory": true
     },
     {
       "id": "collection",
@@ -140,7 +148,9 @@
       "knownBlockers": [
         "Requires actual task-owned consumer JD browser/CDP configuration; cannot copy employee/working browser.",
         "Real product data and original final-price evidence rules apply; original-price fallback is opt-in per batch."
-      ]
+      ],
+      "experienceReference": "references/experience-collection.md",
+      "experienceIsAdvisory": true
     },
     {
       "id": "comparison",
@@ -160,7 +170,9 @@
       "knownBlockers": [
         "Optional stand-alone image-search provider is not configured; original known-link/exact-spec input and host/browser route remain.",
         "Actual authorized shop/Profile and confirmation are required for repricing, as upstream."
-      ]
+      ],
+      "experienceReference": "references/experience-comparison.md",
+      "experienceIsAdvisory": true
     },
     {
       "id": "diagnosis",
@@ -196,7 +208,9 @@
         "L1": "original official fixed-GET R01-R12 and baseline recheck",
         "L2": "original Shangzhi/Jingzhuntong plan/capture/report validation reused",
         "L3": "employee GE/EasyBI/co-investment out of scope and not bundled"
-      }
+      },
+      "experienceReference": "references/experience-diagnosis.md",
+      "experienceIsAdvisory": true
     },
     {
       "id": "video",
@@ -223,7 +237,9 @@
         "run video-handoff -- publish <listing-package> --run-id <actual run> --video <run candidate MP4> --cover <run candidate JPEG> --metadata <real reviewed metadata JSON>",
         "run video-handoff -- verify-handoff <listing-package>",
         "run video-binding -- --manifest <listing-package/manifest.json> --confirm BIND_MAIN_VIDEO"
-      ]
+      ],
+      "experienceReference": "references/experience-video.md",
+      "experienceIsAdvisory": true
     }
   ],
   "imageProvider": {
@@ -265,8 +281,25 @@
   },
   "delivery": {
     "implementationDate": "2026-11-17",
-    "verificationPolicy": "no-additional-tests-or-install-rehearsals-per-user-instruction",
+    "verificationPolicy": "static-documents-manifest-command-and-safety-diff-only-no-live-actions",
     "merchantLiveActionsExecuted": false,
-    "noCompanyFallback": true
+    "noCompanyFallback": true,
+    "changeScope": "experience-navigation-documents-metadata-distribution-only"
+  },
+  "productRole": "host-agent-experience-navigation-and-mature-tools",
+  "navigation": {
+    "index": "references/experience-navigation.md",
+    "catalogIsAllowlist": false,
+    "requiredKeywordRoute": false,
+    "planningOwner": "host-agent",
+    "executionPolicy": "references/execution-policy.md",
+    "officialEnvironmentGuide": "references/merchant-cli-environment.md",
+    "executionChannels": [
+      "protected-mature-wrapper",
+      "current-official-skill-and-merchant-cli",
+      "host-tools",
+      "task-local-scripts"
+    ],
+    "wrapperRegistrationAndSourceHashesUnchanged": true
   }
 }
