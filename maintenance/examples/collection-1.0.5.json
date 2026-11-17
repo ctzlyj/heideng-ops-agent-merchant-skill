@@ -1,0 +1,67 @@
+{
+  "component": "collection",
+  "source": "ctzlyj/jd-hot-link-collector",
+  "adoptedCommit": "90ef8dfd8455848d539d22560ae26ba8bac52e2a",
+  "candidateCommit": "7f46277a7948b524b1082dea3a52b93fb37463f2",
+  "changes": [
+    {
+      "kind": "M",
+      "oldPath": "SKILL.md",
+      "newPath": "SKILL.md"
+    },
+    {
+      "kind": "M",
+      "oldPath": "scripts/batch_driver/batch_driver.py",
+      "newPath": "scripts/batch_driver/batch_driver.py"
+    },
+    {
+      "kind": "M",
+      "oldPath": "scripts/batch_driver/driver_policy.py",
+      "newPath": "scripts/batch_driver/driver_policy.py"
+    },
+    {
+      "kind": "M",
+      "oldPath": "scripts/batch_driver/resume_after_stall_isolated.py",
+      "newPath": "scripts/batch_driver/resume_after_stall_isolated.py"
+    },
+    {
+      "kind": "M",
+      "oldPath": "scripts/batch_driver/stage_pending_materials.py",
+      "newPath": "scripts/batch_driver/stage_pending_materials.py"
+    },
+    {
+      "kind": "M",
+      "oldPath": "scripts/collect_signed.mjs",
+      "newPath": "scripts/collect_signed.mjs"
+    },
+    {
+      "kind": "M",
+      "oldPath": "tests/test_batch_cli.mjs",
+      "newPath": "tests/test_batch_cli.mjs"
+    },
+    {
+      "kind": "M",
+      "oldPath": "tests/test_batch_driver.py",
+      "newPath": "tests/test_batch_driver.py"
+    }
+  ],
+  "reviewRequired": [
+    "executable-behavior-and-cross-component-review",
+    "experience-and-contract-document-review"
+  ],
+  "checks": {
+    "threeWayByteMerge": "conflict-resolved-by-maintenance",
+    "semanticSafety": "not-established-by-AI-or-string-scan",
+    "newDependenciesAutomaticallyInstalled": false,
+    "outerMerchantExperience": "preserved",
+    "stableWorkspaceModified": false
+  },
+  "admission": "not-admitted",
+  "merchantAdaptationFixes": [
+    "Page.tabs delegates to existing owned listTabs; closeTab ownership unchanged",
+    "per-batch original-price consent uses explicit merchant namespace, not cached pacing flag"
+  ],
+  "remainingReview": "candidate not admitted; actual browser/whole-batch recovery behavior has not been exercised",
+  "documentationConflict": "resolved without restoring private WebCLI or historical/global original-price authorization",
+  "offlineBoundary": "Page.tabs prototype delegates to existing listTabs; no browser/collection call"
+}

@@ -17,9 +17,12 @@ def runtime_python(state):
     return path if path.is_file() else Path(sys.executable)
 
 def requirements_for_sources(package_root, optional=None):
-    if optional not in (None,"cutout"):raise SafetyError("unknown-public-dependency-group")
-    root = Path(package_root)/'mature'
-    requirements = set()
+    if optional not in (None,"cutout","updates"):raise SafetyError("unknown-public-dependency-group")
+    core = Path(package_root)/'requirements-updates.txt'
+    update_requirements = core.read_text(encoding='utf-8').splitlines() if core.is_file() else []
+    if optional == "updates": return update_requirements
+    root = Path(package_root)/'mature' 
+    requirements = set(update_requirements)
     for source in sorted(root.iterdir()) if root.is_dir() else []:
         metadata = read_json(source/'provenance.json', {})
         filenames=['requirements.txt']

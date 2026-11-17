@@ -35,6 +35,12 @@
     "references/experience-navigation.md",
     "references/experience-video.md",
     "references/execution-policy.md",
-    "references/merchant-cli-environment.md"
+    "references/merchant-cli-environment.md",
+    "heideng_merchant/update_catalog.py",
+    "heideng_merchant/update_client.py",
+    "scripts/update_worker.py",
+    "requirements-updates.txt",
+    "updates/trust.json",
+    "references/continuous-updates.md"
   ]
 }

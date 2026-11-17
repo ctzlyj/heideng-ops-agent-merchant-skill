@@ -11,7 +11,7 @@ MANIFEST='package-manifest.json'
 RECEIPT='.merchant-install.json'
 
 def admissible_file(name):
- if name in {'SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py','package-files.json',MANIFEST}:return True
+ if name in {'SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py','package-files.json','requirements-updates.txt','updates/trust.json',MANIFEST}:return True
  if re.fullmatch(r'(?:heideng_merchant|scripts)/[a-zA-Z0-9_-]+\.py|references/[a-zA-Z0-9_-]+\.md',name):return True
  parts=name.split('/')
  if len(parts)<3 or parts[0]!='mature' or parts[1] not in {'connection','materials','listing','collection','comparison','diagnosis','refresh','video'}:return False

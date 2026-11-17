@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "skill": "heideng-ops-agent-merchant",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "architecture": "mature-skill-dispatch",
   "internalReference": {
     "version": "1.5.4",
@@ -277,14 +277,21 @@
     "channel": "verified-source-and-archives",
     "allowDowngrade": false,
     "sameVersionReplacement": false,
-    "releaseCreationAuthorized": false
+    "releaseCreationAuthorized": false,
+    "stableIndex": "updates/stable-index.json",
+    "trust": "updates/trust.json",
+    "defaultEnabled": true,
+    "checkIntervalHours": 24,
+    "componentHotUpdate": false,
+    "sourceAuthentication": "pinned-Ed25519-signature-plus-authorized-private-Git-source",
+    "runtimeAndOfficialCLI": "separate-not-unconditional"
   },
   "delivery": {
     "implementationDate": "2026-11-17",
-    "verificationPolicy": "static-documents-manifest-command-and-safety-diff-only-no-live-actions",
+    "verificationPolicy": "new-updater-local-offline-tests-and-isolated-upgrade-no-mature-business-retest",
     "merchantLiveActionsExecuted": false,
     "noCompanyFallback": true,
-    "changeScope": "experience-navigation-documents-metadata-distribution-only"
+    "changeScope": "upstream-candidates-signed-stable-index-idle-software-updater-only"
   },
   "productRole": "host-agent-experience-navigation-and-mature-tools",
   "navigation": {

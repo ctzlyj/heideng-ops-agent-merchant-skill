@@ -2,3 +2,5 @@
 
 # Vendored source bytes and provenance hashes must survive staging/clone exactly.
 mature/** -text
+
+updates/artifacts/*.zip -text
