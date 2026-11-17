@@ -27,3 +27,13 @@
 
 整理自 jingmai-cli-linker 1.0.2 / 1c438fc；[原用法](../mature/connection/references/usage.md)、[浏览器会话](../mature/connection/references/browser-session.md)。原文个人目录/固定服务端口是源版本背景，商家路径/实际端口以本包环境为准，见 [环境](merchant-cli-environment.md)。
 真实商家新授权与各宿主实机没有本次实测结论；这是环境证据限制，不是长期禁止未来授权。官方权限或宿主浏览器能力缺失时报告具体缺项，不借员工身份。
+
+
+## 0.4.2 连接执行路径（本地适配，不替代真实验收）
+
+- 首次连接由宿主先 `ensure-shop --no-auth`；已有ready直接结束，不启动连接服务。确需本店新授权时去掉no-auth，保留awaiting_auth的jobId/Profile。
+- 本包提供 `scripts/host_connection_controller.py`。宿主在任务目录用准备好的runtime解释器运行它作为browser_bridge的controller argv，不再自己编写CDP服务、OAuth确认脚本或Profile登记补丁。`python scripts/merchant.py run --entry scripts/browser_bridge.py connection -- --controller '<该argv JSON>' --once --timeout 20`。普通observe没有回报时继续观察原任务；导航/确认未明时先核对，不能重复点击。
+- 控制器只使用商家state/browser-profiles的持久目录和同contextId。登录页为passport.shop.jd.com/login/index.action；不替商家选择扫码/密码/短信，不复制Cookie。商家本人处理登录/风控；认证魔方明确去京东商城App完成安全验证，后台不继续发新授权。
+- 同店普通重试不会返回旧failed job。需要原Profile/页面恢复时用ensure-shop --resume，它先核验已有结果；不擅自cancel，不把result_unknown改为未提交。连接服务用脱离CLI进程组方式启动，宿主结束单条命令不等于结束授权。
+- OAuth确认只用于当前已许可范围；额外权限/费用/挑战交还本人。控制器只回报非敏感页面身份与context/profile元数据；最终ready仍以官方Profile实时venderinfo核店。
+- 这是必要的WorkBuddy/宿主适配。真实京麦登录、账号风控、OAuth与各宿主进程回收仍需实际设备内测，不能把控制器本地测试称为真实商家授权通过。

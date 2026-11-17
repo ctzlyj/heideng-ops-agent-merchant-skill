@@ -86,6 +86,19 @@ def ensure_core(state, package_root):
     return {'status':'ready','prepared':True,'businessExecuted':False}
 
 
+def reexec_update_runtime(state, argv=None):
+    """Updates use the already prepared isolated cryptography; no package install or network."""
+    if os.environ.get('HEIDENG_MERCHANT_UPDATE_RUNTIME')=='1':return None
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        return None
+    except ImportError:
+        interpreter=runtime_python(state)
+        if interpreter.resolve()==Path(sys.executable).resolve():raise SafetyError('merchant-update-runtime-cryptography-required')
+        env=clean_environment(Path(state)/'runtime-home',os.environ);env['HEIDENG_MERCHANT_UPDATE_RUNTIME']='1'
+        return subprocess.call([str(interpreter),'-I','-B',str(Path(__file__).resolve().parents[1]/'scripts/merchant.py'),*(sys.argv[1:] if argv is None else argv)],env=env)
+
+
 def prepare_runtime(state, package_root, optional=None):
     state = Path(state).resolve()
     directory = safe_join(state,'runtime-venv')

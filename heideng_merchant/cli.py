@@ -38,6 +38,9 @@ def main(argv=None):
             forget_key(state)
             print(json.dumps({'status':'forgotten','merchantKeyOnly':True,'businessExecuted':False}));return 0
         if args.command == 'update':
+            from .runtime_dependencies import reexec_update_runtime
+            switched=reexec_update_runtime(state)
+            if switched is not None:return switched
             from . import update_client as updater
             name = args.update_command
             if name == 'status': result = updater.status(state)

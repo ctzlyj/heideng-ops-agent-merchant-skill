@@ -8,7 +8,7 @@ import shoplib as sl
 from redaction import safe_text, safe_value
 
 
-LOGIN_HINT = '请让商家用京麦 App 扫描网页上的二维码，登录后我会自动连接这家店。'
+LOGIN_HINT = '已打开京麦登录页，请自行选择密码、短信或扫码登录；完成后自动衔接授权。'
 ACTIVE = ('starting', 'waiting', 'verifying')
 
 
@@ -131,12 +131,12 @@ class BrowserAuthJob:
                 except Exception as exc:
                     # Login redirects can destroy an evaluation context. Repeat
                     # only the read, bounded by the independent scan deadline.
-                    if getattr(exc, 'kind', '') != 'browser_error':
+                    if getattr(exc, 'kind', '') not in ('browser_error','action_pending'):
                         raise
                     self._cancelled.wait(self.poll_interval)
                     continue
                 if observation.get('challenge'):
-                    self.message = '请在京麦页面完成：' + safe_text(observation['challenge'])
+                    self.message = ('请在京东商城 App 完成账号安全验证，再回到本页面继续；不会重复发起授权。' if observation['challenge']=='account-risk-blocked' else '请在京麦页面完成：' + safe_text(observation['challenge']))
                     self._cancelled.wait(self.poll_interval)
                     continue
                 if observation.get('loggedIn'):
@@ -152,7 +152,7 @@ class BrowserAuthJob:
             if self._cancelled.is_set():
                 return
             if not identity:
-                self._finish('failed', 'waiting_login', '扫码等待超时，页面已保留，可以继续。', 'login_timeout')
+                self._stage('waiting_login', '登录尚未完成，页面已保留。请继续登录，或由宿主用 --resume 恢复原任务。')
                 return
             self.expect_vender_id = str(identity['venderId'])
             self.shop_name = identity['shopName']

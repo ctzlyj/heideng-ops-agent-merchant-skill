@@ -8,12 +8,12 @@
   "files": {
     "app/browser_adapters.py": {
       "upstreamSha256": "2bd421e1de07c81af5d1bc1db9e473541640a47cc75a4dfb19026c5adc780580",
-      "sha256": "ea1169a495e19ca1e4c02f2aeb86f7d1ac3f607111c54e526f82eeaff0f28047",
+      "sha256": "2c8b1d0aa00825cbd1d781c0d89c2de0f5e57a9cf115c4569b37368b46f4aab1",
       "adapted": true
     },
     "app/browser_auth.py": {
       "upstreamSha256": "b8377e77716588c906337c1d3d7e4aca7e897d5fde3f9eb82c38c06ec938dbaa",
-      "sha256": "d5e9bf3e60cb49364644fb07f8b04f6489f2e56f002ce07fa1fd04f0b3ae8766",
+      "sha256": "0d87b5b0f609dba8aeaa204aee97b514ffe25c9e9aa471efdb9f322f196187b7",
       "adapted": true
     },
     "app/redaction.py": {
@@ -23,7 +23,7 @@
     },
     "app/server.py": {
       "upstreamSha256": "fdbe3a272f6ebfec99dff8340da787c830f2373944d870f6404d7878fdb7bcd8",
-      "sha256": "1e54c2de90b1aa410a3901fe40108a5c194138fb429d49a104be33ea278eff76",
+      "sha256": "d1d1aa74889747801989e0107f34e1f3e1f110250b3d58b5998880089642cb6a",
       "adapted": true
     },
     "app/shoplib.py": {
@@ -38,18 +38,18 @@
     },
     "scripts/linker.py": {
       "upstreamSha256": "fcc261f757b6de8c3cfdfb76216d54a448777dbd2d37eac54dfdf3b6bb3e74e0",
-      "sha256": "8c3f15581a242c63f60f4db196aeaff7589bae72c07fa9e06badd1ee553a4f1e",
+      "sha256": "58310962173570eb1d1d148e9c8acef82815546e6830837dddbf907058afbf15",
       "adapted": true
     },
     "scripts/browser_bridge.py": {
       "upstreamSha256": "28524bb3d45c072e82bab5bb405601f51a65ce0b5e3fae3e583b158679766cba",
-      "sha256": "28524bb3d45c072e82bab5bb405601f51a65ce0b5e3fae3e583b158679766cba",
-      "adapted": false
+      "sha256": "c9cb4faa8e99640bcfe1ef99616c776bef0ea151119f0a44d18a7d6e63627230",
+      "adapted": true
     },
     "references/browser-session.md": {
       "upstreamSha256": "dbafcf49a60b997e177cc41dc2d8ff3c692589a3fa05490af100327888934392",
-      "sha256": "dbafcf49a60b997e177cc41dc2d8ff3c692589a3fa05490af100327888934392",
-      "adapted": false
+      "sha256": "7e6fa2fbf6672ee4af359260f9b23fa8a8f89747a6281e62eb8e8800cf987a3c",
+      "adapted": true
     },
     "references/usage.md": {
       "upstreamSha256": "a80fa7174405fb5594357a73e46c7feff4d4b710ad586fb6c5e0b120f9b3b2e7",

@@ -974,6 +974,18 @@ def export_pop_image_appeals(report, output_dir):
         _save_state(evidence, {**frozen, 'snapshotSha256': digest, 'fileSha256': _file_sha256(path), 'appealSubmitted': False})
     return {**result, 'appealFiles': [str(path)], 'snapshotSha256': digest, 'fileSha256': _file_sha256(path)}
 
+def audit_generation_summary(path):
+    """Planning units, not proof of required billable generation or platform completion."""
+    rows=json.loads(Path(path).read_text(encoding='utf-8')).get('rows') or []
+    missing={}
+    for row in rows:
+        slots={name for name,slot in (row.get('slots') or {}).items() if ((slot.get('state') if isinstance(slot,dict) else slot)=='missing') or (isinstance(slot,dict) and slot.get('status')=='missing')}
+        if slots:missing[str(row.get('productId') or row.get('spuId'))]=slots
+    return {'generationSpuCount':len(missing),'missingSlotCount':sum(len(v) for v in missing.values()),
+            'imageGenerationRequestCount':sum(len(v & set(IMAGE_SUFFIXES)) for v in missing.values()),
+            'spuImageReuse':True,'note':'只读规划口径；复用合格素材、京麦审核及人工接管可改变实际付费请求数。'}
+
+
 def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, product_ids=None, authorized_sku_ids=None):
     seller = client.seller_info()
     identity = _shop_identity(seller)
@@ -3932,7 +3944,7 @@ def main(argv: list[str] | None=None) -> int:
         report = args.output_dir.resolve() / 'POP全量覆盖核验.json'
         _save_state(report, payload)
         delivery = export_pop_image_appeals(payload, args.output_dir)
-        print(json.dumps({**{key: value for key, value in payload.items() if key not in {'rows', 'historicalTitleFiles', 'appealRows'}}, 'appealFiles': delivery['appealFiles'], 'appealDelivery': delivery, 'report': str(report)}, ensure_ascii=False, indent=2))
+        print(json.dumps({**{key: value for key, value in payload.items() if key not in {'rows', 'historicalTitleFiles', 'appealRows'}}, 'appealFiles': delivery['appealFiles'], 'appealDelivery': delivery, 'generationEstimate': audit_generation_summary(report), 'report': str(report)}, ensure_ascii=False, indent=2))
         return 0
     if args.command == 'reconcile-receipts':
         client = JdoClient(args.profile, args.output_dir / '.state' / 'jdo-runtime')

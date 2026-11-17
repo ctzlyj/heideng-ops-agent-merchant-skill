@@ -36,7 +36,7 @@ _PHASES = {"dispatched", "accepted", "consumed"}
 _TERMINAL = {"success", "failed", "cancelled", "mismatch"}
 _SHELLS = {"cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
            "sh", "bash", "zsh", "dash", "csh", "fish", "wscript.exe", "cscript.exe"}
-_CHALLENGES = {"", "captcha", "sms", "qr", "login", "device", "verification", "unknown"}
+_CHALLENGES = {"", "captcha", "sms", "qr", "login", "device", "verification", "unknown", "account-risk-blocked", "confirmation-pending"}
 
 
 class _Invalid(Exception):
@@ -69,7 +69,7 @@ def _controller_valid(controller):
     return executable not in _SHELLS and not executable.endswith((".cmd", ".bat"))
 
 
-def _api(path, payload=None, timeout=3):
+def _api(path, payload=None, timeout=20):
     try:
         status, data = linker.api(path, payload=payload, timeout=timeout)
         return status, data if isinstance(data, dict) else {}
@@ -176,6 +176,13 @@ def _report(stdout):
                     raise _Invalid
                 identity[key] = item
         result["identity"] = identity
+    if "profileDir" in value:
+        from heideng_merchant.mature_runtime import merchant_profile_directory
+        directory=merchant_profile_directory(value.get("profileDir"))
+        if directory is None:raise _Invalid
+        result["profileDir"]=str(directory)
+    if value.get("browserChannel") in ("chrome","msedge","chromium"):result["browserChannel"]=value["browserChannel"]
+    if value.get("requiresUserAction") in ("请在京东商城 App 完成账号安全验证，再回到当前页面继续。",):result["requiresUserAction"]=value["requiresUserAction"]
     if "challenge" in value:
         challenge = value["challenge"]
         if not isinstance(challenge, str):
@@ -218,6 +225,9 @@ def _dispatch_locked(controller, once, timeout, receipt_path):
     while True:
         try:
             snapshot = _action(timeout)
+        except KeyError as error:
+            if error.args == ("HEIDENG_MERCHANT_PACKAGE",):return _public("error",error="missing-package-env")
+            return _public("error",error="connection-environment-unavailable")
         except Exception:
             return _public("error", error="action_unavailable")
         action, job_id = snapshot["action"], snapshot.get("jobId")
@@ -268,7 +278,7 @@ def _dispatch_locked(controller, once, timeout, receipt_path):
         receipt = {"jobId": job_id, "actionId": action["id"], "phase": "accepted"}
 
 
-def dispatch(controller: list[str], once=True, timeout=3):
+def dispatch(controller: list[str], once=True, timeout=20):
     """Return a public status. Never retry a controller action or unknown report."""
     if not _controller_valid(controller):
         return _public("error", error="invalid_controller")
@@ -279,6 +289,9 @@ def dispatch(controller: list[str], once=True, timeout=3):
         home = linker.sl.linker_home()
         with _lock(home):
             return _dispatch_locked(list(controller), once, timeout, home / "browser-bridge-receipt.json")
+    except KeyError as error:
+        if error.args == ("HEIDENG_MERCHANT_PACKAGE",):return _public("error",error="missing-package-env")
+        return _public("error",error="connection-environment-unavailable")
     except Exception:
         return _public("needs_reconciliation", error="receipt_unavailable")
 
@@ -294,7 +307,7 @@ def main(argv=None):
     parser.add_argument("--controller", required=True)
     parser.add_argument("--once", action="store_true", default=True,
                         help="Dispatch one action and return (the default).")
-    parser.add_argument("--timeout", default="3")
+    parser.add_argument("--timeout", default="20")
     try:
         args = parser.parse_args(argv)
         try:

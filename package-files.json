@@ -43,6 +43,8 @@
     "updates/trust.json",
     "references/continuous-updates.md",
     "heideng_merchant/merchant_key_store.py",
-    "scripts/runtime_preflight.py"
+    "scripts/runtime_preflight.py",
+    "heideng_merchant/host_connection_controller.py",
+    "scripts/host_connection_controller.py"
   ]
 }

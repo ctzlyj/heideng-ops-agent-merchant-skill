@@ -198,6 +198,12 @@ def collection_environment(state, arguments, environment):
         if os.environ.get(name):environment[name]=os.environ[name]
     return environment
 
+def host_browser_controller_command(state):
+    """Ready-made controller argv; host only repeats the original bridge command."""
+    from .runtime_dependencies import runtime_python
+    return [str(runtime_python(state)),'-I','-B',str(PACKAGE_ROOT/'scripts/host_connection_controller.py')]
+
+
 def preflight(capability, arguments, *, state, entry=None, package_root=None):
     """Static dependencies/CLI bridge check before requesting a merchant key."""
     root = Path(package_root or PACKAGE_ROOT);path,_ = source_path(capability,entry,root)

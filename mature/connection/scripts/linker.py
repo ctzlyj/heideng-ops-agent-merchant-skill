@@ -92,8 +92,9 @@ def ensure_server() -> bool:
     subprocess.Popen(
         [sys.executable, "-I", "-B", str(Path(os.environ["HEIDENG_MERCHANT_PACKAGE"])/"scripts/mature_entry.py"),
          str(SERVER_PY), "--port", str(DEFAULT_PORT), "--no-clipboard"],
-        cwd=str(APP_DIR), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=CREATE_NO_WINDOW,
+        cwd=str(APP_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=CREATE_NO_WINDOW | (0x00000008 if os.name == "nt" else 0),
+        start_new_session=(os.name != "nt"),
     )
     deadline = time.time() + 20
     while time.time() < deadline:

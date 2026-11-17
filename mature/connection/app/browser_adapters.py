@@ -67,6 +67,7 @@ _HINTS = {
     "identity_mismatch": "当前页面身份与已验证的复用身份不一致。",
     "invalid_observation": "身份报告格式无效，不能推断店铺身份。",
     "stale_action": "动作已过期、已完成或不属于本任务。",
+    "action_pending": "浏览器动作仍在处理，请继续观察原任务，不要重复操作。",
     "busy": "本任务已有浏览器动作等待报告。",
     "cancelled": "本任务的浏览器动作已取消。",
     "closed": "本任务的浏览器已关闭。",
@@ -76,7 +77,7 @@ _HINTS = {
     "wrong_thread": "请在创建浏览器会话的工作线程内操作。",
     "provider_unavailable": "可选 Playwright 运行环境不可用。",
 }
-_CHALLENGES = {"", "captcha", "sms", "qr", "login", "device", "verification", "unknown"}
+_CHALLENGES = {"", "captcha", "sms", "qr", "login", "device", "verification", "unknown", "account-risk-blocked", "confirmation-pending"}
 _IDENTITY_KEYS = ("venderId", "shopId", "shopName")
 _PLAYWRIGHT_RUNTIME = threading.local()
 
@@ -190,10 +191,9 @@ class HostBrowser:
             if pending is None:
                 return None
             if time.monotonic() >= pending["deadline"]:
-                pending["failure"] = "browser_timeout"
-                self._pending = None
+                # An idle human-facing action is still alive; only its consumer is late.
                 self._condition.notify_all()
-                return None
+                return None if pending["action"]["kind"]=="observe" else dict(pending["action"])
             return dict(pending["action"])
 
     def report(self, action_id, result):
@@ -201,11 +201,8 @@ class HostBrowser:
             pending = self._pending
             if pending is None or not isinstance(action_id, str) or pending["action"]["id"] != action_id:
                 return {"status": "rejected", "kind": "stale_action"}
-            if time.monotonic() >= pending["deadline"]:
-                pending["failure"] = "browser_timeout"
-                self._pending = None
-                self._condition.notify_all()
-                return {"status": "rejected", "kind": "stale_action"}
+            if time.monotonic() >= pending["deadline"] and pending["action"]["kind"] in ("open_login", "open_oauth", "confirm"):
+                pending["deadline"] = time.monotonic() + self._timeout
             context = result.get("contextId") if isinstance(result, dict) else None
             if not isinstance(context, str) or not context or len(context) > 200 or result.get("owned") is not True:
                 return {"status": "rejected", "kind": "session_unverified"}
@@ -245,39 +242,29 @@ class HostBrowser:
 
     def _request(self, kind, **payload):
         with self._condition:
-            if self._closed:
-                raise BrowserError("closed")
-            if self._closing:
-                raise BrowserError("busy")
+            if self._closed:raise BrowserError("closed")
+            if self._closing:raise BrowserError("busy")
             if kind == "close":
                 self._closing = True
                 if self._pending is not None:
-                    self._pending["failure"] = "cancelled"
-                    self._pending = None
-                    self._condition.notify_all()
-            elif self._pending is not None:
-                raise BrowserError("busy")
-            pending = {"action": {"id": uuid.uuid4().hex, "kind": kind, **payload},
-                       "deadline": time.monotonic() + self._timeout, "done": False}
-            self._pending = pending
-            self._condition.notify_all()
+                    self._pending["failure"] = "cancelled";self._pending = None;self._condition.notify_all()
+            elif self._pending is not None:raise BrowserError("busy")
+            # UI operations can be pending; a read must not kill a human login.
+            deadline = time.monotonic() + self._timeout if kind in ("open_login", "open_oauth", "confirm") else float("inf")
+            pending = {"action": {"id": uuid.uuid4().hex, "kind": kind, **payload}, "deadline": deadline, "done": False}
+            self._pending = pending;self._condition.notify_all()
             try:
                 while not pending["done"]:
                     if "failure" in pending:
+                        if pending["failure"]=="browser_timeout":raise BrowserError("action_pending")
                         raise BrowserError(pending["failure"])
+                    if kind in ("open_login", "open_oauth", "confirm") and time.monotonic() >= pending["deadline"]:
+                        # Reconcile the exact action before replay; never infer not-submitted.
+                        raise BrowserError("action_pending")
                     remaining = pending["deadline"] - time.monotonic()
-                    if remaining <= 0:
-                        if self._pending is pending:
-                            self._pending = None
-                        raise BrowserError("browser_timeout")
-                    self._condition.wait(min(remaining, self._poll))
-                if "failure" in pending:
-                    raise BrowserError(pending["failure"])
-                return pending["result"]
+                    self._condition.wait(max(0.001, min(remaining, self._poll)))
             finally:
-                if kind == "close":
-                    self._closed = True
-                    self._closing = False
+                if kind == "close":self._closed = True;self._closing = False
 
     def open_login(self, target):
         return self._request("open_login", target=_target(target))
@@ -327,7 +314,7 @@ class PlaywrightBrowser:
                     or not isinstance(reuse, dict) or reuse.get("verified") is not True):
                 raise BrowserError("session_unverified")
             self._reuse_identity = _identity(reuse, True)
-        self._login_url = _url(config.get("loginUrl", "https://jingmai.jd.com/"))
+        self._login_url = _url(config.get("loginUrl", "https://passport.shop.jd.com/login/index.action"))
         self._identity_script = script
         self._confirm_selector = config.get("confirmSelector")
         if self._confirm_selector is not None and (not isinstance(self._confirm_selector, str) or not self._confirm_selector.strip()):

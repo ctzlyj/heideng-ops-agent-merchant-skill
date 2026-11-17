@@ -41,7 +41,7 @@ Host 确认回报保留受限的 challenge，流程会提示平台本人步骤�
 
 身份由当前工具读已经验证的页面接口或可靠 DOM，只回报店名、venderId、shopId。读不到可靠身份时让用户完成平台店铺选择或继续调查页面，不猜接口、不读 Cookie/历史、不提取授权码。真实 JoyCode 内置工具的 context 证明与跨域 SSO 尚未单独验收。
 
-Agent 可运行 `scripts/browser_bridge.py --controller '<JSON argv>' --once --timeout 3`，通过 stdin 把私有动作交给已选定的任务局部浏览器控制器。地址不放进命令参数、普通 stdout 或日志；控制器只返回观察结果。桥接助手沿用 linker 当前服务连接和本机认证，不写死宿主端口或凭据。用户不需敲命令或配置控制器，Agent 按实时可用工具选择。
+Agent 可运行 `scripts/merchant.py run --entry scripts/browser_bridge.py connection -- --controller '<JSON argv>' --once --timeout 20`，通过 stdin 把私有动作交给已选定的任务局部浏览器控制器。地址不放进命令参数、普通 stdout 或日志；控制器只返回观察结果。桥接助手沿用 linker 当前服务连接和本机认证，不写死宿主端口或凭据。用户不需敲命令或配置控制器，Agent 按实时可用工具选择。
 
 助手在用户状态目录保存最小 jobId/actionId/phase 回执；重复调用不会重做结果未知的同动作。超时或报告不明先核对动作/任务状态，`consumed` 不等于浏览器成功或授权 ready，不能据此声称完成；最终以指定 Profile 实时身份核验为准。收到 ready 后处理本任务 close 动作，仅关闭自己的页面。
 
@@ -54,3 +54,10 @@ Agent 可给 ensure-shop 提供 `--browser-config <配置文件>`，指定 provi
 登录、OAuth、确认使用同 context；账号变更、验证码、确认按钮缺失时停止自动确认。模拟证明 Cookie 由浏览器自然携带，没有读取或导出。真实京麦跨域 SSO 未验证。
 
 Playwright 对象和收尾在创建它的工作线程操作。只关闭本任务页面；其它页面由其主人处理。
+
+
+### 商家版内置控制器与迟到动作
+
+WorkBuddy等宿主可使用包内`scripts/host_connection_controller.py`的argv，不需要再编写CDP控制脚本。它持久化contextId、owned profileDir与browserChannel，不持久化URL、Cookie或身份凭据。打开京麦商家登录页后由商家选择登录方式；认证魔方给出去京东App完成安全验证的明确动作。
+
+导航/确认有独立pending阶段，迟到不等于失败；允许同一actionId的迟到回报以完成核对，不新建动作重放。observe是无限等待中的读取轮次，空闲不会杀死授权。普通同店重试创建新任务，显式resume才恢复原任务/Profile；OAuth未知结果仍先核同一Profile。

@@ -77,11 +77,20 @@ def _mac_keychain(state,operation,value=None):
             if item:cf.CFRelease(item)
 
 
+def _legacy_path(state):return safe_join(Path(state).resolve(), 'lts4ai.key.dpapi')
+
+
 def read_key(state):
     try:
         if os.name=='nt':
             path=_path(state)
-            if not path.is_file():return None
+            if not path.is_file():
+                # Only the merchant product's own previous file, never personal Skill/company credential paths.
+                legacy=_legacy_path(state)
+                if not legacy.is_file():return None
+                value=_dpapi(legacy.read_bytes(),decrypt=True).decode('utf-8')
+                store_key(state,value)
+                return value  # Preserve the old encrypted blob as recovery evidence.
             if path.stat().st_size>32768:raise SafetyError('merchant-os-secret-storage-invalid')
             return _dpapi(path.read_bytes(),decrypt=True).decode('utf-8')
         if sys.platform=='darwin':

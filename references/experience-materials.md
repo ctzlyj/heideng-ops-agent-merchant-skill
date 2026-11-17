@@ -41,3 +41,8 @@ jd-material-pop-skill 2026.11.207 / b56b223；[导入说明](../mature/materials
 - 同目标/费用已有批准继续执行，不再为免费抠图或同一费用逐项重复问；新增费用/范围仍说明。不能把已有素材复用的22秒当新图全流程预期。
 - 大批结果打印摘要及 `resultFile`，完整结果放原任务 `.state`，宿主按需要读真实缺口/失败行，不把几十万字倒进聊天。查询对账须传包含 `批次*/.state/task.json` 的原任务根目录，错层路径明确报错，不返回空成功。
 - 宿主回收进程后OS执行锁自动释放；旧执行标记只有确认原PID已退出才退休，不删除业务状态/未知回执。占位恢复不等于上传可重试。两次查无同名图片/槽位空不证明未知提交没有发生。
+
+
+### 盘点费用口径与输入入口
+
+`audit-pop-coverage`输出的generationEstimate区分SKU缺口、SPU和槽位估算，不等于实际付费请求数；同SPU图复用和人工接管保持。短标题宿主文案用agent-text-file JSON，`validate-short-titles`校验的是官方XLSX导入表，不能用JSON调用XLSX校验。模板沿用mature/materials/assets原文件。
