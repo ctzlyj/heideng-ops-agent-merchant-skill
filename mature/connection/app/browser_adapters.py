@@ -165,9 +165,52 @@ def create_browser(config=None):
     provider = config.get("provider", "host")
     if provider == "host":
         return HostBrowser(config)
+    if provider == 'builtin':
+        identity=config.get('shopIdentity') or {}
+        return _BUILTIN_FACTORY(identity)
     if provider == "playwright":
         return PlaywrightBrowser(config)
     raise BrowserError("configuration")
+
+
+class BuiltinBrowser:
+    """Mature auth drives the packaged controller itself; no Agent polling loop."""
+    def __init__(self,shop_identity=None):
+        from heideng_merchant.host_connection_controller import HostConnectionController
+        self.controller=HostConnectionController(shop_identity=shop_identity)
+        self.profile_directory=None;self.profile_channel=None;self._context_id=None;self._closed=False;self._oauth_confirm_handled=False
+    def _call(self,kind,**payload):
+        if self._closed and kind!='close':raise BrowserError('closed')
+        result=self.controller.dispatch({'action':{'kind':kind,**payload}})
+        if not isinstance(result,dict):raise BrowserError('browser_error')
+        if result.get('profileDir'):
+            from heideng_merchant.mature_runtime import merchant_profile_directory
+            self.profile_directory=merchant_profile_directory(result['profileDir'])
+        self.profile_channel=result.get('browserChannel')
+        context=result.get('contextId')
+        if not context or result.get('owned') is not True or (self._context_id and context!=self._context_id):raise BrowserError('context_mismatch')
+        if self._context_id is None and result.get('isolated') is not True and result.get('verifiedReuse') is not True:raise BrowserError('session_unverified')
+        self._context_id=context
+        if result.get('ok') is False or result.get('error'):
+            kind_name=result.get('error')
+            if kind_name=='login_required':raise BrowserError('login_required')
+            if kind_name=='confirmation_scope_changed':raise BrowserError('challenge')
+            raise BrowserError('browser_error')
+        return result
+    def open_login(self,target):self._call('open_login',target=_target(target));return {'status':'ok'}
+    def observe(self):
+        value=self._call('observe')
+        return {'loggedIn':bool(value.get('loggedIn')),'identity':value.get('identity') or {},'challenge':value.get('challenge','')}
+    def open_oauth(self,url):self._call('open_oauth',url=_url(url));self._oauth_confirm_handled=False;return {'status':'ok'}
+    def confirm(self):
+        if self._oauth_confirm_handled:raise BrowserError('action_pending')
+        self._oauth_confirm_handled=True
+        result=self._call('confirm')
+        return {'challenge':result['challenge']} if result.get('challenge') else {'status':'ok'}
+    def close(self):self._call('close');self._closed=True;return {'status':'closed'}
+
+
+def _BUILTIN_FACTORY(shop_identity):return BuiltinBrowser(shop_identity)
 
 
 class HostBrowser:

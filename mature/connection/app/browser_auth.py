@@ -22,7 +22,7 @@ class BrowserAuthJob:
         self.shop_name = shop_name
         self.expect_vender_id = str(expect_vender_id or '')
         self.browser = browser
-        self.browser_config = browser_config
+        self.browser_config = browser_config if browser_config is not None else {'provider':'builtin','shopIdentity':{'shopName':shop_name,'venderId':str(expect_vender_id or '')}}
         self.login_factory = login_factory
         self.login_timeout, self.oauth_timeout = login_timeout, oauth_timeout
         self.poll_interval = poll_interval

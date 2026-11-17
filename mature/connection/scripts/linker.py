@@ -152,6 +152,8 @@ def cmd_connect(a):
     payload = {"shopName": a.shop or "", "profile": a.profile or "", "venderId": a.vender_id or ""}
     if a.no_open:
         payload['browserConfig'] = {'provider': 'host'}
+    elif 'browserConfig' not in payload:
+        payload['browserConfig']={'provider':'builtin','shopIdentity':{'shopName':shop_name,'venderId':vender_id}}
     data = _unwrap(*api("/api/connect", payload))
     if data.get('jobId'):
         sl.save_pending({'jobId': data['jobId'], 'profile': data['profile'], 'query': a.shop,
@@ -266,6 +268,8 @@ def cmd_ensure_shop(a):
         payload['browserConfig'] = sl.read_json(Path(config_file), {})
     if a.no_open:
         payload['browserConfig'] = {'provider': 'host'}
+    elif 'browserConfig' not in payload:
+        payload['browserConfig']={'provider':'builtin','shopIdentity':{'shopName':shop_name,'venderId':vender_id}}
     started = _unwrap(*api("/api/connect", payload))
     if started.get('status') == 'ready':
         return started

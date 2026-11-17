@@ -8,12 +8,12 @@
   "files": {
     "app/browser_adapters.py": {
       "upstreamSha256": "2bd421e1de07c81af5d1bc1db9e473541640a47cc75a4dfb19026c5adc780580",
-      "sha256": "2c8b1d0aa00825cbd1d781c0d89c2de0f5e57a9cf115c4569b37368b46f4aab1",
+      "sha256": "eb313899d9bc9b853df0dcb7d6fc6ca6f8a8aac51040aeb7e831b2c9df8ead5a",
       "adapted": true
     },
     "app/browser_auth.py": {
       "upstreamSha256": "b8377e77716588c906337c1d3d7e4aca7e897d5fde3f9eb82c38c06ec938dbaa",
-      "sha256": "0d87b5b0f609dba8aeaa204aee97b514ffe25c9e9aa471efdb9f322f196187b7",
+      "sha256": "6e0055ce44619ff8f62155bbb321ea1662fb88bd824605f0e0dfd55dc9f4ed8d",
       "adapted": true
     },
     "app/redaction.py": {
@@ -38,7 +38,7 @@
     },
     "scripts/linker.py": {
       "upstreamSha256": "fcc261f757b6de8c3cfdfb76216d54a448777dbd2d37eac54dfdf3b6bb3e74e0",
-      "sha256": "58310962173570eb1d1d148e9c8acef82815546e6830837dddbf907058afbf15",
+      "sha256": "34ce701a335ec5b85df24be3bd8cb9c31ae70e310b7bd5571ed58e60ea815d40",
       "adapted": true
     },
     "scripts/browser_bridge.py": {

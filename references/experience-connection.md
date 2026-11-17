@@ -37,3 +37,12 @@
 - 同店普通重试不会返回旧failed job。需要原Profile/页面恢复时用ensure-shop --resume，它先核验已有结果；不擅自cancel，不把result_unknown改为未提交。连接服务用脱离CLI进程组方式启动，宿主结束单条命令不等于结束授权。
 - OAuth确认只用于当前已许可范围；额外权限/费用/挑战交还本人。控制器只回报非敏感页面身份与context/profile元数据；最终ready仍以官方Profile实时venderinfo核店。
 - 这是必要的WorkBuddy/宿主适配。真实京麦登录、账号风控、OAuth与各宿主进程回收仍需实际设备内测，不能把控制器本地测试称为真实商家授权通过。
+
+
+## 单命令连接（替代0.4.2手工循环主路径）
+
+新店已获用户明确授权后，宿主只调用 `ensure-shop --shop <目标> --timeout 600`，不传 `--no-open`。默认provider=builtin，由原BrowserAuthJob直接驱动包内HostConnectionController；宿主不再循环browser_bridge、拼controller argv或常驻临时控制器。老店`--no-auth` ready不会打开浏览器。
+
+浏览器默认跟随本机Chrome/Edge设置，之后绑定同店context/profile/channel。登录页交给商家选择密码/短信/扫码，文本店名不是完整身份；只从已登录工作台读取可靠店铺信息，最终仍以官方venderinfo核店。遇到账号风控只提示本人操作，不重开任务。
+
+0.4.2手工`browser_bridge`入口保留给需要自带HostBrowser的宿主，不是默认新店路径。页面驱动随动作释放，商家profile保留，不能反复打开新窗口。OAuth确认最多一次；超时只观察/核验，不重复点击。

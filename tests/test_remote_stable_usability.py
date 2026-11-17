@@ -25,7 +25,7 @@ class RemoteStableTests(unittest.TestCase):
             source=mod.GitSource(root/'git-cache',trust['repository'],trust['ref'])
             payload=source.read_index()
             from heideng_merchant.update_catalog import verify
-            releases=verify(payload,trust)['releases'];release=next(x for x in releases if x['version']=='0.4.2')
+            releases=verify(payload,trust)['releases'];release=next(x for x in releases if x['version']=='0.4.3')
             artifact=root/'downloaded.zip';artifact.write_bytes(source.read_blob(release['gitBlob']))
             self.assertEqual(digest(artifact),release['sha256'])
             self.assertEqual(artifact.stat().st_size,release['sizeBytes'])

@@ -7,7 +7,6 @@ from __future__ import annotations
 import json, os, secrets, sys, uuid
 from pathlib import Path
 from urllib.parse import urlsplit
-from .mature_runtime import merchant_profile_directory
 from .state import FileLock
 
 LOGIN_URL='https://passport.shop.jd.com/login/index.action'
@@ -36,19 +35,20 @@ def _identity(page):
         r"""() => {let t=document.body.innerText;let m=t.match(/(?:店铺名称|当前店铺|店铺)[:：\s]*([^\n]{2,80})/);return m&&m[1]}"""):
         try:
             name=page.evaluate(script)
-            if isinstance(name,str) and 1<len(name.strip())<80:return {'shopName':name.strip()}
+            if isinstance(name,str) and 1<len(name.strip())<80 and name.strip() not in ('京东-欢迎登录','京麦工作台-京东商家一站式工作台') and not any(x in name for x in ('密码登录','短信登录','立即登录','开店')):return {'shopName':name.strip()}
         except Exception:pass
     return {}
 
 
 class HostConnectionController:
-    def __init__(self,state=None):
+    def __init__(self,state=None,shop_identity=None):
+        self.shop_identity=shop_identity or {}
         home=Path(state or os.environ['HEIDENG_MERCHANT_HOME']).resolve()
         self.home=home;self.root=home/'browser-controller'
         self.root.mkdir(parents=True,exist_ok=True)
         self._state_path=self.root/'session.json'
         self._state=None
-        self._playwright=None;self.context=None;self.page=None;self.context_id=None;self.channel=None;self.profile=None
+        self._playwright=None;self.context=None;self.page=None;self.context_id=None;self.channel=None;self.profile=None;self.oauth_confirm_handled=False
         self.owned_pages=[];self.oauth_identity=None
 
     def describe_contract(self):return _public(None)
@@ -57,20 +57,23 @@ class HostConnectionController:
         if self._state is not None:return self._state
         from .safety import read_json
         self._state=read_json(self._state_path,{})
-        if self._state and set(self._state)!={'contextId','profileDir','browserChannel'}:self._state=None
+        if self._state and set(self._state)!={'contextId','profileDir','browserChannel','shopIdentity'}:self._state=None
         return self._state
 
-    def _launch(self,channel='chrome'):
+    def _launch(self,channel=None):
         if self.context is not None:return
         from playwright.sync_api import sync_playwright
         state=self._load()
         if state:
+            if state.get('shopIdentity')!=self.shop_identity:raise RuntimeError('connection-profile-belongs-to-another-shop')
             self.context_id=state['contextId'];self.channel=state['browserChannel'];self.profile=Path(state['profileDir'])
         else:
             self.context_id='merchant-connection-'+uuid.uuid4().hex
             self.profile=self.home/'browser-profiles'/('connection-'+uuid.uuid4().hex[:12])
-            self.channel=channel
-        directory=merchant_profile_directory(self.profile)
+            self.channel=channel or self._default_channel()
+        directory=self.profile.resolve()
+        expected=(self.home/'browser-profiles').resolve()
+        if not directory.is_relative_to(expected):raise RuntimeError('merchant-owned-profile-required')
         if directory is None:raise RuntimeError('merchant-owned-profile-required')
         directory.mkdir(parents=True,exist_ok=True)
         self._playwright=sync_playwright().start()
@@ -82,9 +85,17 @@ class HostConnectionController:
         if self.page not in self.owned_pages:self.owned_pages.append(self.page)
         self._save()
 
+    def _default_channel(self):
+        if os.name!='nt':return 'chrome'
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice') as key:
+                return 'chrome' if 'chrome' in str(winreg.QueryValueEx(key,'ProgId')[0]).lower() else 'msedge'
+        except OSError:return 'chrome'
+
     def _save(self):
         from .safety import atomic_json
-        atomic_json(self._state_path,{'contextId':self.context_id,'profileDir':str(self.profile.resolve()),'browserChannel':self.channel})
+        atomic_json(self._state_path,{'contextId':self.context_id,'profileDir':str(self.profile.resolve()),'browserChannel':self.channel,'shopIdentity':self.shop_identity})
 
     def _result(self,extra=None):
         result={'ok':True,'contextId':self.context_id,'owned':True,'isolated':True,'verifiedReuse':True,'profileDir':str(self.profile.resolve()),'browserChannel':self.channel}
@@ -92,9 +103,12 @@ class HostConnectionController:
         return result
 
     def _open_login(self,action):
-        self._launch(action.get('browserChannel') or 'chrome')
+        self._launch(action.get('browserChannel'))
         url=self.page.url
-        if url=='about:blank' or not _trusted_shop_page(url):self.page.goto(LOGIN_URL,wait_until='domcontentloaded')
+        if url=='about:blank' or not _trusted_shop_page(url) or urlsplit(url).hostname=='passport.shop.jd.com' and not self.shop_identity.get('_loginComplete'):
+            # Opening the login page is only for a not-yet-authenticated session; never force logout.
+            if urlsplit(url).hostname=='passport.shop.jd.com' and self.shop_identity.get('_loginComplete'):return self._result()
+            self.page.goto(LOGIN_URL,wait_until='domcontentloaded')
         # Do not select QR/password/SMS on the merchant's behalf.
         return self._result()
 
@@ -106,7 +120,8 @@ class HostConnectionController:
         url=self.page.url;host=(urlsplit(url).hostname or '').lower()
         if host=='aq.jd.com' and urlsplit(url).path.startswith('/certified'):
             return self._result({'loggedIn':False,'identity':{},'challenge':'account-risk-blocked','requiresUserAction':'请在京东商城 App 完成账号安全验证，再回到当前页面继续。'})
-        identity=_identity(self.page) if _trusted_shop_page(url) else {}
+        host=(urlsplit(url).hostname or '').lower()
+        identity=_identity(self.page) if host not in {'passport.shop.jd.com','passport.jd.com'} else {}
         return self._result({'loggedIn':bool(identity),'identity':identity,'challenge':''})
 
     def _open_oauth(self,action):
@@ -116,12 +131,13 @@ class HostConnectionController:
         observation=self._observe()
         if observation.get('challenge'):return self._result({'challenge':observation['challenge']})
         if not observation.get('loggedIn'):return {'ok':False,'error':'login_required'}
-        self.oauth_identity=observation['identity']
+        self.oauth_identity=observation['identity'];self.oauth_confirm_handled=False
         self.page.goto(url,wait_until='domcontentloaded')
         return self._result()
 
     def _confirm(self):
         self._launch()
+        if self.oauth_confirm_handled:return {'ok':False,'error':'confirmation_already_processed'}
         observation=self._observe()
         if observation.get('challenge'):return self._result({'challenge':observation['challenge']})
         # Normal current-scope OAuth confirmation only. No hidden scope/cost approval.
@@ -136,7 +152,7 @@ class HostConnectionController:
         button=self.page.get_by_role('button',name='登录',exact=True)
         if not button.count():button=self.page.get_by_text('登录',exact=True)
         if not button.count():return {'ok':False,'error':'confirmation_button_unavailable'}
-        button.first.click(timeout=15000)
+        button.first.click(timeout=15000);self.oauth_confirm_handled=True
         return self._result()
 
     def _close(self):
