@@ -1,7 +1,7 @@
 ---
 name: heideng-ops-agent-merchant
 description: 京东 POP 商家在本地 Agent 宿主中用自然语言交办运营任务；提供电商经验导航、独立安装更新与成熟工具。适用于连接店铺、内容信息分、上新复刻实拍、图文优化、采集比价、经营广告诊断及已有视频交接，也支持按任务组合其他商家已授权官方能力。
-version: 0.4.0
+version: 0.4.1
 ---
 
 # 黑灯运营智能体商家版
@@ -35,13 +35,13 @@ version: 0.4.0
 
 ## 安装、更新和成熟包装器
 
-由 Agent 从实际源码/解压目录执行 `python install.py --host codex --with-runtime --with-official`；JoyCode 用 `--host joycode`，WorkBuddy/其他宿主用其实际 `--skills-dir`，不猜安装目录。独立名 `heideng-ops-agent-merchant`、状态 `~/.heideng-merchant`；升级不覆盖内部版、个人 Skill、商家记忆、任务结果或运行数据。同版本异包/降级/哈希保护保持，不以手改回执或 rollback→install 当正常更新。
+由 Agent 从实际源码/解压目录执行 `python install.py --host codex --with-runtime --with-official`；JoyCode 用 `--host joycode`，WorkBuddy 已核对使用标准个人路径时用 `--host workbuddy`；宿主实际配置不同则用其 `--skills-dir`，不猜用户名/路径。核心运行依赖默认准备，旧安装缺失时任务入口补齐；神经抠图仍按需可选。独立名 `heideng-ops-agent-merchant`、状态 `~/.heideng-merchant`；升级不覆盖内部版、个人 Skill、商家记忆、任务结果或运行数据。同版本异包/降级/哈希保护保持，不以手改回执或 rollback→install 当正常更新。
 
 包装器用法：`python scripts/merchant.py status`；`python scripts/merchant.py run [--entry scripts/已登记入口.py] <capability> -- <原成熟参数>`。入口/来源以 `registry.json` 和 `mature/*/provenance.json` 为准。它是复用成熟工具的便捷路径，**不是所有 Agent 工作必经的统一执行器**。
 
 ## 模型与当前适用限制
 
-图片保留已选 LTS4AI `https://api.lts4ai.com/v1` / `gpt-image-2.5`，复用 sufy-image2 client；只使用商家自己的 Key，不读公司/个人 Skill 凭据，不回退公司模型/额度。安全 Key 入口按已批准图片任务使用 `python scripts/with_image_key.py run ...`。
+图片保留已选 LTS4AI `https://api.lts4ai.com/v1` / `gpt-image-2.5`，复用 sufy-image2 client；只使用商家自己的 Key，不读公司/个人 Skill 凭据，不回退公司模型/额度。安全 Key 入口按已批准图片任务使用 `python scripts/with_image_key.py run ...`：先预检再密码输入。Tk 不可用回退本机密码页面；用户明确选择记住时仅写 Windows DPAPI/macOS Keychain，没有明文回退。之后同一商家状态可复用，不读取公司/个人Skill凭据。用户要求忘记时由宿主执行 `python scripts/merchant.py key forget`。只读或纯标题任务不用此入口、不弹Key页面。
 
 独立文本/视觉 API 未配置时，已有成熟宿主生成文件路径可用；宿主无相应能力才报告该缺项，不能假造文本/分析。外部 AI 视频生成未配置与已有视频交接/上传是不同能力：不能冒称已能 AI 出片，也不能据此封锁已有合格视频的交接。
 

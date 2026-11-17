@@ -7,6 +7,34 @@ from .state import FileLock
 
 REQUIREMENT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*\])?(?:[<>=!~]=?[A-Za-z0-9.*]+(?:,[<>=!~]=?[A-Za-z0-9.*]+)*)?')
 
+def bridge_python(inherited=None):
+    """Resolve existing 3.12 before isolation, without running business or login."""
+    import shutil
+    env = os.environ if inherited is None else inherited
+    explicit = env.get('HEIDENG_MERCHANT_PYTHON312') or env.get('JDO_PYTHON312')
+    if explicit:
+        path = Path(explicit).resolve()
+        if not path.is_file():raise SafetyError('merchant-python312-path-unavailable')
+        return path  # Mature probe validates the actual interpreter version before using it.
+    if sys.version_info[:2]==(3,12):return Path(sys.executable).resolve()
+    candidates = [Path(sys.executable), Path(sys.base_prefix)/('python.exe' if os.name=='nt' else 'bin/python3.12')]
+    if env.get('LOCALAPPDATA'):candidates.append(Path(env['LOCALAPPDATA'])/'Programs/Python/Python312/python.exe')
+    found = shutil.which('python3.12', path=env.get('PATH'))
+    if found:candidates.append(Path(found))
+    if os.name == 'nt':
+        try:
+            proc = subprocess.run(['py','-3.12','-c','import sys;print(sys.executable)'], capture_output=True, text=True, timeout=10, creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            if proc.returncode == 0:candidates.append(Path(proc.stdout.strip()))
+        except (OSError, subprocess.SubprocessError):pass
+    for path in dict.fromkeys(candidates):
+        if not path.is_file():continue
+        try:
+            proc = subprocess.run([str(path),'-I','-c','import sys;print(sys.version_info[:2] == (3,12))'], capture_output=True, text=True, timeout=10, creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0) if os.name=='nt' else 0)
+            if proc.returncode == 0 and proc.stdout.strip() == 'True':return path.resolve()
+        except (OSError, subprocess.SubprocessError):pass
+    return None
+
+
 def runtime_python(state):
     directory = Path(state)/'runtime-venv'
     path = directory/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
@@ -42,6 +70,21 @@ def requirements_for_sources(package_root, optional=None):
                     raise SafetyError('standard-public-package-requirement-required')
                 requirements.add(value)
     return sorted(requirements)
+
+def ensure_core(state, package_root):
+    """Prepare missing existing core deps transparently, not each invocation or any model key."""
+    state=Path(state).resolve();environment=clean_environment(state/'runtime-home')
+    code='import httpx, requests, openpyxl, PIL, PyInstaller, playwright'
+    def ready():
+        try:
+            result=subprocess.run([str(runtime_python(state)),'-I','-c',code],env=environment,capture_output=True,timeout=30,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0) if os.name=='nt' else 0)
+            return result.returncode==0
+        except (OSError,subprocess.SubprocessError):return False
+    if ready():return {'status':'ready','prepared':False,'businessExecuted':False}
+    prepare_runtime(state,package_root)
+    if not ready():raise SafetyError('merchant-core-dependencies-unavailable')
+    return {'status':'ready','prepared':True,'businessExecuted':False}
+
 
 def prepare_runtime(state, package_root, optional=None):
     state = Path(state).resolve()

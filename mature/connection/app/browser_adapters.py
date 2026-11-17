@@ -180,6 +180,7 @@ class HostBrowser:
         self._pending = None
         self._context_id = None
         self.profile_directory = None
+        self.profile_channel = None
         self._closing = False
         self._closed = False
 
@@ -231,7 +232,11 @@ class HostBrowser:
                 if directory is None:return {"status":"rejected","kind":"session_unverified"}
                 if self.profile_directory is not None and self.profile_directory!=directory:
                     return {"status":"rejected","kind":"context_mismatch"}
+                channel=result.get('browserChannel')
+                if channel is not None and channel not in ('chrome','msedge','chromium'):return {'status':'rejected','kind':'configuration'}
+                if self.profile_channel is not None and channel is not None and self.profile_channel!=channel:return {'status':'rejected','kind':'context_mismatch'}
                 self.profile_directory=directory
+                if channel:self.profile_channel=channel
             self._context_id = context
             pending["done"] = True
             self._pending = None
@@ -313,6 +318,8 @@ class PlaywrightBrowser:
         self._user_data_dir = config.get("userDataDir")
         from heideng_merchant.mature_runtime import merchant_profile_directory
         self.profile_directory = merchant_profile_directory(self._user_data_dir)
+        self.profile_channel=config.get('channel') or 'chromium'
+        if self.profile_channel not in ('chrome','msedge','chromium'):raise BrowserError('configuration')
         if self._user_data_dir is not None:
             reuse = config.get("reuseIdentity")
             if (not isinstance(self._user_data_dir, str) or not self._user_data_dir.strip()
@@ -383,10 +390,10 @@ class PlaywrightBrowser:
             runtime["refs"] += 1
             self._runtime_held = True
             if self._user_data_dir is None:
-                self._engine = self._playwright.chromium.launch(headless=self._headless)
+                self._engine = self._playwright.chromium.launch(headless=self._headless,channel=None if self.profile_channel=='chromium' else self.profile_channel)
                 self._context = self._engine.new_context()
             else:
-                self._context = self._playwright.chromium.launch_persistent_context(self._user_data_dir, headless=self._headless)
+                self._context = self._playwright.chromium.launch_persistent_context(self._user_data_dir, headless=self._headless,channel=None if self.profile_channel=='chromium' else self.profile_channel)
                 # The launcher-created blank page belongs to this task. Restored
                 # nonblank pages are not ours and must survive adapter.close().
                 self._owned_pages.extend(page for page in self._context.pages if page.url == "about:blank")

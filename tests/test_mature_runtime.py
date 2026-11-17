@@ -74,8 +74,8 @@ class MatureRuntimeTests(unittest.TestCase):
         from unittest.mock import patch
         from heideng_merchant.merchant_key_ui import with_key
         observed = []
-        with patch.dict(os.environ, {}, clear=True), patch('heideng_merchant.merchant_key_ui.prompt_key', return_value='synthetic-merchant-marker'):
-            self.assertEqual(with_key(lambda: observed.append(bool(os.environ.get('HEIDENG_MERCHANT_LTS4AI_API_KEY'))) or 0), 0)
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {}, clear=True), patch('heideng_merchant.merchant_key_ui.read_key',return_value=None), patch('heideng_merchant.merchant_key_ui.prompt_key', return_value='synthetic-merchant-marker'):
+            self.assertEqual(with_key(lambda: observed.append(bool(os.environ.get('HEIDENG_MERCHANT_LTS4AI_API_KEY'))) or 0,state=Path(d)), 0)
             self.assertNotIn('HEIDENG_MERCHANT_LTS4AI_API_KEY', os.environ)
         self.assertEqual(observed, [True])
 
@@ -96,13 +96,14 @@ class MatureRuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, 'unregistered-mature-source-file'):
                 source_path('listing', package_root=root)
 
-    def test_company_cli_and_unverified_macos_credential_path_are_blocked(self):
+    def test_company_cli_is_blocked_without_reintroducing_obsolete_os_business_gate(self):
         from heideng_merchant.mature_runtime import checked_command
         for command in (['o2', 'launch', 'lingjing'], ['lingjing', 'login'], ['oxygen.exe', 'login']):
             with self.assertRaisesRegex(Exception, 'company-tool-forbidden'):
                 checked_command(command, system='Windows')
-        with self.assertRaisesRegex(Exception, 'macos-native-credential-transport-not-verified'):
-            checked_command(['jdo-cli', 'status'], system='Darwin')
+        # HEAD 0.4.0 already delegated account transport to mature connector; no extra OS gate.
+        # Permitting a command is NOT a claim of macOS shop authentication verification.
+        checked_command(['jdo-cli', 'status'], system='Darwin')
         checked_command(['python', 'source.py', '--help'], system='Darwin')
         checked_command(['jdo-cli.exe', 'status'], system='Windows')
 

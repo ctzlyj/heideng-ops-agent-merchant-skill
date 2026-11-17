@@ -29,8 +29,10 @@ def _playwright():
 
 
 def _open(playwright, profile_dir: str, viewport=(1600, 950)):
+    from heideng_merchant.mature_runtime import browser_profile_channel
+    channel = browser_profile_channel(profile_dir)
     return playwright.chromium.launch_persistent_context(
-        profile_dir, channel='chrome', headless=False,
+        profile_dir, channel=channel, headless=False,
         args=['--profile-directory=Default', '--no-first-run', OFFSCREEN],
         viewport={'width': viewport[0], 'height': viewport[1]},
     )

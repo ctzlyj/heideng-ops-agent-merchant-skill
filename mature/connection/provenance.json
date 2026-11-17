@@ -8,12 +8,12 @@
   "files": {
     "app/browser_adapters.py": {
       "upstreamSha256": "2bd421e1de07c81af5d1bc1db9e473541640a47cc75a4dfb19026c5adc780580",
-      "sha256": "42f2b365ce7376af2a206b41e889ebc9fa82f5e55d3d74c8567cf1306ba5c41f",
+      "sha256": "ea1169a495e19ca1e4c02f2aeb86f7d1ac3f607111c54e526f82eeaff0f28047",
       "adapted": true
     },
     "app/browser_auth.py": {
       "upstreamSha256": "b8377e77716588c906337c1d3d7e4aca7e897d5fde3f9eb82c38c06ec938dbaa",
-      "sha256": "40b76f9b20a0c1ced68785c69557bfe846069074cc03f0f7e95cec82d1b06c59",
+      "sha256": "d5e9bf3e60cb49364644fb07f8b04f6489f2e56f002ce07fa1fd04f0b3ae8766",
       "adapted": true
     },
     "app/redaction.py": {

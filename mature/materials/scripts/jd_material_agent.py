@@ -179,19 +179,28 @@ class JdoWriteUncertainError(JdoError):
 
 @contextmanager
 def pop_execution_lock(output_dir):
+    # OS lock is released even when a host reclaims the process; receipts are independent.
+    from heideng_merchant.state import FileLock, process_alive
+    from heideng_merchant.safety import SafetyError
     path = Path(output_dir).resolve() / '.state' / 'pop-execution.lock'
     path.parent.mkdir(parents=True, exist_ok=True)
-    owner = {'pid': os.getpid(), 'token': uuid.uuid4().hex}
     try:
-        with path.open('x', encoding='utf-8') as handle:
-            json.dump(owner, handle)
-    except FileExistsError:
-        raise JdoWriteUncertainError('POP execution lock exists; verify its owner and receipts before recovery') from None
-    try:
-        yield
-    finally:
-        if path.exists() and json.loads(path.read_text(encoding='utf-8')) == owner:
-            path.unlink()
+        with FileLock(path.with_suffix('.guard'), timeout=0):
+            if path.exists():
+                try:previous = json.loads(path.read_text(encoding='utf-8'))
+                except (OSError, ValueError):raise JdoWriteUncertainError('Execution owner unreadable; preserve lock and receipts') from None
+                if not isinstance(previous, dict) or process_alive(previous.get('pid')) is not False:
+                    raise JdoWriteUncertainError('POP execution owner active or unknown; preserve original receipts')
+                # Only the confirmed dead owner's execution marker is retired, never a task/receipt.
+                path.replace(path.with_name(path.name + '.retired-' + uuid.uuid4().hex))
+            owner = {'pid': os.getpid(), 'token': uuid.uuid4().hex, 'createdAt': int(time.time())}
+            with path.open('x', encoding='utf-8') as handle:json.dump(owner, handle)
+            try:yield
+            finally:
+                if path.exists() and json.loads(path.read_text(encoding='utf-8')) == owner:path.unlink()
+    except SafetyError as error:
+        if str(error) != 'resource-busy':raise
+        raise JdoWriteUncertainError('POP execution is active; do not replay') from None
 
 @contextmanager
 def stage_timer(output_dir, stage):
@@ -965,13 +974,16 @@ def export_pop_image_appeals(report, output_dir):
         _save_state(evidence, {**frozen, 'snapshotSha256': digest, 'fileSha256': _file_sha256(path), 'appealSubmitted': False})
     return {**result, 'appealFiles': [str(path)], 'snapshotSha256': digest, 'fileSha256': _file_sha256(path)}
 
-def audit_pop_coverage(client, expected_shop_name, title_workbooks=()):
+def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, product_ids=None, authorized_sku_ids=None):
     seller = client.seller_info()
     identity = _shop_identity(seller)
     if identity['shopName'] != expected_shop_name or not seller.get('success') or not seller.get('whitelistMatch', True) or not seller.get('isPop') or not seller.get('active'):
         raise ValueError('coverage audit requires the expected active POP shop identity')
-    products = collect_jdo_pages(client.online_products, 100, 'productId', 'coverage online products')
-    product_ids = [cell_text(item.get('productId')) for item in products]
+    if product_ids is None:
+        products = collect_jdo_pages(client.online_products, 100, 'productId', 'coverage online products')
+        product_ids = [cell_text(item.get('productId')) for item in products]
+    else:
+        product_ids = list(dict.fromkeys(map(str, product_ids)))
     health = collect_jdo_pages_parallel(client.health_infos, 100, 'skuId', 'coverage health scores')
     scores = {cell_text(item.get('skuId')): item for item in health}
     siblings = []
@@ -985,6 +997,9 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=()):
     if any(not sku_id for sku_id in sku_ids) or len(set(sku_ids)) != len(sku_ids):
         raise ValueError('coverage inventory contains empty or duplicate SKU IDs')
     online = [item for item in siblings if int(item.get('skuStatus') or item.get('status') or 0) == 103]
+    if authorized_sku_ids is not None:
+        allowed = set(map(str, authorized_sku_ids))
+        online = [item for item in online if cell_text(item.get('skuId')) in allowed]
     online_ids = [cell_text(item.get('skuId')) for item in online]
     materials = _query_binding_materials(client, online_ids) if online_ids else {}
     rows = []
@@ -1038,7 +1053,20 @@ def _short_title_issue(score_item: dict[str, Any]) -> bool:
             return True
     return False
 
-def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name: str | None=None, include_spu_ids: Iterable[str]=(), include_full_score: bool=False, off_shelf_spu_ids: Iterable[str]=()) -> tuple[PreparedSource, dict[str, str], dict[str, dict[str, Any]]]:
+def product_reference_url(payload, representative_sku_id=''):
+    """Official product/detail shapes only; preserve representative SKU identity."""
+    info = payload.get('productInfo') or {}
+    skus = payload.get('skuList') or []
+    own = next((row for row in skus if cell_text(row.get('skuId')) == cell_text(representative_sku_id)), {})
+    material = payload.get('material') or info.get('material') or {}
+    candidates = [own.get('logo'), own.get('skuImage'), payload.get('logo'), payload.get('productImage'), payload.get('skuImage'), info.get('logo')]
+    candidates.extend(material.get('mainImages') or [])
+    for raw in candidates:
+        if isinstance(raw, dict):raw = raw.get('url') or raw.get('imageUrl') or raw.get('imgUrl')
+        if raw:return _jd_image_url(raw)
+    return ''
+
+def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name: str | None=None, include_spu_ids: Iterable[str]=(), include_full_score: bool=False, off_shelf_spu_ids: Iterable[str]=(), scope_spu_ids: Iterable[str] | None=None) -> tuple[PreparedSource, dict[str, str], dict[str, dict[str, Any]]]:
     seller = client.seller_info()
     if not seller.get('success') or not seller.get('whitelistMatch', True):
         raise JdoPermissionError('current shop is not enabled for jdo-cli')
@@ -1053,15 +1081,18 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
     product_ids_100 = [cell_text(item.get('productId')) for item in products_100]
     included_spus = {cell_text(spu_id) for spu_id in include_spu_ids if cell_text(spu_id)}
     off_shelf_ids = [cell_text(spu_id) for spu_id in off_shelf_spu_ids if cell_text(spu_id)]
+    requested_scope = set(map(str, scope_spu_ids)) if scope_spu_ids is not None else None
+    included_spus |= requested_scope or set()
     unknown_spus = included_spus - set(product_ids_100) - set(off_shelf_ids)
     if unknown_spus:
         raise ValueError(f"requested resume SPU is not currently on sale: {','.join(sorted(unknown_spus))}")
     online_rows: list[dict[str, Any]] = []
     seen_online_skus: set[str] = set()
-    sku_groups = list(_chunks(product_ids_100, 10))
+    sku_groups = list(_chunks([pid for pid in product_ids_100 if requested_scope is None or pid in requested_scope], 10))
     with ThreadPoolExecutor(max_workers=1 if len(sku_groups) <= 2 else READ_CONCURRENCY) as sku_pool:
         sku_pages = list(sku_pool.map(client.skus, sku_groups))
-    for found in sku_pages:
+    for group, found in zip(sku_groups, sku_pages):
+        if any(cell_text(item.get('productId')) not in group for item in found):raise ValueError('exact SKU lookup returned an out-of-scope product')
         for item in found:
             if int(item.get('skuStatus') or item.get('status') or 0) != 103:
                 continue
@@ -1071,6 +1102,7 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
             seen_online_skus.add(sku_id)
             online_rows.append(item)
     for spu_id in dict.fromkeys(off_shelf_ids):
+        if requested_scope is not None and spu_id not in requested_scope:continue
         if spu_id in product_ids_100:
             continue
         product = next((item for item in client.products([spu_id]) if cell_text(item.get('productId')) == spu_id), None)
@@ -1087,10 +1119,8 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
         included_spus.add(spu_id)
     online_spu_by_sku = {cell_text(item.get('skuId')): cell_text(item.get('productId')) for item in online_rows}
     low_spus = {online_spu_by_sku[sku_id] for sku_id in low_scores if sku_id in online_spu_by_sku}
-    if include_full_score:
-        inspect_rows = [item for item in online_rows if cell_text(item.get('skuId')) not in low_scores and cell_text(item.get('productId')) not in low_spus]
-    else:
-        inspect_rows = [item for item in online_rows if cell_text(item.get('skuId')) not in scores and cell_text(item.get('productId')) not in low_spus]
+    # Low scores select candidates, not imaginary deficits. Reuse the mature slot audit.
+    inspect_rows = [item for item in online_rows if include_full_score or cell_text(item.get('productId')) in low_spus | included_spus or cell_text(item.get('skuId')) not in scores]
     missing_by_spu, existing_by_spu = inspect_unscored_materials(client, inspect_rows)
     # SPUs whose images are complete but still carry hasShortTitle must be planned for titles only.
     title_only_spus = ({online_spu_by_sku[sku_id] for sku_id, item in scores.items() if sku_id in online_spu_by_sku and _short_title_issue(item)} - low_spus - set(missing_by_spu)) if include_full_score else set()
@@ -1099,7 +1129,7 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
     selected_spus = low_spus | set(missing_by_spu)
     resumed_spus = included_spus - selected_spus
     for spu_id in resumed_spus:
-        missing_by_spu[spu_id] = set(JDO_MATERIAL_SLOTS)
+        missing_by_spu.setdefault(spu_id, set())
     selected_spus |= included_spus
     headers = ('SKUID', '商品名称', 'SPUID', '商品信息分', '发现来源', '短标题判断')
     if not selected_spus:
@@ -1131,14 +1161,8 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
         sku_payloads.setdefault(spu_id, item)
     jobs: list[SpuJob] = []
     for spu_id, items in rows_by_spu.items():
-        if spu_id in low_spus:
-            jobs.append(_jobs_from_rows(items)[0])
-            continue
-        missing = missing_by_spu[spu_id]
-        if spu_id in resumed_spus:
-            short_title_sku_ids = tuple((item.sku_id for item in items))
-        else:
-            short_title_sku_ids = tuple((item.sku_id for item in items if item.sku_id not in scores or _short_title_issue(scores[item.sku_id])))
+        missing = missing_by_spu.get(spu_id, set())
+        short_title_sku_ids = tuple(item.sku_id for item in items if item.sku_id not in scores or _short_title_issue(scores[item.sku_id]))
         jobs.append(SpuJob(spu_id=spu_id, representative_sku_id=items[0].sku_id, title=items[0].title, sku_ids=tuple((item.sku_id for item in items)), skus=tuple(((item.sku_id, item.title) for item in items)), short_title_sku_ids=short_title_sku_ids, needs_selling_points=any((slot.startswith('point') for slot in missing)), needs_white=bool({'white', 'transparent'} & missing), needs_scenes=bool({'scene1', 'scene2'} & missing), needs_selling_image='selling' in missing, needs_transparent='transparent' in missing))
     product_ids = list(dict.fromkeys((row.spu_id for row in retained)))
     product_map = {cell_text(item.get('productId')): item for item in products_100}
@@ -1146,9 +1170,12 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
     for spu_id in dict.fromkeys((row.spu_id for row in retained)):
         product = product_map.get(spu_id) or {}
         sku = sku_payloads.get(spu_id) or {}
-        image = product.get('logo') or product.get('productImage') or sku.get('skuImage') or sku.get('logo')
+        image = product_reference_url(product, cell_text(sku.get('skuId'))) or product_reference_url(sku, cell_text(sku.get('skuId')))
+        if not image:
+            detail = client._get('jdo-product-status', '/rest/sp-product/v0/products/{productId}', {'productId': int(spu_id), 'scene': 'pop'}).get('data') or {}
+            image = product_reference_url(detail, cell_text(sku.get('skuId')))
         if image:
-            references[spu_id] = _jd_image_url(image)
+            references[spu_id] = image
     prepared = PreparedSource('jdo-pop', '实时待维护商品', headers, tuple(retained), tuple(jobs), len(online_rows), len(online_rows) - len(retained), 0)
     return (prepared, references, existing_by_spu)
 
@@ -1191,7 +1218,8 @@ def prepare_standard_source(path: str | Path, selected_sheet: str | None=None) -
     finally:
         workbook.close()
 
-def split_rows_by_spu(rows: Iterable[SourceRow], maximum_spus: int=MAX_SPUS_PER_BATCH) -> list[list[SourceRow]]:
+def split_rows_by_spu(rows: Iterable[SourceRow], maximum_spus=None) -> list[list[SourceRow]]:
+    maximum_spus=maximum_spus or MAX_SPUS_PER_BATCH
     if maximum_spus < 1:
         raise ValueError('maximum_spus 必须大于 0。')
     groups: dict[str, list[SourceRow]] = {}
@@ -1206,6 +1234,23 @@ def split_rows_by_spu(rows: Iterable[SourceRow], maximum_spus: int=MAX_SPUS_PER_
     if current:
         chunks.append(current)
     return chunks
+
+def frozen_scope_batches(prepared, output_dir):
+    """Retain the original batch identity when an approved whole-shop plan is narrowed."""
+    chunks = split_rows_by_spu(prepared.rows)
+    plan = json.loads((Path(output_dir)/AUTO_MAINTAIN_PLAN_NAME).read_text(encoding='utf-8'))
+    all_rows = _prepared_from_payload(plan['prepared']).rows
+    all_chunks = split_rows_by_spu(all_rows)
+    if len(chunks)==1 and len(all_chunks)==1:return [(1,chunks[0])]
+    result = []
+    for rows in chunks:
+        keys = {row.spu_id for row in rows}
+        matching = [index for index, original in enumerate(all_chunks,1) if keys == {row.spu_id for row in original}]
+        if len(matching) != 1:
+            raise ValueError('冻结计划子集必须保持原整批组成；不支持半批拆分或跨批组合，请重新确认原范围')
+        result.append((matching[0],rows))
+    return result
+
 
 def write_split_sources(prepared: PreparedSource, output_dir: str | Path) -> list[Path]:
     output_dir = Path(output_dir)
@@ -2063,7 +2108,7 @@ def load_pop_auto_maintain_plan(output_dir: str | Path, seller: dict[str, Any], 
         raise ValueError('自动维护计划不是 POP 模式，请重新运行 plan-auto-maintain')
     if payload.get('shopIdentity') != _shop_identity(seller):
         raise ValueError('自动维护计划与当前店铺不匹配，请重新运行 plan-auto-maintain')
-    if cell_text(payload.get('targetSpuId')) != cell_text(target_spu_id):
+    if cell_text(payload.get('targetSpuId')) and cell_text(payload.get('targetSpuId')) != cell_text(target_spu_id):
         raise ValueError('自动维护计划的目标 SPU 不匹配，请重新运行 plan-auto-maintain')
     prepared = _prepared_from_payload(payload.get('prepared') or {})
     if payload.get('taskSignature') != _task_signature(prepared):
@@ -2076,27 +2121,41 @@ def load_pop_auto_maintain_plan(output_dir: str | Path, seller: dict[str, Any], 
         raise ValueError('自动维护计划的源表已变化，请重新运行 plan-auto-maintain')
     references = {cell_text(key): cell_text(value) for key, value in (payload.get('referenceUrls') or {}).items()}
     existing = {cell_text(key): value for key, value in (payload.get('existingMaterials') or {}).items()}
+    if cell_text(target_spu_id):
+        if cell_text(target_spu_id) not in {job.spu_id for job in prepared.jobs}:
+            raise ValueError('目标 SPU 不在冻结计划内，禁止扩大范围')
+        prepared, references, existing = _scope_pop_discovery(prepared, references, existing, target_spu_id)
     return (prepared, references, existing, source_path)
 
 def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None:
     mode = _business_mode(prepared)
     signature = _task_signature(prepared)
+    allowed_signatures={signature,_task_signature(route_jingmai_batch_images(prepared,model_cutout_images=False)[0])}
+    if state_path.parent.parent.name.startswith('批次'):
+        plan_path=state_path.parent.parent.parent/AUTO_MAINTAIN_PLAN_NAME
+        if plan_path.is_file():
+            try:
+                frozen=json.loads(plan_path.read_text(encoding='utf-8'))
+                full=_prepared_from_payload(frozen.get('prepared') or {})
+                batch_number=int(state_path.parent.parent.name.removeprefix('批次'))
+                groups=split_rows_by_spu(full.rows)
+                current_spus={job.spu_id for job in prepared.jobs}
+                if (frozen.get('planHash')==_auto_maintain_plan_hash(frozen) and 1<=batch_number<=len(groups) and {row.spu_id for row in groups[batch_number-1]}==current_spus):
+                    batch_prepared=_subset_prepared(full,groups[batch_number-1])
+                    signature=_task_signature(batch_prepared)
+                    allowed_signatures={signature,_task_signature(route_jingmai_batch_images(batch_prepared,model_cutout_images=False)[0])}
+            except (OSError,ValueError,KeyError,json.JSONDecodeError):pass
     existing_jobs = set((state.get('jobs') or {}).keys())
     current_jobs = {job.spu_id for job in prepared.jobs}
     existing_variant = state.get('variant')
     existing_mode = state.get('business_mode')
     existing_signature = state.get('task_signature')
-    if existing_variant and existing_variant != VARIANT_ID:
-        raise ValueError('输出目录属于其他 Skill，禁止串用任务状态。请选择新的输出目录。')
-    if prepared.source_type == 'self-operated-live' and existing_mode == 'pop' and (existing_signature == signature):
-        existing_mode = 'self-operated'
-    if existing_mode and existing_mode != mode:
-        raise ValueError('POP 与自营模式隔离：当前输出目录属于另一模式，请选择新的输出目录。')
-    allowed_signatures = {signature, _task_signature(route_jingmai_batch_images(prepared, model_cutout_images=False)[0])}
+    # The full batch's own signature is the normal state; a smaller approved subset may also be nested.
+    nested_batch = state_path.parent.parent.name.startswith('批次') and (state_path.parent.parent.parent/AUTO_MAINTAIN_PLAN_NAME).is_file()
     if existing_signature and existing_signature not in allowed_signatures:
         raise ValueError('输出目录属于另一份底表任务，禁止复用其状态。请选择新的输出目录。')
-    if not existing_signature and existing_jobs and (not existing_jobs.issubset(current_jobs)):
-        raise ValueError('旧任务状态与当前底表不一致，禁止串用缓存。请选择新的输出目录。')
+    if existing_jobs and not existing_jobs.issubset(current_jobs):
+        raise ValueError('旧任务含当前范围外商品；只有同一冻结批次子集可以保留原回执。')
     state['version'] = 2
     state['variant'] = VARIANT_ID
     state['business_mode'] = mode
@@ -2348,8 +2407,14 @@ def _short_titles_are_complete(job: SpuJob, item: dict) -> bool:
 
 def load_agent_text(path: str | Path) -> dict[str, Any]:
     source = Path(path)
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:raise ValueError('Agent 文案 JSON 存在重复字段/SKU：' + str(key))
+            result[key] = value
+        return result
     try:
-        payload = json.loads(source.read_text(encoding='utf-8'))
+        payload = json.loads(source.read_text(encoding='utf-8'), object_pairs_hook=unique_fields)
     except json.JSONDecodeError as error:
         raise ValueError(f'Agent 文案文件不是有效 JSON：{error}') from None
     if not isinstance(payload, dict):
@@ -2366,12 +2431,15 @@ def load_agent_text(path: str | Path) -> dict[str, Any]:
 
 def _validate_agent_text_scope(agent_text: dict[str, Any], prepared: PreparedSource) -> dict[str, Any]:
     known_spus = {job.spu_id for job in prepared.jobs}
-    known_skus = {sku_id for job in prepared.jobs for sku_id in job.short_title_sku_ids}
+    all_skus = {sku_id for job in prepared.jobs for sku_id in job.sku_ids}
+    needed_skus = {sku_id for job in prepared.jobs for sku_id in job.short_title_sku_ids}
     unknown_spus = sorted(set(agent_text['selling_points']) - known_spus)
-    unknown_skus = sorted(set(agent_text['short_titles']) - known_skus)
+    unknown_skus = sorted(set(agent_text['short_titles']) - all_skus)
+    missing_skus = sorted(needed_skus - set(agent_text['short_titles']))
     if unknown_spus or unknown_skus:
-        raise ValueError(f'Agent 文案包含冻结计划外的 SPU/SKU：SPU {unknown_spus}，SKU {unknown_skus}。')
-    return agent_text
+        raise ValueError(f'Agent 文案冻结计划范围差集：多余SPU {unknown_spus}，多余SKU {unknown_skus}；待补SKU {missing_skus}。')
+    # Host may send the frozen inventory's already-qualified titles; ignore, never overwrite them.
+    return {**agent_text, 'short_titles': {key: value for key, value in agent_text['short_titles'].items() if key in needed_skus}}
 
 def _batch_agent_text(agent_text: dict[str, Any] | None, batch: PreparedSource) -> dict[str, Any] | None:
     if not agent_text:
@@ -2541,9 +2609,9 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
         for job in prepared.jobs:
             item = state.get('jobs', {}).get(job.spu_id, {})
             if job.needs_selling_points and (not item.get('selling_points')):
-                raise ValueError(f'SPU {job.spu_id} 卖点文本默认由 agent 按 SKILL 规则自拟并通过 --agent-text-file 注入；本命令默认不调用网关文本模型。确需网关时显式传 --text-model GPT-5.6-Sol-joybuilder。')
+                raise ValueError(f'SPU {job.spu_id} 卖点文本默认由 agent 按 SKILL 规则自拟并通过 --agent-text-file 注入；本命令默认不调用网关文本模型。宿主补齐本任务文案后继续，不使用公司文本渠道。')
             if not _short_titles_are_complete(job, item):
-                raise ValueError(f'SPU {job.spu_id} 短标题默认由 agent 按 SKILL 规则自拟并通过 --agent-text-file 注入；本命令默认不调用网关文本模型。确需网关时显式传 --text-model GPT-5.6-Sol-joybuilder。')
+                raise ValueError(f'SPU {job.spu_id} 短标题默认由 agent 按 SKILL 规则自拟并通过 --agent-text-file 注入；本命令默认不调用网关文本模型。宿主补齐本任务文案后继续，不使用公司文本渠道。')
     state_lock = threading.Lock()
 
     def needs_model_client() -> bool:
@@ -2922,7 +2990,7 @@ def _download_reference(url: str, output: Path, timeout: float) -> Path:
             return output
         except OSError:
             pass
-    response = httpx.get(trusted_url, timeout=timeout, follow_redirects=True)
+    response = httpx.get(trusted_url, timeout=timeout, follow_redirects=True, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://item.jd.com/'})
     response.raise_for_status()
     final_url = _jd_image_url(str(response.url))
     if not final_url:
@@ -2967,6 +3035,9 @@ def _kind_from_filename(name: str) -> tuple[str, str] | None:
     return None
 
 def reconcile_run_receipts(client: Any, output_dir: str | Path) -> dict[str, Any]:
+    output = Path(output_dir)
+    if not output.is_dir() or not any(output.glob('批次*/.state/task.json')):
+        raise ValueError('对账目录必须是原任务根目录（包含批次*/.state/task.json），不能指定批次或.state目录')
     from pop_safety import reconcile
     return reconcile(client, output_dir, sys.modules[__name__])
 
@@ -3036,7 +3107,7 @@ def run_plan_auto_maintain(args) -> dict[str, Any]:
             raise ValueError('current jdo-cli shop does not match --expected-shop-name')
         prepared, _, _, source_path = load_pop_auto_maintain_plan(output, seller, target_spu_id)
         return {'status': 'planned-existing', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': True, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs)}
-    prepared, reference_urls, existing_materials = discover_jdo_pop_source(client, expected_shop_name=getattr(args, 'expected_shop_name', None), include_spu_ids=_auto_resume_targets(output, target_spu_id), include_full_score=include_full_score, off_shelf_spu_ids=getattr(args, 'include_off_shelf_spu', ()))
+    prepared, reference_urls, existing_materials = discover_jdo_pop_source(client, expected_shop_name=getattr(args, 'expected_shop_name', None), include_spu_ids=_auto_resume_targets(output, target_spu_id), include_full_score=include_full_score, off_shelf_spu_ids=getattr(args, 'include_off_shelf_spu', ()), scope_spu_ids=[target_spu_id] if target_spu_id else None)
     prepared, reference_urls, existing_materials = _scope_pop_discovery(prepared, reference_urls, existing_materials, target_spu_id, exclude_spu_ids=getattr(args, 'exclude_spu_id', ()) or ())
     source_path = _write_jdo_source(prepared, output / '实时商品信息分0-89.xlsx')
     seller = client.seller_info()
@@ -3060,7 +3131,7 @@ def pending_cutout_handoff(prepared: PreparedSource, output: str | Path) -> list
     """After a model cutout attempt, list SPUs whose white/transparent slot is still unusable."""
     output = Path(output)
     handoff = []
-    for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
+    for index, rows in frozen_scope_batches(prepared, output):
         batch = _subset_prepared(prepared, rows)
         batch_dir = output / f'批次{index:03d}'
         images = batch_dir / '全部图片'
@@ -3097,7 +3168,7 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
     prepared, batch_image_handoff = route_jingmai_batch_images(prepared, model_cutout_images=getattr(args, "model_cutout_images", False))
     agent_text = load_agent_text(args.agent_text_file) if getattr(args, 'agent_text_file', None) else None
     if agent_text:
-        _validate_agent_text_scope(agent_text, prepared)
+        agent_text = _validate_agent_text_scope(agent_text, prepared)
     batch_payloads = []
     for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
         batch = _subset_prepared(prepared, rows)
@@ -3107,7 +3178,10 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
         for job in batch.jobs:
             target_reference = references / f'{job.spu_id}.jpg'
             override = _parse_reference_overrides(getattr(args, 'reference_override', ()) or (), prepared).get(job.spu_id)
+            if not _model_kinds(job):
+                continue
             if override:
+                references.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(override, target_reference)
                 continue
             try:
@@ -3141,29 +3215,35 @@ def run_auto_maintain(args) -> dict[str, Any]:
             raise ValueError('current jdo-cli shop does not match --expected-shop-name')
         prepared, reference_urls, existing_materials, source_path = load_pop_auto_maintain_plan(output, seller, target_spu_id)
     else:
-        prepared, reference_urls, existing_materials = discover_jdo_pop_source(client, expected_shop_name=args.expected_shop_name, include_spu_ids=_auto_resume_targets(output, target_spu_id), include_full_score=bool(getattr(args, 'include_full_score', False)), off_shelf_spu_ids=getattr(args, 'include_off_shelf_spu', ()))
+        prepared, reference_urls, existing_materials = discover_jdo_pop_source(client, expected_shop_name=args.expected_shop_name, include_spu_ids=_auto_resume_targets(output, target_spu_id), include_full_score=bool(getattr(args, 'include_full_score', False)), off_shelf_spu_ids=getattr(args, 'include_off_shelf_spu', ()), scope_spu_ids=[target_spu_id] if target_spu_id else None)
         prepared, reference_urls, existing_materials = _scope_pop_discovery(prepared, reference_urls, existing_materials, target_spu_id, exclude_spu_ids=getattr(args, 'exclude_spu_id', ()) or ())
         source_path = _write_jdo_source(prepared, output / '实时商品信息分0-89.xlsx')
         seller = client.seller_info()
         write_pop_auto_maintain_plan(prepared, reference_urls, existing_materials, seller, output, source_path, target_spu_id=target_spu_id)
+    prepared, reference_urls, existing_materials = _scope_pop_discovery(prepared, reference_urls, existing_materials, target_spu_id, exclude_spu_ids=getattr(args, 'exclude_spu_id', ()) or ())
+    args._maintenance_product_ids = [job.spu_id for job in prepared.jobs]
+    args._maintenance_sku_ids = [sku for job in prepared.jobs for sku in job.sku_ids]
     if getattr(args, 'skip_transparent', False):
         prepared = replace(prepared, jobs=tuple(replace(job, needs_transparent=False) for job in prepared.jobs))
     prepared, batch_image_handoff = route_jingmai_batch_images(prepared, model_cutout_images=getattr(args, 'model_cutout_images', False))
     agent_text = load_agent_text(args.agent_text_file) if getattr(args, 'agent_text_file', None) else None
     if agent_text:
-        _validate_agent_text_scope(agent_text, prepared)
+        agent_text = _validate_agent_text_scope(agent_text, prepared)
     if not prepared.jobs:
         return {'status': 'no-work', 'batchImageHandoff': [], 'source': str(source_path), 'skuCount': 0, 'spuCount': 0, 'batches': [], 'browserRequired': False, 'planReused': plan_reused, 'verificationMode': getattr(args, 'verification_mode', 'submit-only'), 'manualVerificationRequired': False, 'manualVerificationMessage': None}
+    if args.upload_mode != 'browser' and any(_has_material_work(job) for job in prepared.jobs):
+        client.check_bridge()
     excluded_bindings = _parse_excluded_bindings(getattr(args, 'exclude_binding', None) or (), prepared)
-    for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
+    for index, rows in frozen_scope_batches(prepared, output):
         batch_dir = output / f'批次{index:03d}'
         state_path = batch_dir / '.state' / 'task.json'
         existing_state = _load_state(state_path)
         if any(item.get('material_bindings') for item in existing_state['jobs'].values()):
             prepare_material_binding_plan(client, _subset_prepared(prepared, rows), batch_dir, excluded_bindings=excluded_bindings)
     category_id = None
-    browser_required = args.upload_mode == 'browser'
-    if not browser_required:
+    material_work = any(_has_material_work(job) for job in prepared.jobs)
+    browser_required = material_work and args.upload_mode == 'browser'
+    if material_work and not browser_required:
         try:
             category_id = client.resolve_category(args.category_id, args.category_name)
         except (JdoPermissionError, JdoUnavailableError):
@@ -3172,7 +3252,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
             browser_required = True
     batch_payloads = []
     binding_plans: list[tuple[int, MaterialBindingPlan]] = []
-    for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
+    for index, rows in frozen_scope_batches(prepared, output):
         batch = _subset_prepared(prepared, rows)
         batch_dir = output / f'批次{index:03d}'
         references = batch_dir / '参考图'
@@ -3180,7 +3260,10 @@ def run_auto_maintain(args) -> dict[str, Any]:
         for job in batch.jobs:
             target_reference = references / f'{job.spu_id}.jpg'
             override = _parse_reference_overrides(getattr(args, 'reference_override', ()) or (), prepared).get(job.spu_id)
+            if not _model_kinds(job):
+                continue
             if override:
+                references.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(override, target_reference)
                 continue
             try:
@@ -3246,7 +3329,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
     repair_result = {'status': 'not-requested'}
     if getattr(args, 'repair_rejected', False):
         from pop_repair import run_rejected_repairs
-        repair_args = argparse.Namespace(excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=None if getattr(args, 'include_full_score', False) else [sku for job in prepared.jobs for sku in job.sku_ids], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
+        repair_args = argparse.Namespace(excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
         try: repair_result = run_rejected_repairs(repair_args, sys.modules[__name__])
         except JdoWriteUncertainError: raise
         except Exception as error: repair_result = {'status': 'repair-incomplete', 'failureClass': type(error).__name__, 'reason': 'Repair scope/dependency not ready; preserve frozen audit and receipts'}
@@ -3259,8 +3342,8 @@ def run_auto_maintain(args) -> dict[str, Any]:
         try:
             import pop_attrs
             attr_dir = output / 'product-attrs';attr_dir.mkdir(parents=True, exist_ok=True)
-            pool = pop_attrs.VisionAttrModel(os.environ[PROVIDER.api_key_env]) if os.environ.get(PROVIDER.api_key_env) else None
-            try:attr_plan = pop_attrs.inventory(client, _shop_identity(seller), text_pool=pool, skip_attrs=pop_attrs.platform_broken_attrs(attr_dir), exclude_product_ids=getattr(args, 'exclude_spu_id', ()) or ())
+            pool = None  # Host supplies evidenced choices; no configured external vision provider.
+            try:attr_plan = pop_attrs.inventory(client, _shop_identity(seller), text_pool=pool, skip_attrs=pop_attrs.platform_broken_attrs(attr_dir), exclude_product_ids=getattr(args, 'exclude_spu_id', ()) or (), product_ids=[job.spu_id for job in prepared.jobs], agent_choices=pop_attrs.load_agent_choices(getattr(args, 'agent_attrs_file', None)))
             finally:
                 if pool is not None:pool.close()
             pop_attrs._save(attr_dir / 'attr-plan.json', attr_plan)
@@ -3274,7 +3357,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
     coverage = {'status': 'verification-unavailable', 'allApproved': False}
     if getattr(args, 'repair_rejected', False):
         try:
-            snapshot = audit_pop_coverage(client, _shop_identity(seller)['shopName'])
+            snapshot = audit_pop_coverage(client, _shop_identity(seller)['shopName'], product_ids=[job.spu_id for job in prepared.jobs], authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids])
             states = [slot['state'] for row in snapshot['rows'] for slot in row['slots'].values()]
             coverage = {'status': 'verified-snapshot', 'allApproved': bool(states) and all(item == 'approved' for item in states), 'missingSlots': states.count('missing'), 'rejectedSlots': states.count('rejected'), 'pendingSlots': states.count('pending'), 'shortTitleIssueCount': len(snapshot['shortTitleIssueSkuIds']), 'otherIssues': snapshot['issueCounts']}
             if coverage['allApproved'] and delivery['status'] in {'verified', 'no-titles'}: status = 'completed-materials'
@@ -3323,7 +3406,7 @@ def run_bind_external_cutouts(args) -> dict[str, Any]:
             statuses.append(int(found[0].get('status') or 0) if found else 0)
         return statuses
 
-    for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
+    for index, rows in frozen_scope_batches(prepared, output):
         batch = _subset_prepared(prepared, rows)
         batch_dir = output / f'批次{index:03d}'
         if not batch_dir.is_dir():
@@ -3559,7 +3642,7 @@ def export_short_title_delivery(runs, output_dir, *, shop_name):
         directory = Path(directory).resolve()
         signatures.append(_task_signature(prepared))
         expected.extend(sku for job in prepared.jobs for sku in job.short_title_sku_ids)
-        for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
+        for index, rows in frozen_scope_batches(prepared, output):
             batch = _subset_prepared(prepared, rows)
             batch_dir = directory / f'批次{index:03d}'
             state_path = batch_dir / '.state/task.json'
@@ -3742,6 +3825,8 @@ def build_parser() -> argparse.ArgumentParser:
     attrs.add_argument('--output-dir', type=Path, required=True)
     attrs.add_argument('--no-model', action='store_true', help='Disable current-key text-model inference for options not inferable by rules')
     attrs.add_argument('--origin', help='Explicit 产地 area ids, e.g. 15,1262 (province,city); otherwise same-shop majority')
+    attrs.add_argument('--agent-attrs-file', type=Path)
+    attrs.add_argument('--product-id', action='append', default=[])
     complete = sub.add_parser('complete-product-attrs', help='Submit planned CategoryGroupList patches and verify via product-apply readback')
     complete.add_argument('--profile', required=True)
     complete.add_argument('--expected-shop-name', required=True)
@@ -3774,6 +3859,7 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument('--title-poll-seconds', type=int, default=60)
     auto.add_argument('--joyagent-adapter', type=Path)
     auto.add_argument('--complete-attrs', action=argparse.BooleanOptionalAction, default=True, help='Inventory and complete missing category attributes after materials/titles')
+    auto.add_argument('--agent-attrs-file', type=Path, help='Host-evidenced legal attribute choices, no external model call')
     auto.add_argument('--repair-rejected', action=argparse.BooleanOptionalAction, default=True, help='One bounded fresh-byte repair pass; disable only for a frozen legacy scope')
     auto.add_argument('--verification-mode', choices=('submit-only', 'strict'), default='submit-only')
     auto.add_argument('--spu-concurrency', type=int, default=50)
@@ -3801,6 +3887,22 @@ def build_parser() -> argparse.ArgumentParser:
     cutouts.add_argument('--confirm', required=True)
     sub.add_parser('provider-info')
     return parser
+
+def merchant_result_summary(payload, output_dir, command):
+    from pop_safety import atomic_json
+    from heideng_merchant.safety import redact
+    path = Path(output_dir).resolve()/'.state'/('merchant-result-'+command+'.json')
+    atomic_json(path, redact(payload))
+    keys = ('status','skuCount','spuCount','browserRequired','planReused','verificationMode','manualVerificationRequired','manualVerificationMessage')
+    summary = {key: payload[key] for key in keys if key in payload}
+    summary['resultFile'] = str(path)
+    for key in ('batches','rows','reconciledUploads','reconciledBindings','unresolvedUploads','unresolvedBindings'):
+        if isinstance(payload.get(key), list):summary[key+'Count'] = len(payload[key])
+    for key in ('coverage','externalImages','rejectedRepairs','shortTitleDelivery','productAttributes'):
+        detail = payload.get(key)
+        if isinstance(detail, dict):summary[key] = {k:v for k,v in detail.items() if k=='status' or (isinstance(v,(int,bool)) and not isinstance(v,str))}
+    return summary
+
 
 def main(argv: list[str] | None=None) -> int:
     args = build_parser().parse_args(argv)
@@ -3835,7 +3937,7 @@ def main(argv: list[str] | None=None) -> int:
     if args.command == 'reconcile-receipts':
         client = JdoClient(args.profile, args.output_dir / '.state' / 'jdo-runtime')
         payload = reconcile_run_receipts(client, args.output_dir)
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(merchant_result_summary(payload,args.output_dir,args.command), ensure_ascii=False, indent=2))
         return 0 if not payload['unresolvedUploads'] and not payload['unresolvedBindings'] else 2
     if args.command == 'validate-short-titles':
         payload = validate_short_title_workbook(args.source)
@@ -3863,12 +3965,7 @@ def main(argv: list[str] | None=None) -> int:
         plan_path = output / 'attr-plan.json'
         if args.command == 'plan-missing-attrs':
             pool = None
-            if not args.no_model and os.environ.get(PROVIDER.api_key_env):
-                # Main image + title + legal options; current-key vision models probed at runtime.
-                pool = pop_attrs.VisionAttrModel(os.environ[PROVIDER.api_key_env])
-                if not pool.models:
-                    pool.close();from pop_text import TextPool;pool = TextPool(os.environ[PROVIDER.api_key_env])
-            try:plan = pop_attrs.inventory(client, identity, origin=args.origin, text_pool=pool, skip_attrs=pop_attrs.platform_broken_attrs(output))
+            try:plan = pop_attrs.inventory(client, identity, origin=args.origin, text_pool=pool, skip_attrs=pop_attrs.platform_broken_attrs(output), product_ids=args.product_id or None, agent_choices=pop_attrs.load_agent_choices(args.agent_attrs_file))
             finally:
                 if pool is not None:pool.close()
             pop_attrs._save(plan_path, plan)
@@ -3884,7 +3981,7 @@ def main(argv: list[str] | None=None) -> int:
     if args.command == 'repair-rejected':
         from pop_repair import run_rejected_repairs
         payload = run_rejected_repairs(args, sys.modules[__name__])
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(merchant_result_summary(payload,args.output_dir,args.command), ensure_ascii=False, indent=2))
         return 0 if payload['status'] in {'no-rejections', 'repairs-submitted-awaiting-review'} else 2
     if args.command == 'auto-maintain':
         try:
@@ -3892,7 +3989,7 @@ def main(argv: list[str] | None=None) -> int:
         except JdoWriteUncertainError:
             print(json.dumps({'status': 'paused-unknown-write', 'nextAction': 'Preserve the original directory, reconcile receipts and verify lock ownership; do not replay.'}))
             return 3
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(merchant_result_summary(payload,args.output_dir,args.command), ensure_ascii=False, indent=2))
         return 2 if payload['status'] == 'maintenance-incomplete' or payload['browserRequired'] or payload.get('shortTitleDelivery', {'status': 'no-titles' if payload['status'] == 'no-work' else 'unknown'})['status'] not in {'verified', 'no-titles'} else 0
     if args.command == 'bind-external-cutouts':
         try:

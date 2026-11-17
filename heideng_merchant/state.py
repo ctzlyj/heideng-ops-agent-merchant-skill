@@ -51,3 +51,25 @@ class FileLock:
 def merchant_home(home=None):
  if home:return Path(home).resolve()/'.heideng-merchant'
  return Path(os.environ.get('HEIDENG_MERCHANT_HOME',Path.home()/'.heideng-merchant')).resolve()
+
+
+def process_alive(pid):
+ """Conservative process liveness; never signals/terminates another process."""
+ if type(pid) is not int or pid <= 0:return None
+ if pid == os.getpid():return True
+ if os.name == 'nt':
+  import ctypes
+  from ctypes import wintypes
+  kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+  kernel.OpenProcess.argtypes=[wintypes.DWORD,wintypes.BOOL,wintypes.DWORD];kernel.OpenProcess.restype=wintypes.HANDLE
+  kernel.GetExitCodeProcess.argtypes=[wintypes.HANDLE,ctypes.POINTER(wintypes.DWORD)]
+  kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+  handle=kernel.OpenProcess(0x1000,False,pid)
+  if not handle:return False if ctypes.get_last_error()==87 else None
+  try:
+   code=wintypes.DWORD()
+   return code.value==259 if kernel.GetExitCodeProcess(handle,ctypes.byref(code)) else None
+  finally:kernel.CloseHandle(handle)
+ try:os.kill(pid,0);return True
+ except ProcessLookupError:return False
+ except (PermissionError,OSError):return None

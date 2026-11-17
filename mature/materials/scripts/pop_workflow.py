@@ -61,7 +61,7 @@ def complete_short_title_import(args, delivery, seller, client, agent=None):
     result['status']='import-completed-with-row-failures' if failed_rows else 'import-completed-awaiting-review'
     if failed_rows:result['platformFailedRows']=failed_rows
     try:
-        audit=agent.audit_pop_coverage(client,seller['shopName'])
+        audit=agent.audit_pop_coverage(client,seller['shopName'], product_ids=getattr(args,'_maintenance_product_ids',None), authorized_sku_ids=getattr(args,'_maintenance_sku_ids',None))
         from openpyxl import load_workbook
         target=set()
         for path in files:

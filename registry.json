@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "skill": "heideng-ops-agent-merchant",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "architecture": "mature-skill-dispatch",
   "internalReference": {
     "version": "1.5.4",

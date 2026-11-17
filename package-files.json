@@ -41,6 +41,8 @@
     "scripts/update_worker.py",
     "requirements-updates.txt",
     "updates/trust.json",
-    "references/continuous-updates.md"
+    "references/continuous-updates.md",
+    "heideng_merchant/merchant_key_store.py",
+    "scripts/runtime_preflight.py"
   ]
 }

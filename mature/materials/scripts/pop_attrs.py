@@ -269,18 +269,29 @@ def platform_broken_attrs(output_dir):
     return broken
 
 
-def inventory(client, identity, *, origin=None, workers=8, text_pool=None, skip_attrs=(), exclude_product_ids=()):
-    pids = []
-    page = 1
-    while True:
-        # Unsorted pages are unstable (duplicates/missing rows observed on a 424-product shop).
-        payload = client._get(SKILL_ID, '/rest/sp-product/v0/products', {'scopeSet': 'baseInfo,skuInfo', 'page': str(page), 'pageSize': '50', 'sortBy': 'created', 'sortType': 'asc'})
-        rows = payload.get('data') or []
-        pids.extend(str(r['productId']) for r in rows if r.get('productId'))
-        total = int((payload.get('paginationData') or {}).get('totalItems') or 0)
-        if not rows or len(pids) >= total:break
-        page += 1
-    if len(set(pids)) != len(pids) or len(pids) != total:raise ValueError('product list pagination incomplete or duplicated; no plan written')
+def load_agent_choices(path):
+    if not path:return {}
+    value = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(value, dict) or any(not isinstance(row, dict) for row in value.values()):raise ValueError('Agent attribute file must map product IDs to evidenced choices')
+    return value
+
+
+def inventory(client, identity, *, origin=None, workers=8, text_pool=None, skip_attrs=(), exclude_product_ids=(), product_ids=None, agent_choices=None):
+    if product_ids is None:
+        pids = []
+        page = 1
+        while True:
+            # Unsorted pages are unstable (duplicates/missing rows observed on a 424-product shop).
+            payload = client._get(SKILL_ID, '/rest/sp-product/v0/products', {'scopeSet': 'baseInfo,skuInfo', 'page': str(page), 'pageSize': '50', 'sortBy': 'created', 'sortType': 'asc'})
+            rows = payload.get('data') or []
+            pids.extend(str(r['productId']) for r in rows if r.get('productId'))
+            total = int((payload.get('paginationData') or {}).get('totalItems') or 0)
+            if not rows or len(pids) >= total:break
+            page += 1
+        if len(set(pids)) != len(pids) or len(pids) != total:raise ValueError('product list pagination incomplete or duplicated; no plan written')
+    else:
+        pids = list(map(str, product_ids))
+        if any(not p.isdecimal() for p in pids) or len(set(pids)) != len(pids):raise ValueError('exact product IDs empty/duplicated/invalid')
     excluded = {str(p) for p in exclude_product_ids or ()}
     pids = [p for p in pids if p not in excluded]
 
@@ -304,6 +315,12 @@ def inventory(client, identity, *, origin=None, workers=8, text_pool=None, skip_
         todo = [a for a in missing if infer_value(a, info['productName'], defaults)[0] is None]
         if todo:first[pid] = {'productId': pid, 'needsConfirmation': [{'title': a['title']} for a in todo]}
     model_values = model_fill(text_pool, list(first.values()), templates, details, workers) if (text_pool is not None and first) else {}
+    for pid, supplied in (agent_choices or {}).items():
+        if str(pid) not in details:raise ValueError('Agent attributes outside frozen product scope')
+        choices = supplied.get('choices') or []
+        if not supplied.get('evidence') or any(c.get('confidence') != 'high' for c in choices):raise ValueError('Host attribute choices need factual evidence and high confidence')
+        model_values[str(pid)] = validate_choices(supplied, templates.get(details[str(pid)]['categoryId']) or [])
+        for value in model_values[str(pid)].values():value['reason'] = 'host-evidence:' + str(supplied['evidence'])[:300]
     for pid in pids:
         info = details[pid];template = templates.get(info['categoryId']) or []
         missing = [a for a in template if a['title'] not in info['attrs']]

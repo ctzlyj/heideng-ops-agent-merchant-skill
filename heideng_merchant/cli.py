@@ -7,14 +7,13 @@ from .state import merchant_home
 from .safety import SafetyError, redact
 from .mature_runtime import ROUTES, MatureSourceUnavailable, run, status
 
-def main(argv=None):
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, 'reconfigure'):
-            stream.reconfigure(encoding='utf-8', errors='backslashreplace')
+def build_parser():
     parser = argparse.ArgumentParser(description='黑灯商家版：复用成熟业务 Skill')
     parser.add_argument('--state', type=Path, default=None)
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('status')
+    k=sub.add_parser('key',help='merchant OS secret maintenance, never prints a key')
+    k.add_argument('action',choices=('forget',))
     u = sub.add_parser('update', help='software maintenance only; never business scheduling')
     us = u.add_subparsers(dest='update_command', required=True)
     for name in ('status','check','apply','enable','disable','recover','repair-switch'): us.add_parser(name)
@@ -23,9 +22,21 @@ def main(argv=None):
     p.add_argument('--entry', help='registered source entry only')
     p.add_argument('capability', choices=sorted(ROUTES))
     p.add_argument('arguments', nargs=argparse.REMAINDER)
+    return parser
+
+
+def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='backslashreplace')
+    parser = build_parser()
     args = parser.parse_args(argv)
     try:
         state = args.state or merchant_home()
+        if args.command == 'key':
+            from .merchant_key_store import forget_key
+            forget_key(state)
+            print(json.dumps({'status':'forgotten','merchantKeyOnly':True,'businessExecuted':False}));return 0
         if args.command == 'update':
             from . import update_client as updater
             name = args.update_command

@@ -9,7 +9,7 @@ from heideng_merchant.safety import SafetyError,file_sha,redact
 from heideng_merchant.state import merchant_home
 from heideng_merchant.official import OfficialClient
 
-HOSTS={'codex':('.codex','skills'),'claude':('.claude','skills'),'joycode':('.joycode','skills'),'universal':('.agents','skills')}
+HOSTS={'workbuddy':('.workbuddy','skills'),'codex':('.codex','skills'),'claude':('.claude','skills'),'joycode':('.joycode','skills'),'universal':('.agents','skills')}
 
 def target_directory(host,home=None,skills_dir=None):
  if skills_dir:return Path(skills_dir).resolve()/SKILL_NAME
@@ -54,7 +54,7 @@ def main(argv=None):
   else:result['officialCli']={'ready':client.ready(),'deferred':True}
   if not args.offline:
    from heideng_merchant.runtime_dependencies import prepare_runtime
-   try:result['runtimeDependencies']=prepare_runtime(state,target,optional="cutout" if args.with_cutout_runtime else None if args.with_runtime else "updates")
+   try:result['runtimeDependencies']=prepare_runtime(state,target,optional="cutout" if args.with_cutout_runtime else None)
    except (SafetyError,OSError):
     result['runtimeDependencies']={'status':'deferred','independent':True,'reason':'runtime-dependency-preparation-unavailable','originalPackageAndStateRetained':True}
   else:result['runtimeDependencies']={'status':'deferred','independent':True,'reason':'offline-or-not-requested'}

@@ -64,6 +64,10 @@ def child_environment(state, inherited=None):
                   REMBG_HOME=str(state/'model-cache'/'rembg'), U2NET_HOME=str(state/'model-cache'/'u2net'),
                   JDO_ENV='prod', JINGMAI_LINKER_PORT=str(18000 + int(hashlib.sha256(str(state).encode()).hexdigest()[:6], 16) % 20000),
                   PYTHONIOENCODING='utf-8', PYTHONUTF8='1', PYTHONDONTWRITEBYTECODE='1', HEIDENG_MERCHANT_PACKAGE=str(PACKAGE_ROOT))
+    # Interpreter discovery uses the real machine before HOME is isolated; never copies credentials.
+    from .runtime_dependencies import bridge_python
+    interpreter = bridge_python(original)
+    if interpreter:result['JDO_PYTHON312'] = str(interpreter)
     # Only merchant-namespaced inputs cross this boundary; no old LTS4AI or company keys.
     for name in ('HEIDENG_MERCHANT_LTS4AI_API_KEY', 'HEIDENG_MERCHANT_WEBCLI_BIN', 'HEIDENG_MERCHANT_BROWSER_CONFIG'):
         if name in original:
@@ -103,6 +107,23 @@ def registered_browser_profile(profile, identity):
     if entry.get('shopName')!=identity.get('shopName'):return None
     if identity.get('shopId') and str(entry.get('shopId'))!=str(identity.get('shopId')):return None
     return merchant_profile_directory(entry.get('browserProfileDir'))
+
+def browser_profile_channel(profile_dir):
+    home = os.environ.get('HEIDENG_MERCHANT_HOME')
+    path = merchant_profile_directory(profile_dir)
+    if home and path:
+        registry = read_json(Path(home)/'linker/shops.json', {})
+        for entry in registry.get('profiles', {}).values():
+            if not isinstance(entry, dict) or not entry.get('browserProfileDir'):continue
+            if Path(entry['browserProfileDir']).resolve() != path:continue
+            channel = entry.get('browserChannel')
+            if channel in ('chrome', 'msedge', 'chromium'):return None if channel=='chromium' else channel
+        # A legacy Edge profile has this metadata; do not try Chrome on it.
+        if (path/'Last Version').is_file():
+            version = (path/'Last Version').read_text(encoding='utf-8', errors='replace')
+            if 'edge' in version.casefold():return 'msedge'
+    return 'chrome'  # Mature default for legacy Chrome metadata; never opens a work profile.
+
 
 def source_path(capability, entry=None, package_root=None):
     if capability not in ROUTES:
@@ -177,6 +198,27 @@ def collection_environment(state, arguments, environment):
         if os.environ.get(name):environment[name]=os.environ[name]
     return environment
 
+def preflight(capability, arguments, *, state, entry=None, package_root=None):
+    """Static dependencies/CLI bridge check before requesting a merchant key."""
+    root = Path(package_root or PACKAGE_ROOT);path,_ = source_path(capability,entry,root)
+    environment = child_environment(state);environment['HEIDENG_MERCHANT_PACKAGE']=str(root)
+    environment.pop('HEIDENG_MERCHANT_LTS4AI_API_KEY',None)
+    from .official import OfficialClient
+    official=OfficialClient(state)
+    if official.ready():environment['JDO_CLI_PATH']=str(official.executable())
+    from .runtime_dependencies import runtime_python
+    args=list(arguments)
+    if args[:1]==['--']:args=args[1:]
+    command=[str(runtime_python(state)),'-I','-B',str(root/'scripts/runtime_preflight.py'),capability,str(path),*args]
+    result=subprocess.run(command,env=environment,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=150)
+    if result.returncode:
+        # Child's static diagnostics only; never propagate arbitrary stderr/env to the host.
+        try:detail=json.loads(result.stdout.strip().splitlines()[-1])
+        except (ValueError,IndexError):detail={}
+        raise SafetyError('merchant-runtime-preflight-failed:'+str(detail.get('reason','check-interpreter-dependencies-and-command-arguments'))[:400])
+    return {'status':'ready','businessExecuted':False,'paidCalls':False}
+
+
 def run(capability, arguments, *, state, entry=None, package_root=None):
     root = Path(package_root or PACKAGE_ROOT)
     path, _ = source_path(capability, entry, root)
@@ -196,6 +238,9 @@ def run(capability, arguments, *, state, entry=None, package_root=None):
         source_path('diagnosis',package_root=root)
         source_path('listing',package_root=root)
         environment=collection_environment(state,arguments,environment)
+    if path.suffix=='.py' and capability!='connection' and not any(x in ('--help','-h','help') for x in arguments):
+        from .runtime_dependencies import ensure_core
+        ensure_core(state,root)
     with FileLock(state/'install.lock',shared=True):
         if path.suffix == '.py':
             from .runtime_dependencies import runtime_python

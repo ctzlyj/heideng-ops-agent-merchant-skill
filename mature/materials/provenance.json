@@ -9,7 +9,7 @@
   "files": {
     "scripts/jd_material_agent.py": {
       "upstreamSha256": "80cb83c2865958934423eac3479b709c263f718171df45f3b4a7c242378ce4de",
-      "sha256": "9eb8184b22b679772a44156f9d9a1c60e1341e5705435a1d325071198e8c167b",
+      "sha256": "ed625a43a483449b5b7514b945f0408e0e41adc04fd5de1d998f66bad1f287b5",
       "adapted": true
     },
     "scripts/jdo_bridge_probe.py": {
@@ -24,13 +24,13 @@
     },
     "scripts/pop_attrs.py": {
       "upstreamSha256": "a857d64f942b13f6bafad2d5322dad10b1b4b2e19876d0fb191143a82c7ea5cd",
-      "sha256": "6768f70685ec5f6ca7e16a3e9db862e7d2099db59e51fd64c7c9162a2dd1085c",
+      "sha256": "9c9b2f2690e945418b42f27c0e8a8edd792a8a5bc765abced0716c7b8e7ae26d",
       "adapted": true
     },
     "scripts/pop_browser.py": {
       "upstreamSha256": "62dea491ea45732c77cde919a296ddb98cbb3e3735135543079d9f3e30b4e719",
-      "sha256": "62dea491ea45732c77cde919a296ddb98cbb3e3735135543079d9f3e30b4e719",
-      "adapted": false
+      "sha256": "1d0094a84d8ab0787b5a8b421a5a4f0d2d2fb8a91141127aff8c2bb19f2d583a",
+      "adapted": true
     },
     "scripts/pop_cutout.py": {
       "upstreamSha256": "c69270132548283c30a9e6b182be163f35dec3b4e8150c0e011424b5e47779cf",
@@ -39,7 +39,7 @@
     },
     "scripts/pop_repair.py": {
       "upstreamSha256": "6788aa2756e818c62e8d785f782c66106a60414aab661bdea6babb3a7e63fda5",
-      "sha256": "4e00e30e0830d8d7d46b2c8d9619dbd99557c921db2a3f7ec20d0e756828734d",
+      "sha256": "f9a1c2206299206b4215a6f3e063a51771b1eeaac9cc197ebfe6a7f05dab5161",
       "adapted": true
     },
     "scripts/pop_safety.py": {
@@ -54,7 +54,7 @@
     },
     "scripts/pop_workflow.py": {
       "upstreamSha256": "42d028b27a38c8e92da77ef67c3cb4992e7bb6cfd2e1e252e0ee90f094fe0099",
-      "sha256": "c8aea465f609fafd4169fe004b34e231e8dfb02bc6f48dde4d4001efec8feef0",
+      "sha256": "1633982f8933af0e9dbda03da2b3aa5b1ed5578ed9189e1d4d95633bd4c3155e",
       "adapted": true
     },
     "assets/商品导入短标题模板.xlsx": {

@@ -104,7 +104,10 @@ class BrowserAuthJob:
                 return
             from heideng_merchant.mature_runtime import merchant_profile_directory
             directory=merchant_profile_directory(getattr(self.browser,'profile_directory',None))
-            sl.update_registry(self.profile, identity, extra={'browserProfileDir':str(directory)} if directory else None)
+            metadata={'browserProfileDir':str(directory)} if directory else None
+            channel=getattr(self.browser,'profile_channel',None)
+            if metadata and channel in ('chrome','msedge','chromium'):metadata['browserChannel']=channel
+            sl.update_registry(self.profile, identity, extra=metadata)
             self.identity = identity
             self._finish('success', 'ready', '已连接：' + identity['shopName'])
 

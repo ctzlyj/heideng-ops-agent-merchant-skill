@@ -231,7 +231,7 @@ def run_rejected_repairs(args,agent=None):
             scope=json.loads(freeze.read_text(encoding='utf-8'))
             if scope['shopIdentity']!=identity:raise ValueError('Frozen repair belongs to another shop')
         else:
-            audit=agent.audit_pop_coverage(client,args.expected_shop_name)
+            audit=agent.audit_pop_coverage(client,args.expected_shop_name,product_ids=getattr(args,'authorized_product_ids',None),authorized_sku_ids=getattr(args,'authorized_sku_ids',None))
             rows=audit['rows'];products=sorted({r['productId'] for r in rows})
             sku_rows=[];groups=list(agent._chunks(products,10))
             with ThreadPoolExecutor(max_workers=1 if len(groups)<=2 else agent.READ_CONCURRENCY) as reader:
