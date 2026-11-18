@@ -261,8 +261,11 @@ def cmd_ensure_shop(a):
     vender_id = res.get("venderId") or (q if q.isdigit() else "")
     if not shop_name and not vender_id:
         return {"ok": False, "status": "error", "error": "无法确定店铺名称或 venderId"}
+    pending=sl.load_pending()
+    same_pending=(pending.get('shopName')==shop_name or pending.get('venderId')==vender_id) and pending.get('profile')==profile
+    resume=bool(getattr(a,'resume',False)) or (same_pending and not getattr(a,'fresh',False))
     payload = {"shopName": shop_name, "profile": profile, "venderId": vender_id,
-               'resume': bool(getattr(a, 'resume', False))}
+               'resume': resume}
     config_file = getattr(a, 'browser_config', '')
     if config_file:
         payload['browserConfig'] = sl.read_json(Path(config_file), {})
@@ -361,6 +364,7 @@ def main() -> int:
     p.add_argument("--no-open", action="store_true", help="暂不打开页面，返回等待浏览器状态")
     p.add_argument("--no-wait", action="store_true", help="立即返回任务与阶段，由 Agent 短轮询")
     p.add_argument('--resume', action='store_true', help='先核验已有结果，再恢复同任务')
+    p.add_argument('--fresh', action='store_true', help='明确放弃旧会话并新建任务；不用于普通网络中断恢复')
     p.add_argument('--browser-config', help='Agent 提供的非敏感浏览器适配配置文件')
     p.set_defaults(func=cmd_ensure_shop)
 

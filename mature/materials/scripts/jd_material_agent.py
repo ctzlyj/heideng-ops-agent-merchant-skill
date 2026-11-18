@@ -3907,6 +3907,8 @@ def merchant_result_summary(payload, output_dir, command):
     atomic_json(path, redact(payload))
     keys = ('status','skuCount','spuCount','browserRequired','planReused','verificationMode','manualVerificationRequired','manualVerificationMessage')
     summary = {key: payload[key] for key in keys if key in payload}
+    from heideng_merchant.merchant_experience import task_summary
+    summary.update(task_summary(payload))
     summary['resultFile'] = str(path)
     for key in ('batches','rows','reconciledUploads','reconciledBindings','unresolvedUploads','unresolvedBindings'):
         if isinstance(payload.get(key), list):summary[key+'Count'] = len(payload[key])

@@ -228,7 +228,7 @@ def maybe_schedule(state):
             s["scheduledUntil"] = time.time() + 600; save_settings(state, s)
         from .runtime_dependencies import runtime_python
         target = Path(s["target"])
-        subprocess.Popen([str(runtime_python(state)), "-I", "-B", str(target / "scripts/update_worker.py"), "--state", str(Path(state).resolve())], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=__import__("heideng_merchant.update_catalog", fromlist=["git_environment"]).git_environment(), creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        subprocess.Popen([str(runtime_python(state)), "-I", "-B", str(target / "scripts/update_worker.py"), "--state", str(Path(state).resolve())], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=__import__("heideng_merchant.update_catalog", fromlist=["git_environment"]).git_environment(), creationflags=(subprocess.CREATE_NO_WINDOW | 0x00000008) if os.name == "nt" else 0, start_new_session=(os.name != 'nt'))
     except (SafetyError, OSError): pass  # Product tasks remain usable if updater cannot run.
 
 

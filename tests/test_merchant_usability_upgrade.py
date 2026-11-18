@@ -20,7 +20,7 @@ class UsabilityUpgradeTests(unittest.TestCase):
             secrets=state/'secrets';secrets.mkdir();(secrets/'fixture.dpapi').write_bytes(b'fixture-protected-bytes')
             (state/'unknown-receipt.json').write_text('{"status":"unknown","taskVersion":"0.4.0"}',encoding='utf-8')
             before={p.relative_to(state).as_posix():p.read_bytes() for p in (secrets/'fixture.dpapi',state/'unknown-receipt.json')}
-            candidate=build_bundle(ROOT,root/'candidate.zip','0.4.3');manifest,files=validate_archive(candidate)
+            candidate=build_bundle(ROOT,root/'candidate.zip','0.4.4');manifest,files=validate_archive(candidate)
             old_manifest,old_files=validate_archive(old)
             self.assertEqual(dependency_fingerprint(files),dependency_fingerprint(old_files))
             self.assertEqual(audit(candidate)['releaseAudit'],'passed')
@@ -33,7 +33,7 @@ class UsabilityUpgradeTests(unittest.TestCase):
             key=Ed25519PrivateKey.generate();public=key.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw).hex()
             trust={'schemaVersion':1,'repository':'ctzlyj/heideng-ops-agent-merchant-skill','ref':'refs/heads/codex/merchant-foundation','keys':{'fixture':public}}
             configure(state,target,trust,host='workbuddy')
-            release={'id':'fixture-0.4.1','version':'0.4.3','status':'stable','gitBlob':'fixture','sha256':digest(candidate),'sizeBytes':candidate.stat().st_size,'dependencyFingerprint':dependency_fingerprint(files),'components':{n.split('/')[1]:json.loads(v)['upstreamCommit'] for n,v in files.items() if n.startswith('mature/') and n.endswith('/provenance.json')},'compatibility':{'pythonMinimum':'3.11','hosts':['workbuddy']}}
+            release={'id':'fixture-0.4.1','version':'0.4.4','status':'stable','gitBlob':'fixture','sha256':digest(candidate),'sizeBytes':candidate.stat().st_size,'dependencyFingerprint':dependency_fingerprint(files),'components':{n.split('/')[1]:json.loads(v)['upstreamCommit'] for n,v in files.items() if n.startswith('mature/') and n.endswith('/provenance.json')},'compatibility':{'pythonMinimum':'3.11','hosts':['workbuddy']}}
             envelope=sign({'schemaVersion':1,'repository':trust['repository'],'sequence':2,'issuedAt':time.time(),'expiresAt':time.time()+3600,'releases':[release]},key,'fixture')
             (root/'catalog.json').write_text(json.dumps(envelope),encoding='utf-8')
             code="""import sys,json;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from heideng_merchant import update_client as u
@@ -44,7 +44,7 @@ print(json.dumps(u.apply(Path(sys.argv[2]),source=Source())))
 """
             result=subprocess.run([sys.executable,'-I','-B','-c',code,str(target),str(state),str(root/'catalog.json'),str(candidate)],env=clean_environment(root/'process-home'),capture_output=True,text=True,encoding='utf-8',timeout=60)
             self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(json.loads(result.stdout)['status'],'installed')
-            self.assertEqual(verify_install(target)['version'],'0.4.3')
+            self.assertEqual(verify_install(target)['version'],'0.4.4')
             for name,raw in before.items():self.assertEqual((state/name).read_bytes(),raw)
 
     def test_image_key_entry_fails_before_dialog_when_no_frozen_plan(self):

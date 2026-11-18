@@ -44,7 +44,9 @@ class HostConnectionController:
     def __init__(self,state=None,shop_identity=None):
         self.shop_identity=shop_identity or {}
         home=Path(state or os.environ['HEIDENG_MERCHANT_HOME']).resolve()
-        self.home=home;self.root=home/'browser-controller'
+        import hashlib
+        identity_key=str(self.shop_identity.get('venderId') or self.shop_identity.get('shopName') or 'pending-shop')
+        self.home=home;self.root=home/'browser-controller'/hashlib.sha256(identity_key.encode()).hexdigest()[:16]
         self.root.mkdir(parents=True,exist_ok=True)
         self._state_path=self.root/'session.json'
         self._state=None

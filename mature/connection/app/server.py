@@ -487,7 +487,7 @@ class Manager:
                 same_identity = (bool(expect_vender_id) and self.job.expect_vender_id == expect_vender_id)
                 same_name = bool(shop_name) and sl.norm(self.job.shop_name) == sl.norm(shop_name)
                 same = (same_identity or same_name) and (not expect_vender_id or not self.job.expect_vender_id or same_identity)
-                if same and (self.job.status not in ('cancelled', 'failed', 'mismatch') or resume):
+                if same and (self.job.status not in ('cancelled', 'failed', 'mismatch') or (resume and self.job.status != 'mismatch')):
                     if resume:
                         self.job.resume()
                     return self.job

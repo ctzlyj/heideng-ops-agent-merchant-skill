@@ -11,7 +11,7 @@ def build_parser():
     parser = argparse.ArgumentParser(description='黑灯商家版：复用成熟业务 Skill')
     parser.add_argument('--state', type=Path, default=None)
     sub = parser.add_subparsers(dest='command', required=True)
-    sub.add_parser('status')
+    st=sub.add_parser('status');st.add_argument('--detail',action='store_true',help='维护者查看完整来源与能力清单')
     k=sub.add_parser('key',help='merchant OS secret maintenance, never prints a key')
     k.add_argument('action',choices=('forget',))
     u = sub.add_parser('update', help='software maintenance only; never business scheduling')
@@ -59,7 +59,12 @@ def main(argv=None):
             from .update_client import consume_notice
             try: notice = consume_notice(state)
             except Exception: notice = {'reason':'update-status-unavailable','businessUsable':True,'action':'diagnose-updater-settings-without-resetting-trust'}
-            print(json.dumps({'skill': SKILL_NAME, 'version': VERSION, **status(), 'softwareUpdateNotice': notice}, ensure_ascii=False))
+            from .merchant_experience import merchant_status
+            detail=status()
+            result={'skill':SKILL_NAME,'version':VERSION,'merchantSummary':merchant_status(VERSION),'softwareUpdateNotice':notice}
+            if args.detail:result['detail']=detail
+            else:result.update(detail)
+            print(json.dumps(result,ensure_ascii=False))
             return 0
         return run(args.capability, args.arguments, state=args.state or merchant_home(), entry=args.entry)
     except MatureSourceUnavailable as error:

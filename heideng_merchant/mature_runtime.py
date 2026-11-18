@@ -226,6 +226,14 @@ def preflight(capability, arguments, *, state, entry=None, package_root=None):
 
 
 def run(capability, arguments, *, state, entry=None, package_root=None):
+    return _run_with_lease(capability, arguments, state=state, entry=entry, package_root=package_root)
+
+
+from .runtime_dependencies import ensure_core
+from .official import OfficialClient
+
+
+def _run_with_lease(capability, arguments, *, state, entry=None, package_root=None):
     root = Path(package_root or PACKAGE_ROOT)
     path, _ = source_path(capability, entry, root)
     state = Path(state).resolve()
@@ -265,5 +273,13 @@ def run(capability, arguments, *, state, entry=None, package_root=None):
         else:
             raise SafetyError('javascript-entry-requires-reviewed-browser-transport')
         # No retry of a failed/unknown mature operation, no worker/state machine added here.
-        result = subprocess.run(command, cwd=work, env=environment)
+        import uuid
+        from . import update_client
+        task_id='run-'+uuid.uuid4().hex
+        lease_id=update_client.usage(state,'begin',task_id,components=[ROUTES[capability][0]])
+        update_client.usage(state,'heartbeat',task_id)
+        try:
+            result = subprocess.run(command, cwd=work, env=environment)
+        finally:
+            if lease_id:update_client.usage(state,'end',task_id)
     return result.returncode

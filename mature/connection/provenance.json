@@ -23,7 +23,7 @@
     },
     "app/server.py": {
       "upstreamSha256": "fdbe3a272f6ebfec99dff8340da787c830f2373944d870f6404d7878fdb7bcd8",
-      "sha256": "d1d1aa74889747801989e0107f34e1f3e1f110250b3d58b5998880089642cb6a",
+      "sha256": "f242deb4fd018fe8abcc483f60f5fe248c97063a1d393c7318bf4ed3d60cb7e4",
       "adapted": true
     },
     "app/shoplib.py": {
@@ -38,7 +38,7 @@
     },
     "scripts/linker.py": {
       "upstreamSha256": "fcc261f757b6de8c3cfdfb76216d54a448777dbd2d37eac54dfdf3b6bb3e74e0",
-      "sha256": "34ce701a335ec5b85df24be3bd8cb9c31ae70e310b7bd5571ed58e60ea815d40",
+      "sha256": "d03033dfb456eeebaa42bb6552defdf63ff2822cf4fe9c45524a0bf2cec782bc",
       "adapted": true
     },
     "scripts/browser_bridge.py": {
