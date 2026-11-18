@@ -480,7 +480,7 @@ class Manager:
         with self._lock:
             return self.job
 
-    def start_flow(self, profile, shop_name, expect_vender_id='', browser_config=None, resume=False):
+    def start_flow(self, profile, shop_name, expect_vender_id='', browser_config=None, resume=False, connection_timeout=None):
         from browser_auth import BrowserAuthJob
         with self._lock:
             if self.job and hasattr(self.job, 'requested_profile'):
@@ -495,7 +495,7 @@ class Manager:
                     return self.job
             if self.job and self.job.status in ACTIVE:
                 raise RuntimeError('已有授权正在进行，请先完成或取消本任务。')
-            job = BrowserAuthJob(profile, shop_name, expect_vender_id, browser_config=browser_config)
+            job = BrowserAuthJob(profile, shop_name, expect_vender_id, browser_config=browser_config, connection_timeout=connection_timeout)
             self.job = job
             job.start()
             return job
@@ -686,7 +686,10 @@ class Handler(BaseHTTPRequestHandler):
                       'expected': {'shopName': shop_name, 'venderId': vender_id}})
         if resolved['status'] != 'needs_auth':
             return self._send_json(200, resolved)
-        job = self.manager.start_flow(profile, shop_name, vender_id, body.get('browserConfig'), bool(body.get('resume')))
+        budget=body.get('timeoutSeconds')
+        if budget is not None and (type(budget) is not int or not 1<=budget<=3600):
+            raise ValueError('连接预算必须为1–3600秒整数。')
+        job = self.manager.start_flow(profile, shop_name, vender_id, body.get('browserConfig'), bool(body.get('resume')), connection_timeout=budget)
         self._send_json(200, {"ok": True, 'status': 'awaiting_auth', "jobId": job.id,
                               "profile": job.profile, 'stage': job.stage, 'job': job.to_dict()})
 

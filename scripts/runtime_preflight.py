@@ -34,7 +34,7 @@ def main():
                 frozen=json.loads((output/a.AUTO_MAINTAIN_PLAN_NAME).read_text(encoding='utf-8'))
                 prepared,_,_,_=a.load_pop_auto_maintain_plan(output,frozen.get('shopIdentity') or {},getattr(args,'target_spu_id',None))
                 if getattr(args,'expected_shop_name',None) and (frozen.get('shopIdentity') or {}).get('shopName') != args.expected_shop_name:raise ValueError('店名与冻结计划不一致')
-                text=a.load_agent_text(args.agent_text_file) if args.agent_text_file else {'selling_points':{},'short_titles':{}}
+                text=a.load_scoped_agent_text(args.agent_text_file,prepared,output,frozen.get('shopIdentity') or {}) if args.agent_text_file else {'selling_points':{},'short_titles':{}}
                 text=a._validate_agent_text_scope(text,prepared)
                 # Existing original task text remains reusable. Report exact missing SKU IDs, not all 299 rows.
                 missing=[]

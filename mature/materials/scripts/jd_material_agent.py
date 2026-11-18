@@ -2143,18 +2143,20 @@ def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None
     mode = _business_mode(prepared)
     signature = _task_signature(prepared)
     allowed_signatures={signature,_task_signature(route_jingmai_batch_images(prepared,model_cutout_images=False)[0])}
+    allowed_jobs={job.spu_id for job in prepared.jobs}
     if state_path.parent.parent.name.startswith('批次'):
         plan_path=state_path.parent.parent.parent/AUTO_MAINTAIN_PLAN_NAME
         if plan_path.is_file():
             try:
                 frozen=json.loads(plan_path.read_text(encoding='utf-8'))
-                full=_prepared_from_payload(frozen.get('prepared') or {})
+                full,_,_,_=load_pop_auto_maintain_plan(state_path.parent.parent.parent,frozen.get('shopIdentity') or {},frozen.get('targetSpuId'))
                 batch_number=int(state_path.parent.parent.name.removeprefix('批次'))
                 groups=split_rows_by_spu(full.rows)
                 current_spus={job.spu_id for job in prepared.jobs}
-                if (frozen.get('planHash')==_auto_maintain_plan_hash(frozen) and 1<=batch_number<=len(groups) and {row.spu_id for row in groups[batch_number-1]}==current_spus):
+                if (frozen.get('planHash')==_auto_maintain_plan_hash(frozen) and 1<=batch_number<=len(groups) and current_spus.issubset({row.spu_id for row in groups[batch_number-1]})):
                     batch_prepared=_subset_prepared(full,groups[batch_number-1])
                     signature=_task_signature(batch_prepared)
+                    allowed_jobs={job.spu_id for job in batch_prepared.jobs}
                     allowed_signatures={signature,_task_signature(route_jingmai_batch_images(batch_prepared,model_cutout_images=False)[0])}
             except (OSError,ValueError,KeyError,json.JSONDecodeError):pass
     existing_jobs = set((state.get('jobs') or {}).keys())
@@ -2166,7 +2168,7 @@ def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None
     nested_batch = state_path.parent.parent.name.startswith('批次') and (state_path.parent.parent.parent/AUTO_MAINTAIN_PLAN_NAME).is_file()
     if existing_signature and existing_signature not in allowed_signatures:
         raise ValueError('输出目录属于另一份底表任务，禁止复用其状态。请选择新的输出目录。')
-    if existing_jobs and not existing_jobs.issubset(current_jobs):
+    if existing_jobs and not existing_jobs.issubset(allowed_jobs):
         raise ValueError('旧任务含当前范围外商品；只有同一冻结批次子集可以保留原回执。')
     state['version'] = 2
     state['variant'] = VARIANT_ID
@@ -2452,6 +2454,22 @@ def _validate_agent_text_scope(agent_text: dict[str, Any], prepared: PreparedSou
         raise ValueError(f'Agent 文案冻结计划范围差集：多余SPU {unknown_spus}，多余SKU {unknown_skus}；待补SKU {missing_skus}。')
     # Host may send the frozen inventory's already-qualified titles; ignore, never overwrite them.
     return {**agent_text, 'short_titles': {key: value for key, value in agent_text['short_titles'].items() if key in needed_skus}}
+
+def load_scoped_agent_text(path, prepared, output, seller):
+    """Project only an owned full-task file through the verified original frozen plan."""
+    text=load_agent_text(path)
+    output=Path(output).resolve();source=Path(path).resolve()
+    # External input remains a strict current-scope input; it cannot silently become a full-task file.
+    if not source.is_relative_to(output):return _validate_agent_text_scope(text,prepared)
+    from heideng_merchant.safety import safe_join
+    safe_join(output,source.relative_to(output).as_posix())
+    frozen=json.loads((output/AUTO_MAINTAIN_PLAN_NAME).read_text(encoding='utf-8'))
+    full,_,_,_=load_pop_auto_maintain_plan(output,seller,frozen.get('targetSpuId'))
+    if not {j.spu_id for j in prepared.jobs}.issubset({j.spu_id for j in full.jobs}):
+        raise ValueError('当前文案目标不属于原冻结任务，未投影。')
+    validated=_validate_agent_text_scope(text,full)  # Reject all full-plan outliers before selecting a subset.
+    return _validate_agent_text_scope(_batch_agent_text(validated,prepared),prepared)
+
 
 def _batch_agent_text(agent_text: dict[str, Any] | None, batch: PreparedSource) -> dict[str, Any] | None:
     if not agent_text:
@@ -3108,6 +3126,58 @@ def _scope_pop_discovery(prepared: PreparedSource, reference_urls: dict[str, str
         raise ValueError('--target-spu-id is not in the current maintenance set')
     return (_subset_prepared(prepared, target_rows), {target_spu_id: reference_urls.get(target_spu_id, '')}, {target_spu_id: existing_materials.get(target_spu_id, {})})
 
+def host_task_handoff(prepared, output, seller, profile=None):
+    """Expose exact host inputs and original commands; no planning or business dispatch."""
+    output=Path(output).resolve()
+    frozen=json.loads((output/AUTO_MAINTAIN_PLAN_NAME).read_text(encoding='utf-8'))
+    full,_,_,_=load_pop_auto_maintain_plan(output,seller,frozen.get('targetSpuId'))
+    allowed={job.spu_id for job in full.jobs}
+    if not {job.spu_id for job in prepared.jobs}.issubset(allowed):raise ValueError('交接范围超出原计划')
+    needs_points=[];needs_titles=[];facts=[]
+    for index,rows in frozen_scope_batches(prepared,output):
+        state=_load_state(output/f'批次{index:03d}/.state/task.json')
+        for job in _subset_prepared(prepared,rows).jobs:
+            item=state.get('jobs',{}).get(job.spu_id,{})
+            if job.needs_selling_points and not item.get('selling_points'):needs_points.append(job.spu_id)
+            needs_titles.extend(sku for sku in job.short_title_sku_ids if not valid_short_title((item.get('short_titles') or {}).get(sku)))
+            facts.append({'spuId':job.spu_id,'title':job.title,'skus':[{'skuId':sku,'title':title} for sku,title in job.skus]})
+    entry=str(Path(os.environ.get('HEIDENG_MERCHANT_PACKAGE') or Path(__file__).resolve().parents[3])/'scripts/merchant.py')
+    base=['python',entry,'run','materials','--']
+    scope_args=['--output-dir',str(output)] + (['--profile',profile] if profile else [])
+    expected=['--expected-shop-name',_shop_identity(seller)['shopName']]
+    execute=base+['auto-maintain',*scope_args,*expected,'--agent-text-file',str(output/'host-text.json'),'--confirm','AUTO_MAINTAIN']
+    selected={job.spu_id for job in prepared.jobs}
+    if selected!=allowed:
+        if len(selected)!=1:raise ValueError('恢复命令只支持完整任务或单SPU子集')
+        execute+=['--target-spu-id',next(iter(selected))]
+    return {'schemaVersion':1,'taskDirectory':str(output),'planHash':frozen['planHash'],'shopIdentity':_shop_identity(seller),
+            'scope':{'spuIds':[j.spu_id for j in prepared.jobs],'skuIds':[r.sku_id for r in prepared.rows]},
+            'facts':facts,'textInput':{'file':str(output/'host-text.json'),'neededSellingPointSpuIds':needs_points,
+              'neededShortTitleSkuIds':needs_titles,'schema':{'type':'object','required':['sellingPoints','shortTitles'],
+              'properties':{'sellingPoints':{'type':'object','additionalProperties':{'type':'array','minItems':3,'maxItems':3,'items':{'type':'string'}}},
+                            'shortTitles':{'type':'object','additionalProperties':{'type':'string'}}},'additionalProperties':False},
+              'validation':'原卖点禁词/长度与短标题加权16–30规则；只补上述待补ID，已合格文本不改'},
+            'attributes':{'inputFile':str(output/'host-attrs.json'),
+              'schema':{'type':'object','additionalProperties':{'type':'object','required':['evidence','choices'],
+                'properties':{'evidence':{'type':'string','minLength':1},'choices':{'type':'array','items':{'type':'object',
+                'required':['title','n','confidence'],'properties':{'title':{'type':'string'},
+                'n':{'type':'array','items':{'type':'integer','minimum':0}},'confidence':{'const':'high'}}}}}}},
+              'applyArgv':base+['complete-product-attrs',*scope_args,*expected,'--confirm','AUTO_MAINTAIN',*[v for j in prepared.jobs for v in ('--product-id',j.spu_id)]],
+              'replanArgv':base+['plan-missing-attrs',*scope_args,*expected,'--agent-attrs-file',str(output/'host-attrs.json'),*[v for j in prepared.jobs for v in ('--product-id',j.spu_id)]],
+              'inventoryArgv':base+['plan-missing-attrs',*scope_args,*expected,*[v for j in prepared.jobs for v in ('--product-id',j.spu_id)]],
+              'rule':'按原attr-plan中的类型和合法选项产出agent-attrs-file；不猜地区ID或调用员工视觉模型'},
+            'executeArgv':execute,'recoverArgv':base+['reconcile-receipts',*scope_args],
+            'executionAuthorized':False,'nextAction':'宿主按事实补文案/属性，沿用已确认范围；新写入/费用确认后执行，未知先对账'}
+
+
+def _save_host_handoff(prepared, output, seller, profile=None):
+    from pop_safety import atomic_json
+    payload=host_task_handoff(prepared,output,seller,profile)
+    path=Path(output)/'.state/host-handoff.json';atomic_json(path,payload)
+    return {'file':str(path.resolve()),'missingSellingPointCount':len(payload['textInput']['neededSellingPointSpuIds']),
+            'missingShortTitleCount':len(payload['textInput']['neededShortTitleSkuIds']),'nextAction':payload['nextAction']}
+
+
 @exclusive_pop_run
 def run_plan_auto_maintain(args) -> dict[str, Any]:
     if getattr(args, 'business_mode', 'pop') != 'pop':
@@ -3129,13 +3199,13 @@ def run_plan_auto_maintain(args) -> dict[str, Any]:
         if expected_shop_name and cell_text(seller.get('shopName')) != expected_shop_name:
             raise ValueError('current jdo-cli shop does not match --expected-shop-name')
         prepared, _, _, source_path = load_pop_auto_maintain_plan(output, seller, target_spu_id)
-        return {'status': 'planned-existing', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': True, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs)}
+        return {'status': 'planned-existing', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': True, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs), 'hostHandoff':_save_host_handoff(prepared,output,seller,getattr(args,'profile',None))}
     prepared, reference_urls, existing_materials = discover_jdo_pop_source(client, expected_shop_name=getattr(args, 'expected_shop_name', None), include_spu_ids=_auto_resume_targets(output, target_spu_id), include_full_score=include_full_score, off_shelf_spu_ids=getattr(args, 'include_off_shelf_spu', ()), scope_spu_ids=[target_spu_id] if target_spu_id else None)
     prepared, reference_urls, existing_materials = _scope_pop_discovery(prepared, reference_urls, existing_materials, target_spu_id, exclude_spu_ids=getattr(args, 'exclude_spu_id', ()) or ())
     source_path = _write_jdo_source(prepared, output / '实时商品信息分0-89.xlsx')
     seller = client.seller_info()
     plan_path = write_pop_auto_maintain_plan(prepared, reference_urls, existing_materials, seller, output, source_path, target_spu_id=target_spu_id)
-    return {'status': 'planned', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': False, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs)}
+    return {'status': 'planned', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': False, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs), 'hostHandoff':_save_host_handoff(prepared,output,seller,getattr(args,'profile',None))}
 
 def route_jingmai_batch_images(prepared: PreparedSource, *, model_cutout_images: bool=False) -> tuple[PreparedSource, list[dict[str, Any]]]:
     """Route missing cutout slots externally without changing the frozen plan."""
@@ -3189,9 +3259,7 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
         raise ValueError('current jdo-cli shop does not match --expected-shop-name')
     prepared, reference_urls, existing_materials, source_path = load_pop_auto_maintain_plan(output, seller, target_spu_id)
     prepared, batch_image_handoff = route_jingmai_batch_images(prepared, model_cutout_images=getattr(args, "model_cutout_images", False))
-    agent_text = load_agent_text(args.agent_text_file) if getattr(args, 'agent_text_file', None) else None
-    if agent_text:
-        agent_text = _validate_agent_text_scope(agent_text, prepared)
+    agent_text = load_scoped_agent_text(args.agent_text_file,prepared,output,seller) if getattr(args, 'agent_text_file', None) else None
     batch_payloads = []
     for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
         batch = _subset_prepared(prepared, rows)
@@ -3250,9 +3318,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
     if getattr(args, 'skip_transparent', False):
         prepared = replace(prepared, jobs=tuple(replace(job, needs_transparent=False) for job in prepared.jobs))
     prepared, batch_image_handoff = route_jingmai_batch_images(prepared, model_cutout_images=getattr(args, 'model_cutout_images', False))
-    agent_text = load_agent_text(args.agent_text_file) if getattr(args, 'agent_text_file', None) else None
-    if agent_text:
-        agent_text = _validate_agent_text_scope(agent_text, prepared)
+    agent_text = load_scoped_agent_text(args.agent_text_file,prepared,output,seller) if getattr(args, 'agent_text_file', None) else None
     if not prepared.jobs:
         return {'status': 'no-work', 'batchImageHandoff': [], 'source': str(source_path), 'skuCount': 0, 'spuCount': 0, 'batches': [], 'browserRequired': False, 'planReused': plan_reused, 'verificationMode': getattr(args, 'verification_mode', 'submit-only'), 'manualVerificationRequired': False, 'manualVerificationMessage': None}
     if args.upload_mode != 'browser' and any(_has_material_work(job) for job in prepared.jobs):

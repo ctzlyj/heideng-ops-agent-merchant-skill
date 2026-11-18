@@ -60,18 +60,18 @@ def main(argv=None):
             try: notice = consume_notice(state)
             except Exception: notice = {'reason':'update-status-unavailable','businessUsable':True,'action':'diagnose-updater-settings-without-resetting-trust'}
             from .merchant_experience import merchant_status
-            detail=status()
-            result={'skill':SKILL_NAME,'version':VERSION,'merchantSummary':merchant_status(VERSION),'softwareUpdateNotice':notice}
-            if args.detail:result['detail']=detail
-            else:result.update(detail)
+            result={'skill':SKILL_NAME,'version':VERSION,'architecture':'mature-skill-dispatch','merchantSummary':merchant_status(VERSION),'softwareUpdateNotice':notice}
+            if args.detail:result['detail']=status()
             print(json.dumps(result,ensure_ascii=False))
             return 0
         return run(args.capability, args.arguments, state=args.state or merchant_home(), entry=args.entry)
     except MatureSourceUnavailable as error:
-        print(json.dumps({'status': 'blocked', 'error': str(error), 'capability': error.capability, 'builtinFallback': False}, ensure_ascii=False))
+        from .merchant_experience import error_summary
+        print(json.dumps({'status': 'blocked', 'error': redact(str(error)), 'capability': error.capability, 'builtinFallback': False, **error_summary(error)}, ensure_ascii=False))
         return 2
     except SafetyError as error:
-        print(json.dumps({'status':'blocked', 'error': str(error)}, ensure_ascii=False))
+        from .merchant_experience import error_summary
+        print(json.dumps({'status':'blocked', 'error': redact(str(error)), **error_summary(error)}, ensure_ascii=False))
         return 2
 
     finally:

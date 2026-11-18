@@ -14,7 +14,7 @@ ACTIVE = ('starting', 'waiting', 'verifying')
 
 class BrowserAuthJob:
     def __init__(self, profile, shop_name, expect_vender_id='', *, browser=None, login_factory=None,
-                 login_timeout=600, oauth_timeout=600, poll_interval=0.5, browser_config=None):
+                 login_timeout=600, oauth_timeout=600, poll_interval=0.5, browser_config=None, connection_timeout=None):
         self.id = secrets.token_hex(8)
         self.requested_profile = profile
         # A file owned by this task cannot overwrite any existing profile, even after account mismatch.
@@ -25,6 +25,9 @@ class BrowserAuthJob:
         self.browser_config = browser_config if browser_config is not None else {'provider':'builtin','shopIdentity':{'shopName':shop_name,'venderId':str(expect_vender_id or '')}}
         self.login_factory = login_factory
         self.login_timeout, self.oauth_timeout = login_timeout, oauth_timeout
+        self.connection_timeout = connection_timeout
+        self.connection_deadline = time.monotonic() + connection_timeout if connection_timeout is not None else None
+        self._shutdown_requested = threading.Event()
         self.poll_interval = poll_interval
         self.status, self.stage, self.message = 'starting', 'checking_existing', '正在检查店铺连接。'
         self.identity, self.error, self.error_kind = None, '', ''
@@ -34,6 +37,7 @@ class BrowserAuthJob:
         self._commit_lock = threading.RLock()
         self._resume_event = threading.Event()
         self._worker_thread = None
+        self._cleanup_failed = False
 
     def to_dict(self):
         return safe_value({'id': self.id, 'profile': self.profile, 'shopName': self.shop_name,
@@ -42,6 +46,7 @@ class BrowserAuthJob:
                            'error': self.error, 'errorKind': self.error_kind,
                            'browserChannel': getattr(self.browser, 'profile_channel', '') or '',
                            'browserSelectionReason': getattr(self.browser, 'profile_channel_reason', '') or '',
+                           'budgetRemainingSeconds': max(0, int(self.connection_deadline-time.monotonic())) if self.connection_deadline is not None else None,
                            'startedAt': int(self.started_at * 1000),
                            'finishedAt': int(self.finished_at * 1000) if self.finished_at else None})
 
@@ -54,18 +59,48 @@ class BrowserAuthJob:
 
     def _worker(self):
         try:
-            while not self._cancelled.is_set() and self.status != 'success':
+            while not self._cancelled.is_set() and not self._shutdown_requested.is_set() and self.status != 'success':
                 self.run()
                 if self.status == 'success' or self.stage == 'deferred':
                     break
                 self._resume_event.wait()
                 self._resume_event.clear()
         finally:
-            if self.browser and (self.status == 'success' or self._cancelled.is_set()):
+            if self._shutdown_requested.is_set() and not self._cancelled.is_set() and self.status != 'success':
+                try:self._settle_shutdown()
+                except Exception:self._cleanup_failed=True
+            if self.browser and (self.status == 'success' or self._cancelled.is_set() or self._shutdown_requested.is_set()):
                 try:
                     self.browser.close()
                 except Exception:
-                    pass
+                    self._cleanup_failed=True
+
+    def phase_deadline(self, duration):
+        deadline=time.monotonic()+duration
+        return min(deadline, self.connection_deadline) if self.connection_deadline is not None else deadline
+
+    def _settle_shutdown(self):
+        # The original callback may have committed credentials. Reconcile before any future OAuth.
+        proc=getattr(self.login, 'proc', None)
+        if proc and proc.poll() is None:self.login.cancel()
+        if self.status in ('mismatch','cancelled'):return
+        if self.login is not None:
+            try:
+                self._verify_and_commit()
+                return
+            except sl.VerifyError:
+                self._finish('failed','paused','连接已暂停，授权结果须核对原Profile；没有持续后台执行。','callback_unknown')
+        elif self.status not in ('failed','mismatch','cancelled'):
+            self._finish('failed','paused','连接等待已结束，商家专用Profile已保留；没有持续后台执行。','login_timeout')
+
+    def shutdown(self, timeout=180):
+        """Stop only owned work, settle callback, and join before its service can close."""
+        self._shutdown_requested.set();self._resume_event.set()
+        interrupt=getattr(self.browser,'cancel_wait',None)
+        if callable(interrupt):interrupt()
+        thread=self._worker_thread
+        if thread is not None:thread.join(timeout=timeout)
+        return (thread is None or not thread.is_alive()) and not self._cleanup_failed
 
     def _stage(self, stage, message, status='waiting'):
         self.stage, self.message, self.status = stage, message, status
@@ -103,7 +138,7 @@ class BrowserAuthJob:
             return False
         if self.shop_name and name and not sl.name_matches(self.shop_name, [name]):
             return False
-        return bool((self.shop_name and name) or (self.expect_vender_id and vid))
+        return bool((self.shop_name and name) or (self.expect_vender_id and (vid or name)))
 
     def _verify_and_commit(self):
         self._stage('verifying_cli', '正在实时核验这家店的 CLI 连接。', 'verifying')
@@ -139,9 +174,9 @@ class BrowserAuthJob:
             self._stage('waiting_browser', '正在打开商家专用京麦登录页，请保持当前命令运行，不要手工发起OAuth。' if builtin else '正在等待当前 Agent 接管任务浏览器，尚未打开扫码页面。')
             self.browser.open_login(self.shop_name or self.expect_vender_id)
             self._stage('waiting_login', LOGIN_HINT)
-            deadline = time.monotonic() + self.login_timeout
+            deadline = self.phase_deadline(self.login_timeout)
             identity = None
-            while not self._cancelled.is_set() and time.monotonic() < deadline:
+            while not self._cancelled.is_set() and not self._shutdown_requested.is_set() and time.monotonic() < deadline:
                 try:
                     observation = self.browser.observe()
                 except Exception as exc:
@@ -165,7 +200,7 @@ class BrowserAuthJob:
                         return
                     break
                 self._cancelled.wait(self.poll_interval)
-            if self._cancelled.is_set():
+            if self._cancelled.is_set() or self._shutdown_requested.is_set():
                 return
             if not identity:
                 self._stage('waiting_login', '登录尚未完成，页面已保留。请继续登录，或由宿主用 --resume 恢复原任务。')
@@ -175,11 +210,14 @@ class BrowserAuthJob:
             if self.login_factory is None:
                 from server import LoginJob
                 self.login_factory = LoginJob
+            if self.connection_deadline is not None and time.monotonic() >= self.connection_deadline:
+                self._stage('waiting_login','本次连接预算已结束，等待命令收尾；不再发起OAuth。')
+                return
             self._stage('waiting_oauth', '网页登录已确认，正在自动连接官方 CLI。')
             self.login = self.login_factory(self.profile, self.shop_name, self.expect_vender_id,
-                                            defer_registry=True, timeout=int(self.oauth_timeout))
+                                            defer_registry=True, timeout=max(1,int(self.phase_deadline(self.oauth_timeout)-time.monotonic())))
             self.login.start()
-            if self._cancelled.is_set():
+            if self._cancelled.is_set() or self._shutdown_requested.is_set():
                 self.login.cancel()
                 return
             if self.login.status in ('failed', 'mismatch', 'cancelled'):
@@ -195,11 +233,11 @@ class BrowserAuthJob:
                 response = {'challenge': '平台要求本人确认，请在当前授权页面完成'}
             if response.get('challenge'):
                 self.message = '请在授权页面完成：' + safe_text(response['challenge'])
-            deadline = time.monotonic() + self.oauth_timeout
-            while not self._cancelled.is_set() and time.monotonic() < deadline:
+            deadline = self.phase_deadline(self.oauth_timeout)
+            while not self._cancelled.is_set() and not self._shutdown_requested.is_set() and time.monotonic() < deadline:
                 if self.login._done.wait(self.poll_interval):
                     break
-            if self._cancelled.is_set():
+            if self._cancelled.is_set() or self._shutdown_requested.is_set():
                 return
             if self.login.status == 'success':
                 self._verify_and_commit()
@@ -261,6 +299,9 @@ class BrowserAuthJob:
                 if proc and proc.poll() is None:
                     self.login.cancel()
         self._done.clear()
+        self._shutdown_requested.clear()
+        if getattr(self.browser, '_closed', False):self.browser=None
+        if self.connection_timeout is not None:self.connection_deadline=time.monotonic()+self.connection_timeout
         self.finished_at = None
         self.start()
 

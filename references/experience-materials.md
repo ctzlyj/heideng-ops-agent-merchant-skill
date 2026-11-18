@@ -53,5 +53,14 @@ jd-material-pop-skill 2026.11.207 / b56b223；[导入说明](../mature/materials
 - 下载或覆盖的参考图在模型请求前归一化为 800×800 JPEG，减少非标准尺寸造成的拒付；不改变线上商品主图。主图含人物/道具而场景生成被拒时，先由宿主核对同 SPU 纯商品图，再在**原任务**用 `--reference-override SPUID=本地图片路径` 恢复；不得自动换用其它 SKU 图，不修改生图提示词。
 - 常规新增透明图仍是本地快速派生，不等待白底审核、不调用付费模型。已有上传白底但透明图缺失时，恢复原同 SPU 白底并本地派生；驳回透明修复才走京麦优先、神经修复兜底，神经失败不静默退回旧泛洪。
 - 用户明确“全店/全部维护”时，无冻结计划的只读规划应使用 `--include-full-score`；默认 0–89 分只是候选口径。audit 的槽位/issue 估算不等于最终付费请求或真实短标题缺口，以冻结计划的 SPU/SKU 差集为准，且不借该开关扩大已冻结范围。
-- 单 SPU 恢复原全店任务时沿用原输出目录和 `--target-spu-id`，不要新建另一份底表任务。全店文案文件用于单 SPU 子集时，本轮仍要求宿主提供对应该子集的 agent-text 文件，不静默丢弃其它 SKU 文案。
+- 单 SPU 恢复原全店任务时沿用原输出目录和 `--target-spu-id`，不要新建另一份底表任务。原任务目录内的全店文案经完整冻结计划校验后可直接投影到单 SPU；目录外输入仍严格校验当前子集，不静默过滤其它 SKU。
 - `paused-unknown-write` 会给出原任务 `reconcile-receipts` 恢复命令。对账摘要有独立回执口径，不再把已回收结果显示成“0/0仍在处理”；未决项仍需逐项核对，平台 `material count mismatch` 不能伪报成功。
+
+## 审计后的最小宿主交接契约（0.4.7代码候选）
+
+1. 用原 `plan-auto-maintain` 盘点。返回 `hostHandoff.file` 指向同任务 `.state/host-handoff.json`；宿主读其中事实、待补SPU/SKU、输入schema和命令argv，不要让商家填写技术参数。无新费用时不弹Key。
+2. 文案写进该交接指定的 `host-text.json`：`sellingPoints` 为SPU→三条卖点，`shortTitles` 为SKU→标题；仅补真实缺口。全任务文件仅经同店/目录/原源表SHA/冻结计划签名校验后可供单SPU恢复，不另写整表或换新目录。
+3. 属性先执行交接的 `attributes.inventoryArgv`。依据原attr-plan里的属性和合法选项，按 `attributes.schema` 产出 evidence/choices/title/n/confidence=high；n是合法选项的0基索引，不是地区ID。按 replanArgv 重新盘点后，已有同范围批准才执行 applyArgv。无法可靠判断的产地/材质仍问商家，不猜。
+4. 宿主规划与授权检查仍由宿主做；交接 `executionAuthorized=false` 不会自动扩大授权。executeArgv 是原成熟入口，用原目录/Profile，原摘要保存全回执于 resultFile。素材/标题/属性/修复分项有各自状态；局部完成不能称整项完成。
+5. 返回命令已结束时不默认称处理中。`submitted`、`waiting-review`、`prepared`、`completed`、`needs-agent-action`、`needs-reconciliation` 分开；所有返回默认不建议重提。具体失败先由Agent处理；技术失败与未知核对使用 needsAgentAction；needsUserAction/needsMerchantAction 不因技术失败自动设为真。本人登录验证或新增费用/范围决策才提示商家。
+6. 未知写入只使用原任务 recoverArgv/回执核对。完整性、店铺、范围校验仍保留；不能删除状态或伪造受理来跳过保护。

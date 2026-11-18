@@ -68,7 +68,7 @@ class ExperienceTests(unittest.TestCase):
  def test_progress_reads_existing_receipts_without_new_queue(self):
   from heideng_merchant.merchant_experience import task_summary
   result=task_summary({'status':'submitted-with-failures','spuCount':20,'batches':[{'completedSpus':18,'failedSpus':['a'],'binding':{'pending_spus':0,'failed_spus':0}}],'shortTitleDelivery':{'status':'verified'}})
-  self.assertEqual(result['completedCount'],18);self.assertEqual(result['totalCount'],20);self.assertTrue(result['needsUserAction'])
+  self.assertEqual(result['completedCount'],18);self.assertEqual(result['totalCount'],20);self.assertTrue(result['needsAgentAction']);self.assertFalse(result['needsUserAction'])
 
  def test_run_registers_actual_usage_lease_without_changing_entrypoint(self):
   from heideng_merchant.mature_runtime import run

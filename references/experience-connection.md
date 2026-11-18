@@ -11,7 +11,7 @@
 - 通常先 `run connection -- ensure-shop --shop "目标店铺" --no-auth`。登记别名/多个Profile只用于定位，最终以实时 venderinfo 核验为准。
 - 已有授权可用则直接复用；本地显示过期不代表不可用，官方可能自动刷新。网络/权限错误不能一律当授权失效；先按实际错误排障。
 - 确实需新授权，沿用用户针对本店的明确许可，原 ensure-shop 去掉 --no-auth；商家本人在同一隔离浏览器页自行选择密码、短信或扫码，宿主衔接官方 OAuth。不要另建授权系统，不复制Cookie/Token。
-- `awaiting_auth` 是等待宿主处理，不是授权失败。按原 jobId、当前 browser-action 操作并回报真实上下文/身份，返回 callback_unknown 时先核对同一Profile，不能再扫一轮制造重复任务。
+- `awaiting_auth` 只有在原会话确实仍运行时才表示等待，不是授权失败；默认builtin由包内流程驱动，不交给宿主手拼OAuth。按原 jobId、当前 browser-action 操作并回报真实上下文/身份，返回 callback_unknown 时先核对同一Profile，不能再扫一轮制造重复任务。
 - 网页后续任务需要真实商家持久 profileDir。用原连接器保存的 browserProfileDir，在同店匹配后交给 POP 原导入；不猜用户工作浏览器目录。
 
 路径可由宿主已有浏览器工具完成。包装器没有某个宿主操作入口并不禁止宿主处理原 HostBrowser 动作；配置/报告必须是实际拥有的上下文，不能凭标签存在填 owned/isolation/身份。
@@ -56,9 +56,17 @@
 
 ## 0.4.6 授权进程生命周期（必须遵守）
 
-- 新店默认只执行 `run connection -- ensure-shop --shop <目标> --timeout 600`。builtin 在**当前命令进程内**运行既有连接服务并等待完整授权窗口；`waiting_browser` 是内置控制器正在打开页面，不是让宿主接管。
+- 新店默认只执行 `run connection -- ensure-shop --shop <目标> --timeout 600`。builtin 在**当前命令进程内**运行既有连接服务；登录和OAuth共用本次有界连接预算；`waiting_browser` 是内置控制器正在打开页面，不是让宿主接管。
 - 不要在这条默认路径里另跑 `jdo-cli login --no-browser`、手工拼 OAuth URL、`Start-Process msedge/chrome`、用 `present_files` 展示链接，或让商家复制链接。上述绕法曾直接造成窗口不可见和商家放弃授权。
 - 商家仍在隔离的京麦登录页自行选择密码/短信/扫码；登录后由原 BrowserAuthJob 导航官方 OAuth、处理当前范围确认并实时核店。日常浏览器 Cookie 不复制，宿主内嵌面板不可操作时不得假称已代点。
 - 老店 ready 在只读解析阶段直接返回，不启动嵌入服务。需要新授权才启动；显式 `--no-wait`、自带 HostBrowser/`--browser-config` 保留原高级路径，但宿主必须真正拥有并持续驱动该会话。
 - `job` 或 `wait` 返回 `job_lost` 表示原服务任务已经不在，不能继续声称“窗口开着/任务活着”。同店再次 `ensure-shop` 默认恢复；禁止改成手工 OAuth 或跨店新任务。
 - 黑色控制台、外部窗口是否可见属于真实宿主/Windows 会话证据，未实机看到窗口前不得汇报“已打开”。前台生命周期修复不代替真实商家可见性验收。
+
+## 审计后的连接返回契约（0.4.7代码候选）
+
+- `--timeout` 是本次登录+OAuth的共用预算，不是每个阶段各加一轮时间。阶段变化输出 `connection-progress` JSON事件（jobId/Profile/阶段/实际通道/剩余预算）；不输出OAuth URL、验证码、Token或页面全文。开页事件只是正在打开，不证明商家可见。
+- 超时或用户结束等待，原worker停止并核对原Profile，收尾本任务回调和浏览器上下文后再关嵌入服务。`paused/processRunning=false` 明确没有后台继续；持久浏览器Profile与pending回执保留，下一次同店ensure-shop先核对原结果。收尾未确认时返回阻塞，不能称已关闭或重发。
+- 最终 `ready`/`mismatch`/`cancelled`/失败与 `paused` 分开。只有官方完整核店才ready。ID-only新店请求中，可靠工作台店名仅证明登录会话存在，可以衔接本次OAuth；原期望venderId不改、不由DOM猜ID，最终官方ID不匹配仍拒绝登记。
+- 同店暂停的callback_unknown优先核验原Profile；未核实则保留暂停，不启动新OAuth。不同店空ID不视为匹配，不串用pending或Profile。
+- 以上为代码/离线契约修复；真实WorkBuddy可见窗口、商家登录→OAuth→ready仍须另外获得授权后验证。

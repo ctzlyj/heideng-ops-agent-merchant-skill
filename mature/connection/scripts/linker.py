@@ -112,11 +112,17 @@ def ensure_embedded_server() -> bool:
 def close_embedded_server() -> None:
     global _EMBEDDED_HTTPD, _EMBEDDED_THREAD
     httpd, thread = _EMBEDDED_HTTPD, _EMBEDDED_THREAD
-    _EMBEDDED_HTTPD = _EMBEDDED_THREAD = None
+    snapshot=None
     if httpd is not None:
+        job=httpd.RequestHandlerClass.manager.current()
+        if job is not None:
+            if not job.shutdown():raise RuntimeError('本任务资源收尾未完成；不能声明已退出或重新授权。')
+            snapshot=job.to_dict()
         httpd.shutdown();httpd.server_close()
+    _EMBEDDED_HTTPD = _EMBEDDED_THREAD = None
     if thread is not None:
         thread.join(timeout=5)
+    return snapshot
 
 
 def ensure_server() -> bool:
@@ -219,8 +225,9 @@ def _job_matches(job, job_id='', profile='', vender_id='', shop_name=''):
 
 
 def wait_job(timeout: int, interval: float = 2.0, *, job_id='', profile='', vender_id='', shop_name=''):
-    deadline = time.time() + timeout
+    deadline = time.monotonic() + timeout
     last = None
+    emitted=None
     while True:
         status, data = api("/api/job")
         if status != 200:
@@ -234,11 +241,25 @@ def wait_job(timeout: int, interval: float = 2.0, *, job_id='', profile='', vend
                 return {'ok': False, 'status': 'error', 'errorKind': 'task_changed',
                         'error': '当前任务或店铺身份已改变，未组合、登记或使用其它店铺结果。'}
             last = job
+            event_key=(job.get('status'),job.get('stage'),job.get('errorKind'),job.get('message'))
+            if event_key != emitted:
+                emitted=event_key
+                descriptions={'waiting_browser':'正在打开商家专用京麦页；尚未证明窗口可见。',
+                              'waiting_login':'请在京麦页自行登录；当前命令仍在等待。',
+                              'checking_browser_identity':'正在核对网页登录的店铺。',
+                              'waiting_oauth':'正在衔接本次官方授权，不需要复制链接。',
+                              'verifying_cli':'正在核验原Profile的官方店铺身份。',
+                              'ready':'官方核店已通过。'}
+                event={'event':'connection-progress','jobId':job.get('id'),'profile':job.get('profile'),
+                       'stage':job.get('stage'),'status':job.get('status'),
+                       'message':descriptions.get(job.get('stage'),'请按原任务状态继续；不重发未知授权。'),
+                       'remainingSeconds':job.get('budgetRemainingSeconds'),'browserChannel':job.get('browserChannel')}
+                print(json.dumps(event,ensure_ascii=False),flush=True)
             if job.get("status") in ("success", "failed", "cancelled", "mismatch"):
                 return {"ok": job.get("status") == "success", "job": job,
                         'status': 'ready' if job.get('status') == 'success' else job.get('status'),
                         'stage': job.get('stage', '')}
-        if time.time() >= deadline:
+        if time.monotonic() >= deadline:
             break
         time.sleep(interval)
     return {'ok': True, 'status': 'awaiting_auth', 'stage': (last or {}).get('stage', 'waiting_login'), 'job': last}
@@ -309,13 +330,27 @@ def _cmd_ensure_shop(a, wait_timeout=None):
     vender_id = res.get("venderId") or (q if q.isdigit() else "")
     if not shop_name and not vender_id:
         return {"ok": False, "status": "error", "error": "无法确定店铺名称或 venderId"}
-    if wait_timeout is not None:
-        ensure_embedded_server()
     pending=sl.load_pending()
-    same_pending=(pending.get('shopName')==shop_name or pending.get('venderId')==vender_id) and pending.get('profile')==profile
+    same_target=(bool(shop_name) and pending.get('shopName')==shop_name) or (bool(vender_id) and pending.get('venderId')==vender_id)
+    same_pending=bool(same_target and (not a.profile or a.profile==pending.get('profile')))
+    if same_pending and pending.get('processRunning') is False and pending.get('outcome')=='callback_unknown':
+        original=pending.get('profile')
+        try:
+            sl.require_auth_slot(original,required=True)
+            identity=sl.verify_profile(original)
+            sl.assert_profile_proof(original,identity)
+            if (vender_id and identity.get('venderId')!=vender_id) or (shop_name and not sl.name_matches(shop_name,[identity.get('shopName','')])):
+                return {'ok':False,'status':'mismatch','profile':original,'message':'原Profile核店与目标不符，未重发授权。'}
+            sl.update_registry(original,identity);sl.clear_pending(pending.get('jobId'))
+            return {'ok':True,'status':'ready','profile':original,'identity':identity,'reconciledOriginal':True}
+        except sl.VerifyError as exc:
+            return {'ok':False,'status':'paused','errorKind':'callback_unknown','profile':original,
+                    'message':'原授权回执尚未核实，已保留原Profile；未重复发起OAuth。','retryAllowed':False}
+    if wait_timeout is not None:ensure_embedded_server()
     resume=bool(getattr(a,'resume',False)) or (same_pending and not getattr(a,'fresh',False))
     payload = {"shopName": shop_name, "profile": profile, "venderId": vender_id,
                'resume': resume}
+    if wait_timeout is not None:payload['timeoutSeconds']=wait_timeout
     config_file = getattr(a, 'browser_config', '')
     if config_file:
         payload['browserConfig'] = sl.read_json(Path(config_file), {})
@@ -375,10 +410,25 @@ def cmd_ensure_shop(a):
                   and os.environ.get('HEIDENG_BACKGROUND') != '1' and os.environ.get('JINGMAI_LINKER_BACKGROUND') != '1')
     if not foreground:
         return _cmd_ensure_shop(a)
+    result=None
     try:
-        return _cmd_ensure_shop(a, getattr(a, 'timeout', 600))
+        result=_cmd_ensure_shop(a, getattr(a, 'timeout', 600))
+    except KeyboardInterrupt:
+        result={'ok':False,'status':'awaiting_auth','message':'用户结束等待，正在核对并收尾原任务。'}
     finally:
-        close_embedded_server()
+        snapshot=close_embedded_server()
+    if snapshot and result and result.get('status') not in ('ready','mismatch'):
+        if snapshot.get('status')=='success':
+            return {'ok':True,'status':'ready','profile':snapshot['profile'],'identity':snapshot.get('identity'),
+                    'processRunning':False,'reconciledOriginal':True,'retryAllowed':False}
+        ended='paused' if snapshot.get('stage')=='paused' else snapshot.get('status','failed')
+        result.update(ok=False,status=ended,profile=snapshot.get('profile'),jobId=snapshot.get('id'),stage=snapshot.get('stage'),errorKind=snapshot.get('errorKind'),
+                      processRunning=False,canLeave=True,retryAllowed=False,
+                      nextAction='原命令已收尾；同店再次ensure-shop先核对原Profile，不手工重发OAuth。')
+        pending=sl.load_pending()
+        if pending.get('jobId')==snapshot.get('id'):
+            sl.save_pending({**pending,'stage':snapshot.get('stage'),'processRunning':False,'outcome':snapshot.get('errorKind')})
+    return result
 
 
 def cmd_audit(a):

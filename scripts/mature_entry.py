@@ -30,5 +30,12 @@ if __name__ == '__main__':
     # instead uses its original idle-only shutdown/activity guard during an update.
     service=script == root/'mature/connection/app/server.py'
     lease=nullcontext() if service else FileLock(Path(state)/'install.lock',shared=True)
-    with lease:
-        runpy.run_path(str(script), run_name='__main__')
+    try:
+        with lease:
+            runpy.run_path(str(script), run_name='__main__')
+    except Exception as error:
+        # Unexpected child errors are diagnostic, not proof of no writes or safe replay.
+        import json
+        from heideng_merchant.merchant_experience import error_summary
+        print(json.dumps({'status':'blocked', **error_summary(error)},ensure_ascii=False),flush=True)
+        raise SystemExit(2) from None
