@@ -1,6 +1,7 @@
-import json, os, tempfile, unittest
+import io, json, os, re, tempfile, unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from contextlib import redirect_stdout
 from heideng_merchant.safety import SafetyError
 
 class MerchantKeyTests(unittest.TestCase):
@@ -50,8 +51,9 @@ class MerchantKeyTests(unittest.TestCase):
         def browser(url,new):
             def submit():
                 try:
-                    base=urllib.parse.urlsplit(url);csrf=urllib.parse.parse_qs(base.query)['session'][0]
+                    base=urllib.parse.urlsplit(url)
                     page=urllib.request.urlopen(url).read()
+                    csrf=re.search(rb"name=csrf value='([^']+)'",page).group(1).decode()
                     self.assertIn(b'type=password',page);self.assertNotIn(b'fixture-key',page)
                     form=urllib.parse.urlencode({'csrf':csrf,'key':'fixture-key','remember':'yes'}).encode()
                     req=urllib.request.Request(f'http://{base.netloc}/key',data=form,headers={'Origin':f'http://{base.netloc}','Content-Type':'application/x-www-form-urlencoded'})
@@ -60,6 +62,21 @@ class MerchantKeyTests(unittest.TestCase):
             thread=threading.Thread(target=submit,daemon=True);thread.start();return True
         with patch('webbrowser.open',side_effect=browser):value,remember=_prompt_local_page(timeout=3)
         self.assertFalse(errors,errors);self.assertEqual(value,'fixture-key');self.assertTrue(remember)
+
+    def test_loopback_fallback_announces_safe_url_when_browser_cannot_open(self):
+        from heideng_merchant.merchant_key_ui import _prompt_local_page
+        from heideng_merchant.safety import SafetyError
+        output=io.StringIO()
+        try:
+            with patch('webbrowser.open',return_value=False),redirect_stdout(output):
+                value,remember=_prompt_local_page(timeout=0.01)
+        except SafetyError as error:
+            self.fail(f'浏览器未打开时不应让商家失去输入入口：{error}')
+        self.assertIsNone(value);self.assertFalse(remember)
+        event=json.loads(output.getvalue().splitlines()[0])
+        self.assertEqual(event['status'],'awaiting_key_input')
+        self.assertRegex(event['keyInputUrl'],r'^http://127\.0\.0\.1:\d+/$')
+        self.assertNotIn('session=',output.getvalue());self.assertNotIn('csrf',output.getvalue().lower())
 
     @unittest.skipUnless(os.name=='nt','Windows DPAPI test only')
     def test_windows_storage_is_os_protected_and_never_plaintext(self):

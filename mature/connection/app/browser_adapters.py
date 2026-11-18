@@ -178,7 +178,7 @@ class BuiltinBrowser:
     def __init__(self,shop_identity=None):
         from heideng_merchant.host_connection_controller import HostConnectionController
         self.controller=HostConnectionController(shop_identity=shop_identity)
-        self.profile_directory=None;self.profile_channel=None;self._context_id=None;self._closed=False;self._oauth_confirm_handled=False
+        self.profile_directory=None;self.profile_channel=None;self.profile_channel_reason=None;self._context_id=None;self._closed=False;self._oauth_confirm_handled=False
     def _call(self,kind,**payload):
         if self._closed and kind!='close':raise BrowserError('closed')
         result=self.controller.dispatch({'action':{'kind':kind,**payload}})
@@ -186,7 +186,7 @@ class BuiltinBrowser:
         if result.get('profileDir'):
             from heideng_merchant.mature_runtime import merchant_profile_directory
             self.profile_directory=merchant_profile_directory(result['profileDir'])
-        self.profile_channel=result.get('browserChannel')
+        self.profile_channel=result.get('browserChannel');self.profile_channel_reason=result.get('browserSelectionReason')
         context=result.get('contextId')
         if not context or result.get('owned') is not True or (self._context_id and context!=self._context_id):raise BrowserError('context_mismatch')
         if self._context_id is None and result.get('isolated') is not True and result.get('verifiedReuse') is not True:raise BrowserError('session_unverified')

@@ -153,7 +153,7 @@ def cmd_connect(a):
     if a.no_open:
         payload['browserConfig'] = {'provider': 'host'}
     elif 'browserConfig' not in payload:
-        payload['browserConfig']={'provider':'builtin','shopIdentity':{'shopName':shop_name,'venderId':vender_id}}
+        payload['browserConfig']={'provider':'builtin','shopIdentity':{'shopName':a.shop or '','venderId':a.vender_id or ''}}
     data = _unwrap(*api("/api/connect", payload))
     if data.get('jobId'):
         sl.save_pending({'jobId': data['jobId'], 'profile': data['profile'], 'query': a.shop,
@@ -181,6 +181,9 @@ def wait_job(timeout: int, interval: float = 2.0, *, job_id='', profile='', vend
         if status != 200:
             return {"ok": False, "error": data.get("error")}
         job = data.get("job")
+        if not job:
+            return {'ok': False, 'status': 'job_lost', 'errorKind': 'job_lost',
+                    'error': '连接服务中的原任务已丢失；请用同店 ensure-shop 恢复原任务，不要新建其它店铺会话。'}
         if job:
             if not _job_matches(job, job_id, profile, vender_id, shop_name):
                 return {'ok': False, 'status': 'error', 'errorKind': 'task_changed',
@@ -286,6 +289,10 @@ def cmd_ensure_shop(a):
         return out
     profile = started.get('profile') or profile
     out_base = {'profile': profile, 'jobId': started.get('jobId'), 'stage': started.get('stage', 'waiting_login')}
+    started_job = started.get('job') or {}
+    for key in ('browserChannel', 'browserSelectionReason'):
+        if started_job.get(key):
+            out_base[key] = started_job[key]
     sl.save_pending({'jobId': started.get('jobId'), 'profile': profile, 'query': q, 'shopName': shop_name,
                      'venderId': vender_id})
     if a.no_wait:

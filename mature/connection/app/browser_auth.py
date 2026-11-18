@@ -40,6 +40,8 @@ class BrowserAuthJob:
                            'expectVenderId': self.expect_vender_id, 'status': self.status,
                            'stage': self.stage, 'message': self.message, 'identity': self.identity,
                            'error': self.error, 'errorKind': self.error_kind,
+                           'browserChannel': getattr(self.browser, 'profile_channel', '') or '',
+                           'browserSelectionReason': getattr(self.browser, 'profile_channel_reason', '') or '',
                            'startedAt': int(self.started_at * 1000),
                            'finishedAt': int(self.finished_at * 1000) if self.finished_at else None})
 
@@ -89,6 +91,19 @@ class BrowserAuthJob:
             if vid != self.expect_vender_id:
                 return False
         return not self.shop_name or sl.name_matches(self.shop_name, [name])
+
+    def _browser_matches(self, identity):
+        """Browser evidence starts OAuth only; official verification remains the final gate."""
+        if not isinstance(identity, dict):
+            return False
+        vid, name = str(identity.get('venderId') or ''), identity.get('shopName') or ''
+        if vid and not vid.isdigit():
+            return False
+        if self.expect_vender_id and vid and vid != self.expect_vender_id:
+            return False
+        if self.shop_name and name and not sl.name_matches(self.shop_name, [name]):
+            return False
+        return bool((self.shop_name and name) or (self.expect_vender_id and vid))
 
     def _verify_and_commit(self):
         self._stage('verifying_cli', '正在实时核验这家店的 CLI 连接。', 'verifying')
@@ -142,7 +157,7 @@ class BrowserAuthJob:
                 if observation.get('loggedIn'):
                     identity = observation.get('identity') or {}
                     self._stage('checking_browser_identity', '正在核对网页登录的店铺。')
-                    if not self._matches(identity):
+                    if not self._browser_matches(identity):
                         sl.mark_auth_rejected(self.profile)
                         self.identity = identity
                         self._finish('mismatch', 'mismatch', '网页登录的店铺与目标不一致，请选择目标店铺。', 'mismatch')
@@ -154,8 +169,8 @@ class BrowserAuthJob:
             if not identity:
                 self._stage('waiting_login', '登录尚未完成，页面已保留。请继续登录，或由宿主用 --resume 恢复原任务。')
                 return
-            self.expect_vender_id = str(identity['venderId'])
-            self.shop_name = identity['shopName']
+            self.expect_vender_id = str(identity.get('venderId') or self.expect_vender_id)
+            self.shop_name = identity.get('shopName') or self.shop_name
             if self.login_factory is None:
                 from server import LoginJob
                 self.login_factory = LoginJob

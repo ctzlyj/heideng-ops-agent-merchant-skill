@@ -1,7 +1,7 @@
 """POP mature source boundary tests; no actual merchant import or generation."""
 import importlib.util, json, os, sys, tempfile, unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 ROOT=Path(__file__).resolve().parents[1]
 SOURCE=ROOT/'mature/materials'
 
@@ -88,6 +88,53 @@ class MatureMaterialsTests(unittest.TestCase):
         self.assertEqual(a.PROVIDER.image_model,'gpt-image-2.5')
         self.assertEqual(a.PROVIDER.base_url,'https://api.lts4ai.com/v1')
         self.assertEqual(a.PROVIDER.api_key_env,'HEIDENG_MERCHANT_LTS4AI_API_KEY')
+    def test_existing_uploaded_white_still_derives_missing_transparent_without_model_call(self):
+        a=self.agent()
+        job=a.SpuJob('123456','123','fixture',('123',),(('123','fixture'),),needs_selling_points=False,needs_white=False,needs_scenes=False,needs_selling_image=False,needs_transparent=True)
+        row=a.SourceRow('123','fixture','123456')
+        prepared=a.PreparedSource('fixture','fixture',(),(row,),(job,),1,1,0)
+        with tempfile.TemporaryDirectory() as d:
+            output=Path(d)
+            existing={'123456':{'uploaded_urls':{'white':'https://img14.360buyimg.com/imgzone/fixture-white.jpg'}}}
+            def restore(_url,path,_timeout):path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'white')
+            def derive(_source,path):path.write_bytes(b'transparent')
+            with patch.object(a,'valid_material_image',side_effect=lambda path,_kind:Path(path).exists()),patch.object(a,'restore_uploaded_white',side_effect=restore) as restored,patch.object(a,'make_transparent',side_effect=derive) as transparent:
+                result=a.generate_batch(prepared,output/'references',output,existing_materials=existing)
+            self.assertEqual(result.failed_spus,0);self.assertEqual(result.completed_spus,1)
+            restored.assert_called_once();transparent.assert_called_once()
+
+    def test_external_cutout_single_spu_target_is_passed_to_frozen_plan(self):
+        from argparse import Namespace
+        a=self.agent()
+        class ExpectedStop(Exception):pass
+        seller={'shopName':'fixture-shop','venderId':'12345','shopId':'67890'}
+        client=Mock();client.seller_info.return_value=seller
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':d}):
+            args=Namespace(confirm='AUTO_MAINTAIN',output_dir=Path(d),profile='fixture-profile',expected_shop_name=None,target_spu_id='123456')
+            with patch.object(a,'assert_no_unknown_uploads'),patch.object(a,'JdoClient',return_value=client),patch.object(a,'load_pop_auto_maintain_plan',side_effect=ExpectedStop) as plan:
+                with self.assertRaises(ExpectedStop):a.run_bind_external_cutouts(args)
+            self.assertEqual(plan.call_args.args[2],'123456')
+
+    def test_existing_oversized_reference_is_normalized_before_any_model_request(self):
+        from PIL import Image
+        a=self.agent()
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'123456.jpg';Image.new('RGB',(950,950),(240,240,240)).save(path,'JPEG')
+            a._download_reference('https://img14.360buyimg.com/imgzone/fixture.jpg',path,1)
+            with Image.open(path) as image:self.assertEqual(image.size,(800,800))
+
+    def test_unknown_write_returns_original_task_recovery_command_in_chinese(self):
+        from argparse import Namespace
+        a=self.agent()
+        try:payload=a._unknown_write_payload(Namespace(output_dir=Path('original-task'),profile='fixture-profile'))
+        except AttributeError as error:self.fail(f'未知写入需要可见恢复入口：{error}')
+        self.assertEqual(payload['status'],'paused-unknown-write')
+        self.assertIn('原任务',payload['nextAction']);self.assertIn('不要重复提交',payload['nextAction'])
+        self.assertIn('reconcile-receipts',payload['recoveryCommand'])
+        self.assertIn('--profile fixture-profile',payload['recoveryCommand'])
+        self.assertIn('original-task',payload['recoveryCommand'])
+
+
     def test_company_fallback_is_removed_not_silently_used(self):
         import pop_repair
         with self.assertRaises(RuntimeError):pop_repair.install_joyagent_fallback(object(),[],Path('fixture'))

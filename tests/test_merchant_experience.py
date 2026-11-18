@@ -34,6 +34,14 @@ class ExperienceTests(unittest.TestCase):
   summary=task_summary({'status':'paused-unknown-write','resultFile':'/fixture/result.json'})
   self.assertEqual(summary['phase'],'needs-reconciliation');self.assertFalse(summary['retryAllowed']);self.assertIn('原任务',summary['nextAction'])
 
+ def test_reconcile_receipts_report_actual_recovery_not_zero_progress(self):
+  from heideng_merchant.merchant_experience import task_summary
+  result=task_summary({'reconciledUploads':[{'status':'accepted'}],'reconciledBindings':[{'status':'pending'}],'unresolvedUploads':[],'unresolvedBindings':[]})
+  self.assertEqual(result['phase'],'waiting-review');self.assertTrue(result['canLeave']);self.assertNotIn('0/0',result['message'])
+  unresolved=task_summary({'reconciledUploads':[],'reconciledBindings':[],'unresolvedUploads':[],'unresolvedBindings':[{'reason':'fixture'}]})
+  self.assertEqual(unresolved['phase'],'needs-reconciliation');self.assertFalse(unresolved['retryAllowed'])
+
+
  def test_same_shop_retry_defaults_resume_but_mismatch_never_silently_resumes(self):
   import server,browser_auth
   old=type('Job',(),{'status':'failed','stage':'waiting_login','errorKind':'login_timeout','shop_name':'fixture','expect_vender_id':'','requested_profile':'fixture','resume':Mock()})()

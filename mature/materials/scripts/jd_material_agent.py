@@ -2779,7 +2779,7 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
                     recovery['selected_candidate'] = selected.name
                     recovery['status'] = 'succeeded'
                     save_job(job.spu_id, 'moderation_recovery', recovery)
-        if job.needs_white and job.needs_transparent and (not uploaded.get('transparent')) and (not valid_material_image(images / names['transparent'], 'transparent')):
+        if job.needs_transparent and (not uploaded.get('transparent')) and (not valid_material_image(images / names['transparent'], 'transparent')):
             if not valid_material_image(images / names['white'], 'white'):
                 if uploaded.get('white'):
                     restore_uploaded_white(uploaded['white'], images / names['white'], timeout)
@@ -2993,12 +2993,22 @@ def _write_jdo_source(prepared: PreparedSource, path: Path) -> Path:
     workbook.close()
     return path
 
+def _normalize_reference_file(output: Path) -> None:
+    with Image.open(output) as image:
+        if image.size == (800, 800) and image.format == 'JPEG':
+            image.verify()
+            return
+    temporary = output.with_suffix('.normalized.tmp.jpg')
+    normalize_jpeg(output.read_bytes(), temporary)
+    temporary.replace(output)
+
 def _download_reference(url: str, output: Path, timeout: float) -> Path:
     trusted_url = _jd_image_url(url)
     if output.is_file():
         try:
             with Image.open(output) as image:
                 image.verify()
+            _normalize_reference_file(output)
             return output
         except OSError:
             pass
@@ -3015,6 +3025,7 @@ def _download_reference(url: str, output: Path, timeout: float) -> Path:
         temporary = output.with_suffix('.tmp.jpg')
         image.save(temporary, 'JPEG', quality=95, optimize=True)
         temporary.replace(output)
+    _normalize_reference_file(output)
     return output
 
 def _subset_prepared(prepared: PreparedSource, rows: list[SourceRow]) -> PreparedSource:
@@ -3195,6 +3206,7 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
             if override:
                 references.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(override, target_reference)
+                _normalize_reference_file(target_reference)
                 continue
             try:
                 url = reference_urls.get(job.spu_id)
@@ -3277,6 +3289,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
             if override:
                 references.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(override, target_reference)
+                _normalize_reference_file(target_reference)
                 continue
             try:
                 url = reference_urls.get(job.spu_id)
@@ -3395,7 +3408,7 @@ def run_bind_external_cutouts(args) -> dict[str, Any]:
     if not _shop_identity(seller).get('shopName'):
         raise JdoError('bind-external-cutouts requires a verified active POP shop')
     requested_spu = cell_text(getattr(args, 'target_spu_id', None))
-    prepared, _, _, _ = load_pop_auto_maintain_plan(output, seller, None)
+    prepared, _, _, _ = load_pop_auto_maintain_plan(output, seller, requested_spu)
     if requested_spu:
         prepared, _, _ = _scope_pop_discovery(prepared, {}, {}, requested_spu)
     prepared, handoff = route_jingmai_batch_images(prepared, model_cutout_images=False)
@@ -3900,6 +3913,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser('provider-info')
     return parser
 
+def _unknown_write_payload(args) -> dict[str, Any]:
+    output = str(Path(args.output_dir).resolve())
+    command = f'python scripts/merchant.py run materials -- reconcile-receipts --output-dir "{output}"'
+    profile = cell_text(getattr(args, 'profile', None))
+    if profile:
+        command += f' --profile {profile}'
+    return {'status': 'paused-unknown-write',
+            'nextAction': '部分写入结果未确认；保留原任务和回执，先执行恢复命令核对，不要重复提交。',
+            'recoveryCommand': command}
+
 def merchant_result_summary(payload, output_dir, command):
     from pop_safety import atomic_json
     from heideng_merchant.safety import redact
@@ -3965,7 +3988,7 @@ def main(argv: list[str] | None=None) -> int:
         try:
             payload = run_generate_auto_maintain(args)
         except JdoWriteUncertainError:
-            print(json.dumps({'status': 'paused-unknown-write', 'nextAction': 'Preserve the original directory, reconcile receipts and verify lock ownership; do not replay.'}))
+            print(json.dumps(_unknown_write_payload(args), ensure_ascii=False))
             return 3
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if payload['status'] == 'generated-local' else 2
@@ -4001,7 +4024,7 @@ def main(argv: list[str] | None=None) -> int:
         try:
             payload = run_auto_maintain(args)
         except JdoWriteUncertainError:
-            print(json.dumps({'status': 'paused-unknown-write', 'nextAction': 'Preserve the original directory, reconcile receipts and verify lock ownership; do not replay.'}))
+            print(json.dumps(_unknown_write_payload(args), ensure_ascii=False))
             return 3
         print(json.dumps(merchant_result_summary(payload,args.output_dir,args.command), ensure_ascii=False, indent=2))
         return 2 if payload['status'] == 'maintenance-incomplete' or payload['browserRequired'] or payload.get('shortTitleDelivery', {'status': 'no-titles' if payload['status'] == 'no-work' else 'unknown'})['status'] not in {'verified', 'no-titles'} else 0
@@ -4009,7 +4032,7 @@ def main(argv: list[str] | None=None) -> int:
         try:
             payload = run_bind_external_cutouts(args)
         except JdoWriteUncertainError:
-            print(json.dumps({'status': 'paused-unknown-write', 'nextAction': 'Preserve the original directory, reconcile receipts and verify lock ownership; do not replay.'}))
+            print(json.dumps(_unknown_write_payload(args), ensure_ascii=False))
             return 3
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if payload['status'] in {'submitted-for-manual-verification', 'no-op', 'no-cutout-slots'} else 2

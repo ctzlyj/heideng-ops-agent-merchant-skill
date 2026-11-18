@@ -73,4 +73,64 @@ class SingleFlowTests(unittest.TestCase):
    controller.dispatch.return_value={'ok':True,'contextId':'fixture','owned':True,'isolated':True,'challenge':'confirmation-pending'}
    with self.assertRaisesRegex(Exception,'动作仍在处理'):browser.confirm()
 
+
+ def test_controller_help_and_contract_do_not_require_merchant_state(self):
+  from heideng_merchant import host_connection_controller as controller
+  for argv in (['--help'],['--describe-contract']):
+   with self.subTest(argv=argv),patch.dict(os.environ,{},clear=True),patch('builtins.print') as output:
+    try:result=controller.main(argv)
+    except Exception as error:self.fail(f'{argv} 不应依赖商家状态目录：{error}')
+    self.assertEqual(result,0);self.assertTrue(output.called)
+    if argv==['--describe-contract']:
+     contract=json.loads(output.call_args.args[0]);self.assertIn('open_login',contract['actions'])
+
+
+ def test_workspace_shop_name_selector_is_accepted_as_browser_identity(self):
+  from heideng_merchant.host_connection_controller import _identity
+  page=Mock();page.evaluate.side_effect=lambda script:'fixture-shop' if '#shop-base-name' in script else None
+  self.assertEqual(_identity(page),{'shopName':'fixture-shop'})
+
+ def test_name_only_workspace_identity_can_reach_official_oauth(self):
+  import threading
+  m=self.load('flow_name_only_auth',SOURCE/'app/browser_auth.py')
+  browser=Mock();browser.observe.return_value={'loggedIn':True,'identity':{'shopName':'fixture-shop'},'challenge':''};browser.confirm.return_value={}
+  login=Mock();login.status='success';login.error_kind='';login.url='https://passport.jd.com/oauth/fixture';login._done=threading.Event();login._done.set()
+  with patch.object(m.sl,'mark_auth_pending'):
+   job=m.BrowserAuthJob('fixture-profile','fixture-shop',browser=browser,login_factory=Mock(return_value=login))
+   with patch.object(job,'_verify_and_commit'):
+    job.run()
+  job.login_factory.assert_called_once()
+  self.assertEqual(job.shop_name,'fixture-shop');self.assertEqual(job.expect_vender_id,'')
+  browser.open_oauth.assert_called_once_with('https://passport.jd.com/oauth/fixture')
+
+ def test_official_profile_verification_still_requires_complete_identity(self):
+  m=self.load('flow_official_identity_auth',SOURCE/'app/browser_auth.py')
+  job=m.BrowserAuthJob('fixture-profile','fixture-shop',browser=Mock())
+  self.assertFalse(job._matches({'shopName':'fixture-shop'}))
+  self.assertFalse(job._matches({'shopName':'other-shop','venderId':'123'}))
+  self.assertTrue(job._matches({'shopName':'fixture-shop','venderId':'123'}))
+
+ def test_low_level_connect_uses_explicit_shop_arguments(self):
+  cli=self.load('flow_low_level_connect',SOURCE/'scripts/linker.py')
+  args=type('Args',(),{'shop':'fixture-shop','profile':'fixture-profile','vender_id':'123','no_open':False})()
+  with patch.object(cli,'api',return_value=(200,{'ok':True,'jobId':'job-fixture','profile':'fixture-profile-task'})) as api,patch.object(cli.sl,'save_pending'):
+   try:cli.cmd_connect(args)
+   except NameError as error:self.fail(f'底层连接不应引用未定义变量：{error}')
+  payload=api.call_args.args[1]['browserConfig']['shopIdentity']
+  self.assertEqual(payload,{'shopName':'fixture-shop','venderId':'123'})
+
+ def test_missing_live_job_is_lost_not_still_waiting(self):
+  cli=self.load('flow_missing_job',SOURCE/'scripts/linker.py')
+  with patch.object(cli,'api',return_value=(200,{'ok':True,'job':None})):
+   result=cli.wait_job(0,0,job_id='fixture-job')
+  self.assertFalse(result['ok']);self.assertEqual(result['status'],'job_lost');self.assertIn('恢复',result['error'])
+
+ def test_no_wait_result_exposes_actual_browser_channel(self):
+  cli=self.load('flow_channel_receipt',SOURCE/'scripts/linker.py')
+  args=type('Args',(),{'shop':'fixture','profile':None,'no_auth':False,'no_open':False,'no_wait':True,'resume':False,'fresh':False,'browser_config':None,'timeout':3})()
+  started={'ok':True,'status':'awaiting_auth','profile':'fixture-new','jobId':'fixture','job':{'stage':'waiting_login','message':'waiting','browserChannel':'msedge','browserSelectionReason':'system-default-https'}}
+  with patch.object(cli,'_env_blockers',return_value=None),patch.object(cli.sl,'resolve',return_value={'status':'needs_auth','shopName':'fixture'}),patch.object(cli.sl,'suggest_profile_name',return_value='fixture-profile'),patch.object(cli.sl,'save_pending'),patch.object(cli,'api',return_value=(200,started)):
+   result=cli.cmd_ensure_shop(args)
+  self.assertEqual(result.get('browserChannel'),'msedge');self.assertEqual(result.get('browserSelectionReason'),'system-default-https')
+
 if __name__=='__main__':unittest.main()

@@ -37,6 +37,15 @@ class ConnectionExperienceTests(unittest.TestCase):
         manager.job=old
         self.assertIs(manager.start_flow('fixture','fixture',resume=True),old);old.resume.assert_called_once()
 
+    def test_cancelled_same_shop_job_starts_a_new_worker_instead_of_fake_resume(self):
+        import browser_auth,server
+        manager=server.Manager();old=SimpleNamespaceFactory(status='cancelled',shop_name='fixture',expect_vender_id='',requested_profile='fixture',resume=Mock())
+        manager.job=old
+        with patch.object(browser_auth,'BrowserAuthJob',return_value=SimpleNamespaceFactory()) as created:
+            current=manager.start_flow('fixture','fixture',resume=True)
+        self.assertIsNot(current,old);created.assert_called_once();old.resume.assert_not_called()
+
+
     def test_browser_idle_timeout_keeps_authorization_alive(self):
         import browser_adapters
         browser=browser_adapters.HostBrowser({'timeout':0.01,'poll':0.001})

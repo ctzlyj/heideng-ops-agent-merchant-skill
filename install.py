@@ -21,7 +21,7 @@ def main(argv=None):
  for stream in (sys.stdout,sys.stderr):
   if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8',errors='backslashreplace')
  p=argparse.ArgumentParser(description='黑灯运营智能体商家版单仓库安装；由Agent执行')
- p.add_argument('--host',choices=HOSTS,default='codex');p.add_argument('--home');p.add_argument('--skills-dir');p.add_argument('--archive');p.add_argument('--sha256');p.add_argument('--offline',action='store_true');p.add_argument('--with-official',action='store_true');p.add_argument('--with-runtime',action='store_true');p.add_argument('--with-cutout-runtime',action='store_true');p.add_argument('--rollback',action='store_true');p.add_argument('--no-auto-update',action='store_true')
+ p.add_argument('--host',choices=HOSTS,default='codex');p.add_argument('--home');p.add_argument('--skills-dir');p.add_argument('--archive');p.add_argument('--sha256');p.add_argument('--offline',action='store_true');p.add_argument('--with-official',action='store_true');p.add_argument('--with-runtime',action='store_true');p.add_argument('--with-cutout-runtime',action='store_true',help='兼容保留；标准在线安装已包含神经抠图依赖与Lite权重准备');p.add_argument('--rollback',action='store_true');p.add_argument('--no-auto-update',action='store_true')
  args=p.parse_args(argv)
  try:
   if sys.version_info<(3,11):raise SafetyError('python-3.11-or-newer-required-agent-install-official-runtime')
@@ -53,10 +53,14 @@ def main(argv=None):
     result['warnings']=[{'component':'officialCli','reason':code,'text':warning}]
   else:result['officialCli']={'ready':client.ready(),'deferred':True}
   if not args.offline:
-   from heideng_merchant.runtime_dependencies import prepare_runtime
-   try:result['runtimeDependencies']=prepare_runtime(state,target,optional="cutout" if args.with_cutout_runtime else None)
+   from heideng_merchant.runtime_dependencies import prepare_runtime,prepare_cutout_weights
+   try:result['runtimeDependencies']=prepare_runtime(state,target,optional='cutout')
    except (SafetyError,OSError):
     result['runtimeDependencies']={'status':'deferred','independent':True,'reason':'runtime-dependency-preparation-unavailable','originalPackageAndStateRetained':True}
+   else:
+    try:result['cutoutPreparation']=prepare_cutout_weights(state,target)
+    except (SafetyError,OSError):
+     result['cutoutPreparation']={'status':'deferred','independent':True,'reason':'cutout-weight-preparation-unavailable','nextAction':'联网后从原安装目录执行 run materials -- prepare-cutout --download；不影响其他能力。'}
   else:result['runtimeDependencies']={'status':'deferred','independent':True,'reason':'offline-or-not-requested'}
   from heideng_merchant.update_client import configure, set_enabled, status as update_status
   trust_path=target/'updates/trust.json'

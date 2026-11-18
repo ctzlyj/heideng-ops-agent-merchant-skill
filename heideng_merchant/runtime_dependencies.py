@@ -99,6 +99,29 @@ def reexec_update_runtime(state, argv=None):
         return subprocess.call([str(interpreter),'-I','-B',str(Path(__file__).resolve().parents[1]/'scripts/merchant.py'),*(sys.argv[1:] if argv is None else argv)],env=env)
 
 
+def prepare_cutout_weights(state, package_root):
+    """Prepare the reviewed Lite artifact through the mature offline entry; no shop or paid API."""
+    state = Path(state).resolve()
+    script = Path(package_root).resolve()/'mature/materials/scripts/jd_material_agent.py'
+    environment = clean_environment(state/'runtime-home')
+    environment['PYTHONIOENCODING'] = 'utf-8'
+    command = [str(runtime_python(state)), '-I', '-B', str(script), 'prepare-cutout', '--download']
+    try:
+        result = subprocess.run(command, env=environment, timeout=900, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    except (OSError, subprocess.TimeoutExpired):
+        raise SafetyError('merchant-cutout-weight-preparation-unavailable') from None
+    if result.returncode:
+        raise SafetyError('merchant-cutout-weight-preparation-failed')
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError):
+        raise SafetyError('merchant-cutout-weight-preparation-receipt-invalid') from None
+    if payload.get('status') != 'prepared' or payload.get('model') != 'birefnet-general-lite':
+        raise SafetyError('merchant-cutout-weight-preparation-receipt-invalid')
+    return {'status':'prepared','model':payload['model'],'modelBytes':payload.get('modelBytes'),
+            'sha256':payload.get('sha256'),'businessOrPaidCalls':False,'downloadDuringMerchantWrites':False}
+
+
 def prepare_runtime(state, package_root, optional=None):
     state = Path(state).resolve()
     directory = safe_join(state,'runtime-venv')

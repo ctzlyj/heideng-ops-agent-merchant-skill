@@ -4,6 +4,22 @@ from __future__ import annotations
 
 def task_summary(payload):
     value=payload if isinstance(payload,dict) else {}
+    if any(key in value for key in ('reconciledUploads','reconciledBindings','unresolvedUploads','unresolvedBindings')):
+        reconciled_uploads=value.get('reconciledUploads') or []
+        reconciled_bindings=value.get('reconciledBindings') or []
+        unresolved_uploads=value.get('unresolvedUploads') or []
+        unresolved_bindings=value.get('unresolvedBindings') or []
+        unresolved=len(unresolved_uploads)+len(unresolved_bindings)
+        pending=sum(1 for item in reconciled_bindings if item.get('status')=='pending')
+        if unresolved:
+            phase='needs-reconciliation';message=f'原任务已对账，仍有{unresolved}项结果需要核对。';action='查看未决项和原回执，只处理未决范围，不重复提交。';completed=False;can_leave=True;needs_action=True
+        elif pending:
+            phase='waiting-review';message=f'原任务已对账，{pending}条绑定正在等待平台审核。';action='可以离开；稍后从原任务恢复查看，不会重复提交。';completed=False;can_leave=True;needs_action=False
+        else:
+            phase='completed';message='原任务回执已对账，没有未确认的上传或绑定。';action='查看对账结果并继续剩余业务。';completed=True;can_leave=True;needs_action=False
+        return {'phase':phase,'message':message,'nextAction':action,'completed':completed,'canLeave':can_leave,
+                'completedCount':len(reconciled_uploads)+len(reconciled_bindings),'totalCount':len(reconciled_uploads)+len(reconciled_bindings)+unresolved,
+                'pendingReviewCount':pending,'failedCount':unresolved,'needsUserAction':needs_action,'retryAllowed':False,'resultFile':value.get('resultFile')}
     batches=value.get('batches') or []
     total=value.get('spuCount') or sum(int(b.get('spuCount') or 0) for b in batches)
     completed=sum(int(b.get('completedSpus') or 0) for b in batches)

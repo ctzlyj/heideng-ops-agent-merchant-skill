@@ -31,7 +31,8 @@ def _prompt_local_page(timeout=300):
             self.send_header('X-Frame-Options','DENY');self.send_header('Referrer-Policy','no-referrer');self.end_headers();self.wfile.write(body.encode())
         def do_GET(self):
             parsed=urlsplit(self.path)
-            if self.headers.get('Host')!=session.host or parsed.path!='/' or parse_qs(parsed.query).get('session')!=[session.csrf] or session.done.is_set():self.respond(403,'请求无效');return
+            valid_query=not parsed.query or parse_qs(parsed.query).get('session')==[session.csrf]
+            if self.headers.get('Host')!=session.host or parsed.path!='/' or not valid_query or session.done.is_set():self.respond(403,'请求无效');return
             self.respond(200,f"""<!doctype html><meta charset=utf-8><title>黑灯商家安全输入</title>
 <h2>输入商家自己的 LTS4AI Key</h2><p>仅用于已确认范围和费用的生图任务。不读公司凭据，不粘贴到聊天。</p>
 <form method=post action=/key><input type=hidden name=csrf value='{session.csrf}'>
@@ -51,7 +52,9 @@ def _prompt_local_page(timeout=300):
     server=HTTPServer(('127.0.0.1',0),Handler);server.timeout=0.25
     session=KeyInputSession(server.server_port)
     try:
-        if not webbrowser.open(session.origin+'/?session='+session.csrf,new=2):raise SafetyError('merchant-secure-key-page-unavailable')
+        url=session.origin+'/'
+        print(json.dumps({'status':'awaiting_key_input','keyInputUrl':url,'businessExecuted':False,'message':'请在打开的页面输入商家自己的Key；若页面未自动打开，请复制此本机地址。'},ensure_ascii=False),flush=True)
+        webbrowser.open(url,new=2)
         deadline=time.monotonic()+timeout
         while not session.done.is_set() and time.monotonic()<deadline:server.handle_request()
         return session.value,session.remember

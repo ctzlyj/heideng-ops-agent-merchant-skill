@@ -1,7 +1,7 @@
 ---
 name: heideng-ops-agent-merchant
 description: 京东 POP 商家在本地 Agent 宿主中用自然语言交办运营任务；提供电商经验导航、独立安装更新与成熟工具。适用于连接店铺、内容信息分、上新复刻实拍、图文优化、采集比价、经营广告诊断及已有视频交接，也支持按任务组合其他商家已授权官方能力。
-version: 0.4.4
+version: 0.4.5
 ---
 
 # 黑灯运营智能体商家版
@@ -35,7 +35,7 @@ version: 0.4.4
 
 ## 安装、更新和成熟包装器
 
-由 Agent 从实际源码/解压目录执行 `python install.py --host codex --with-runtime --with-official`；JoyCode 用 `--host joycode`，WorkBuddy 已核对使用标准个人路径时用 `--host workbuddy`；宿主实际配置不同则用其 `--skills-dir`，不猜用户名/路径。核心运行依赖默认准备，旧安装缺失时任务入口补齐；神经抠图仍按需可选。独立名 `heideng-ops-agent-merchant`、状态 `~/.heideng-merchant`；升级不覆盖内部版、个人 Skill、商家记忆、任务结果或运行数据。同版本异包/降级/哈希保护保持，不以手改回执或 rollback→install 当正常更新。
+由 Agent 从实际源码/解压目录执行 `python install.py --host codex --with-runtime --with-official`；JoyCode 用 `--host joycode`，WorkBuddy 已核对使用标准个人路径时用 `--host workbuddy`；宿主实际配置不同则用其 `--skills-dir`，不猜用户名/路径。核心与神经抠图 Python 依赖默认准备，标准在线安装还调用原 `prepare-cutout --download` 准备固定 SHA 的 Lite 权重；离线或权重下载失败独立标记未就绪，不影响其他能力。独立名 `heideng-ops-agent-merchant`、状态 `~/.heideng-merchant`；升级不覆盖内部版、个人 Skill、商家记忆、任务结果或运行数据。同版本异包/降级/哈希保护保持，不以手改回执或 rollback→install 当正常更新。
 
 包装器用法：`python scripts/merchant.py status`；`python scripts/merchant.py run [--entry scripts/已登记入口.py] <capability> -- <原成熟参数>`。入口/来源以 `registry.json` 和 `mature/*/provenance.json` 为准。它是复用成熟工具的便捷路径，**不是所有 Agent 工作必经的统一执行器**。
 

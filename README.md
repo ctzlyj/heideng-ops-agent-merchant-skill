@@ -1,4 +1,4 @@
-# 黑灯运营智能体商家版 0.4.4
+# 黑灯运营智能体商家版 0.4.5
 
 本地 WorkBuddy/JoyCode/Codex 等宿主 Agent 理解和规划商家自然语言任务；黑灯提供电商经验导航、独立安装更新、协作边界和成熟执行工具。**经验目录不是能力白名单，status/run只是一个受保护的成熟包装器。**
 
@@ -9,6 +9,8 @@
 ```text
 python install.py --host codex --with-runtime --with-official
 ```
+
+标准在线安装会同时准备神经抠图依赖和固定 SHA 的 Lite 权重（首次约 214MiB）；离线安装不下载，未就绪项可稍后单独恢复，不影响其他能力。
 
 JoyCode 用 `--host joycode`；WorkBuddy/其他宿主使用其实际 `--skills-dir`。独立安装名与商家状态/Profile不覆盖内部版、个人Skill、商家记忆或任务结果。版本升级和同版本异包/哈希保护保持。
 

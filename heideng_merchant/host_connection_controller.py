@@ -31,7 +31,7 @@ def _trusted_shop_page(url):
 def _identity(page):
     """Read only public identity DOM, never cookies or authorization codes."""
     for script in (
-        """() => {let e=document.querySelector('[data-shop-name]');return e&&e.innerText}""",
+        """() => {let e=document.querySelector('#shop-base-name, .shop-menu-accountV1__right-account-top-name, [data-shop-name]');return e&&e.innerText}""",
         r"""() => {let t=document.body.innerText;let m=t.match(/(?:店铺名称|当前店铺|店铺)[:：\s]*([^\n]{2,80})/);return m&&m[1]}"""):
         try:
             name=page.evaluate(script)
@@ -51,7 +51,7 @@ class HostConnectionController:
         self._state_path=self.root/'session.json'
         self._state=None
         self._playwright=None;self.context=None;self.page=None;self.context_id=None;self.channel=None;self.profile=None;self.oauth_confirm_handled=False
-        self.owned_pages=[];self.oauth_identity=None
+        self.owned_pages=[];self.oauth_identity=None;self.channel_reason=''
 
     def describe_contract(self):return _public(None)
 
@@ -68,11 +68,11 @@ class HostConnectionController:
         state=self._load()
         if state:
             if state.get('shopIdentity')!=self.shop_identity:raise RuntimeError('connection-profile-belongs-to-another-shop')
-            self.context_id=state['contextId'];self.channel=state['browserChannel'];self.profile=Path(state['profileDir'])
+            self.context_id=state['contextId'];self.channel=state['browserChannel'];self.profile=Path(state['profileDir']);self.channel_reason='reused-shop-session'
         else:
             self.context_id='merchant-connection-'+uuid.uuid4().hex
             self.profile=self.home/'browser-profiles'/('connection-'+uuid.uuid4().hex[:12])
-            self.channel=channel or self._default_channel()
+            self.channel=channel or self._default_channel();self.channel_reason='explicit-request' if channel else 'system-default-https'
         directory=self.profile.resolve()
         expected=(self.home/'browser-profiles').resolve()
         if not directory.is_relative_to(expected):raise RuntimeError('merchant-owned-profile-required')
@@ -100,7 +100,7 @@ class HostConnectionController:
         atomic_json(self._state_path,{'contextId':self.context_id,'profileDir':str(self.profile.resolve()),'browserChannel':self.channel,'shopIdentity':self.shop_identity})
 
     def _result(self,extra=None):
-        result={'ok':True,'contextId':self.context_id,'owned':True,'isolated':True,'verifiedReuse':True,'profileDir':str(self.profile.resolve()),'browserChannel':self.channel}
+        result={'ok':True,'contextId':self.context_id,'owned':True,'isolated':True,'verifiedReuse':True,'profileDir':str(self.profile.resolve()),'browserChannel':self.channel,'browserSelectionReason':self.channel_reason}
         if extra:result.update(extra)
         return result
 
@@ -176,9 +176,11 @@ class HostConnectionController:
 
 def main(argv=None):
     argv=sys.argv[1:] if argv is None else argv
-    controller=HostConnectionController()
     if argv==['--describe-contract']:
-        print(json.dumps(controller.describe_contract(),ensure_ascii=False));return 0
+        print(json.dumps(_public(None),ensure_ascii=False));return 0
+    if argv in (['--help'],['-h']):
+        print('usage: host_connection_controller.py [--describe-contract]  # JSON action request on stdin');return 0
+    controller=HostConnectionController()
     with FileLock(controller.root/'action.lock'):
         try:
             raw=sys.stdin.read()

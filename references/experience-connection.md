@@ -10,7 +10,7 @@
 
 - 通常先 `run connection -- ensure-shop --shop "目标店铺" --no-auth`。登记别名/多个Profile只用于定位，最终以实时 venderinfo 核验为准。
 - 已有授权可用则直接复用；本地显示过期不代表不可用，官方可能自动刷新。网络/权限错误不能一律当授权失效；先按实际错误排障。
-- 确实需新授权，沿用用户针对本店的明确许可，原 ensure-shop 去掉 --no-auth；本人京麦 App 扫码，宿主在同一隔离浏览器会话衔接官方 OAuth。不要另建授权系统，不复制Cookie/Token。
+- 确实需新授权，沿用用户针对本店的明确许可，原 ensure-shop 去掉 --no-auth；商家本人在同一隔离浏览器页自行选择密码、短信或扫码，宿主衔接官方 OAuth。不要另建授权系统，不复制Cookie/Token。
 - `awaiting_auth` 是等待宿主处理，不是授权失败。按原 jobId、当前 browser-action 操作并回报真实上下文/身份，返回 callback_unknown 时先核对同一Profile，不能再扫一轮制造重复任务。
 - 网页后续任务需要真实商家持久 profileDir。用原连接器保存的 browserProfileDir，在同店匹配后交给 POP 原导入；不猜用户工作浏览器目录。
 
@@ -46,3 +46,10 @@
 浏览器默认跟随本机Chrome/Edge设置，之后绑定同店context/profile/channel。登录页交给商家选择密码/短信/扫码，文本店名不是完整身份；只从已登录工作台读取可靠店铺信息，最终仍以官方venderinfo核店。遇到账号风控只提示本人操作，不重开任务。
 
 0.4.2手工`browser_bridge`入口保留给需要自带HostBrowser的宿主，不是默认新店路径。页面驱动随动作释放，商家profile保留，不能反复打开新窗口。OAuth确认最多一次；超时只观察/核验，不重复点击。
+
+## 0.4.5 现场反馈适配
+
+- 新店默认仍是单命令 `ensure-shop`。工作台只有店名、没有 DOM venderId 时，店名匹配只用于进入官方 OAuth；最终 ready 仍须官方 Profile 实时返回匹配的店名与数字 venderId，不能用文本店名代替完整核店。
+- 返回中的 `browserChannel` 是实际通道，`browserSelectionReason=system-default-https` 表示跟随系统默认浏览器，`reused-shop-session` 表示复用同店隔离会话。Edge/Chrome 不是串号依据；商家登录方式始终由本人选择。
+- `/api/job` 丢失会明确返回 `job_lost`，同店再次 `ensure-shop` 默认恢复；已取消任务新建同店 worker，不假装原线程仍存活。多店会话目录和 Profile 不混用。
+- 控制器 `--help` / `--describe-contract` 不需要商家状态目录。Key 的 Tk 回退页会输出不含 session/CSRF 的本机根地址；不得把带令牌的输入 URL、Key 或 Cookie 写入日志/回复。
