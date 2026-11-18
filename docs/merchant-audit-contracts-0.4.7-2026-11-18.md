@@ -43,3 +43,5 @@
 - `tests/test_release_consistency.py` 已验证源码重建与固定ZIP逐文件及总SHA一致。
 - 旧目录23项保护哈希保持一致，mature provenance保留原上游commit，提示词原文未变；没有真实店铺写入或付费任务。
 - 发布通道仍沿用既有签名固定包机制，发布注记明确“Code/offline verified; real host/shop acceptance pending”。它不是WorkBuddy/Windows可见页面或真实商家授权通过证明。
+
+推送后核验：代码commit `642436f41db998f89e1c200aa590d15e95c73dad`；两分支已同步，私有签名索引下载0.4.7固定包275项，SHA和大小匹配。没有创建Release、修改仓库可见性或通知商家。
