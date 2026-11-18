@@ -12,6 +12,10 @@ def entry(argv=None):
     argv=sys.argv[1:] if argv is None else argv
     args=build_parser().parse_args(argv)
     if args.command!='run' or any(x in ('--help','-h','help') for x in args.arguments):return main(argv)
+    arguments=list(args.arguments)
+    if arguments[:1]==['--']:arguments=arguments[1:]
+    if args.capability=='materials' and arguments[:1]==['repair-rejected'] and ('--paid-generation' not in arguments or '--no-paid-generation' in arguments):
+        return main(argv)  # Free repair must not read/prompt a Key merely because this wrapper was selected.
     state=args.state or merchant_home()
     from heideng_merchant.runtime_dependencies import ensure_core
     ensure_core(state,Path(__file__).resolve().parents[1])

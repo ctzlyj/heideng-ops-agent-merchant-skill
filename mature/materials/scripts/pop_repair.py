@@ -251,6 +251,10 @@ def run_rejected_repairs(args,agent=None):
         scoped=scoped_repair_rows(scope['rows'],authorized,excluded,agent,skip_spus)
         appeal_delivery=export_product_text_appeals(scope,scoped,out,agent)
         jingmai={'status':'not-configured'}
+        if not getattr(args,'profile_dir',None):
+            from heideng_merchant.mature_runtime import registered_browser_profile
+            directory=registered_browser_profile(args.profile,identity)
+            if directory:args.profile_dir=str(directory)
         if getattr(args,'profile_dir',None) and getattr(args,'jingmai_first',True):
             # User rule: rejected white/transparent use Jingmai's own batch cutout first; only slots
             # already tried there (rejected again / preview failed) go to the model + neural cutout.
@@ -259,11 +263,24 @@ def run_rejected_repairs(args,agent=None):
         targets=[row for row in scoped if row['repairKinds']]
         if not targets:
             status='jingmai-submitted-awaiting-review' if jingmai.get('submittedSlots') else 'appeal-only' if appeal_delivery else 'no-rejections'
-            result={'status':status,'rows':[],'shopName':identity['shopName'],'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai}
+            result={'status':status,'rows':[],'shopName':identity['shopName'],'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai,
+                    'manualAppealRequired':bool(appeal_delivery),'needsMerchantAction':bool(appeal_delivery),
+                    'noPaidGeneration':bool(getattr(args,'no_paid_generation',not getattr(args,'paid_generation',False)))}
             if appeal_delivery or jingmai.get('tasks'):_save(out/'repair-result.json',result)
             return result
-        key=os.environ.get(agent.PROVIDER.api_key_env)
-        if not key:raise ValueError('Local model key missing; never paste it into chat')
+        if getattr(args,'no_paid_generation',not getattr(args,'paid_generation',False)):
+            # A saved key is not permission to expand this explicitly free repair.
+            remaining=[{'spuId':str(row['productId']),'skuId':str(row['skuId']),'kinds':list(row['repairKinds'])} for row in targets]
+            result={'status':'partial-free-repair','rows':[],'shopName':identity['shopName'],
+                    'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai,'remainingTargets':remaining,
+                    'remainingImageSlotCount':sum(len(row['kinds']) for row in remaining),
+                    'pendingReviewCount':int(jingmai.get('submittedSlots') or 0),'noPaidGeneration':True,
+                    'manualAppealRequired':bool(appeal_delivery),'needsMerchantAction':bool(appeal_delivery),
+                    'paidRequestCount':None,'nextAction':'免费路径已执行并保留回执；原商品文字走申诉。核对剩余SKU/槽位，只有另获费用批准后才走付费修复。'}
+            _save(out/'repair-result.json',result)
+            return result
+        from heideng_merchant.mature_image import merchant_key
+        key=os.environ.get(agent.PROVIDER.api_key_env) or merchant_key()
         adapter=json.loads(Path(args.joyagent_adapter).read_text(encoding='utf-8')) if getattr(args,'joyagent_adapter',None) else None
         if adapter is not None:
             adapter_argv(adapter, Path('reference.png'), Path('output.png'), 'prompt')

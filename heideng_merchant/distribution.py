@@ -128,9 +128,23 @@ def _target(target):
  target.parent.mkdir(parents=True,exist_ok=True)
  return target
 
-def _owned(path,target,kind):
+def _backup_roots(target,state):
+ return (safe_join(target.parent.parent,'heideng-merchant-backups'),safe_join(Path(state).absolute(),'backups/skills'))
+
+def _new_backup(target,state,ident):
+ # Outside host discovery, on the same filesystem so the existing atomic rename remains valid.
+ for root in _backup_roots(target,state):
+  if root.is_relative_to(target.parent):continue
+  root.mkdir(parents=True,exist_ok=True)
+  if root.stat().st_dev==target.parent.stat().st_dev:
+   return root/('.'+SKILL_NAME+'.backup-'+ident)
+ raise SafetyError('same-filesystem-outside-skills-backup-required')
+
+def _owned(path,target,kind,state=None):
  p=Path(path).absolute()
- if p.parent!=target.parent or not p.name.startswith('.'+SKILL_NAME+'.'+kind+'-') or is_linked(p):raise SafetyError('unsafe-recovery-path')
+ parents={target.parent}
+ if kind=='backup' and state is not None:parents.update(_backup_roots(target,state))
+ if p.parent not in parents or not p.name.startswith('.'+SKILL_NAME+'.'+kind+'-') or is_linked(p):raise SafetyError('unsafe-recovery-path')
  return p
 
 def _remove_owned(path,target,kind):
@@ -171,7 +185,7 @@ def _recover(target,state):
  journal=read_json(Path(state)/'install-journal.json')
  if not journal:return
  if journal.get('target')!=str(target):raise SafetyError('recovery-target-mismatch')
- stage=_owned(journal['stage'],target,'stage');backup=_owned(journal['backup'],target,'backup')
+ stage=_owned(journal['stage'],target,'stage');backup=_owned(journal['backup'],target,'backup',state)
  if target.exists():
   if not verify_install(target)['valid']:raise SafetyError('recovery-local-change')
  elif backup.exists():_replace_directory(backup,target)
@@ -197,7 +211,7 @@ def install_archive(archive,target,state,*,expected_sha):
     raise SafetyError('same-version-different-artifact')
    if version_key(manifest['version'])<=version_key(current['version']):raise SafetyError('downgrade-refused')
   if busy(state):raise SafetyError('active-task-update-deferred')
-  ident=uuid.uuid4().hex;stage=target.parent/('.'+SKILL_NAME+'.stage-'+ident);backup=target.parent/('.'+SKILL_NAME+'.backup-'+ident)
+  ident=uuid.uuid4().hex;stage=target.parent/('.'+SKILL_NAME+'.stage-'+ident);backup=_new_backup(target,state,ident)
   stage.mkdir()
   for name,data in raw.items():p=safe_join(stage,name);p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
   hashes={name:hashlib.sha256(data).hexdigest() for name,data in raw.items()}
@@ -222,14 +236,14 @@ def rollback(target,state):
   if busy(state):raise SafetyError('active-task-rollback-deferred')
   info=read_json(state/'install-history.json',{})
   if info.get('target')!=str(target) or not info.get('previous'):raise SafetyError('no-verified-rollback')
-  previous=_owned(info['previous'],target,'backup')
+  previous=_owned(info['previous'],target,'backup',state)
   # Backup directory has a different name; verification uses its trusted receipt/file hashes.
   check=read_json(previous/RECEIPT,{})
   if check.get('skill')!=SKILL_NAME:raise SafetyError('invalid-rollback-receipt')
   for name,sha in check.get('files',{}).items():
    if file_sha(safe_join(previous,name))!=sha:raise SafetyError('rollback-files-modified')
   if not verify_install(target)['valid']:raise SafetyError('locally-modified')
-  displaced=target.parent/('.'+SKILL_NAME+'.backup-'+uuid.uuid4().hex)
+  displaced=_new_backup(target,state,uuid.uuid4().hex)
   _replace_directory(target,displaced)
   try:_replace_directory(previous,target)
   except OSError:_replace_directory(displaced,target);raise SafetyError('rollback-switch-failed') from None

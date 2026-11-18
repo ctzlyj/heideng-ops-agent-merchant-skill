@@ -140,4 +140,13 @@ class AuditConnectionTests(unittest.TestCase):
             result=self.cli.wait_job(5,0,job_id='one',profile='fixture')
         self.assertEqual(result['status'],'ready')
 
+    def test_spoken_name_mismatch_exposes_both_names_without_weakening_identity(self):
+        args=type('Args',(),{'shop':'spoken-alias','profile':'fixture','no_auth':False,'no_open':False,'no_wait':False,'resume':False,'fresh':False,'browser_config':None,'timeout':1})()
+        job={'id':'one','profile':'fixture','status':'mismatch','message':'名称不一致','identity':{'shopName':'official-name','venderId':''}}
+        with patch.object(self.cli,'_env_blockers',return_value=None),patch.object(self.cli.sl,'resolve',return_value={'status':'needs_auth','shopName':'spoken-alias'}),patch.object(self.cli.sl,'load_pending',return_value={}),patch.object(self.cli.sl,'save_pending'),patch.object(self.cli,'api',return_value=(200,{'ok':True,'profile':'fixture','jobId':'one'})),patch.object(self.cli,'wait_job',return_value={'ok':False,'status':'mismatch','job':job}):
+            result=self.cli._cmd_ensure_shop(args)
+        self.assertEqual(result['status'],'mismatch');self.assertTrue(result.get('needsMerchantAction'))
+        self.assertEqual(result['expectedShopName'],'spoken-alias');self.assertEqual(result['actual']['shopName'],'official-name')
+        self.assertIn('授权证明',result['nextAction'])
+
 if __name__=='__main__':unittest.main()

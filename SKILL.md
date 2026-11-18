@@ -1,7 +1,7 @@
 ---
 name: heideng-ops-agent-merchant
 description: 京东 POP 商家在本地 Agent 宿主中用自然语言交办运营任务；提供电商经验导航、独立安装更新与成熟工具。适用于连接店铺、内容信息分、上新复刻实拍、图文优化、采集比价、经营广告诊断及已有视频交接，也支持按任务组合其他商家已授权官方能力。
-version: 0.4.7
+version: 0.4.8
 ---
 
 # 黑灯运营智能体商家版
@@ -41,7 +41,7 @@ version: 0.4.7
 
 ## 模型与当前适用限制
 
-图片保留已选 LTS4AI `https://api.lts4ai.com/v1` / `gpt-image-2.5`，复用 sufy-image2 client；只使用商家自己的 Key，不读公司/个人 Skill 凭据，不回退公司模型/额度。安全 Key 入口按已批准图片任务使用 `python scripts/with_image_key.py run ...`：先预检再密码输入。Tk 不可用回退本机密码页面；用户明确选择记住时仅写 Windows DPAPI/macOS Keychain，没有明文回退。之后同一商家状态可复用，不读取公司/个人Skill凭据。用户要求忘记时由宿主执行 `python scripts/merchant.py key forget`。只读或纯标题任务不用此入口、不弹Key页面。
+图片保留已选 LTS4AI `https://api.lts4ai.com/v1` / `gpt-image-2.5`，复用 sufy-image2 client；只使用商家自己的 Key，不读公司/个人 Skill 凭据，不回退公司模型/额度。安全 Key 入口按已批准图片任务使用 `python scripts/with_image_key.py run ...`：先预检再密码输入。Tk 不可用回退本机密码页面；用户明确选择记住时仅写 Windows DPAPI/macOS Keychain，没有明文回退。之后实际已批准模型分支自动复用同一商家状态的安全Key，纯绑定/标题/免费修复不读Key；Key存在不等于费用获批，驳回修复默认免费。初次缺Key仍用安全输入，不读取公司/个人Skill凭据。用户要求忘记时由宿主执行 `python scripts/merchant.py key forget`。只读或纯标题任务不用此入口、不弹Key页面。
 
 独立文本/视觉 API 未配置时，已有成熟宿主生成文件路径可用；宿主无相应能力才报告该缺项，不能假造文本/分析。外部 AI 视频生成未配置与已有视频交接/上传是不同能力：不能冒称已能 AI 出片，也不能据此封锁已有合格视频的交接。
 

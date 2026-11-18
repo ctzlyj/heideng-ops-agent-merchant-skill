@@ -975,15 +975,34 @@ def export_pop_image_appeals(report, output_dir):
     return {**result, 'appealFiles': [str(path)], 'snapshotSha256': digest, 'fileSha256': _file_sha256(path)}
 
 def audit_generation_summary(path):
-    """Planning units, not proof of required billable generation or platform completion."""
+    """Estimate from the same approved sibling sources, not from SKU deficits or local alpha work."""
     rows=json.loads(Path(path).read_text(encoding='utf-8')).get('rows') or []
-    missing={}
+    missing={};sources={};approved=set();pending=set()
     for row in rows:
-        slots={name for name,slot in (row.get('slots') or {}).items() if ((slot.get('state') if isinstance(slot,dict) else slot)=='missing') or (isinstance(slot,dict) and slot.get('status')=='missing')}
-        if slots:missing[str(row.get('productId') or row.get('spuId'))]=slots
-    return {'generationSpuCount':len(missing),'missingSlotCount':sum(len(v) for v in missing.values()),
-            'imageGenerationRequestCount':sum(len(v & set(IMAGE_SUFFIXES)) for v in missing.values()),
-            'spuImageReuse':True,'note':'只读规划口径；复用合格素材、京麦审核及人工接管可改变实际付费请求数。'}
+        spu=str(row.get('productId') or row.get('spuId'))
+        for kind,slot in (row.get('slots') or {}).items():
+            state=slot.get('state') or slot.get('status') if isinstance(slot,dict) else slot
+            if state=='missing':missing.setdefault(spu,set()).add(kind)
+            if state=='pending':pending.add((spu,kind))
+            if state=='approved':
+                approved.add((spu,kind))
+                for value in slot.get('approvedValues') or [] if isinstance(slot,dict) else []:
+                    if kind in IMAGE_SUFFIXES and _trusted_jd_image_url(value):sources.setdefault((spu,kind),set()).add(value)
+    reuse=0;derived=0;new=0;generation_spus=set();uncertain=[]
+    for spu,kinds in missing.items():
+        for kind in sorted(kinds & set(IMAGE_SUFFIXES)):
+            values=sources.get((spu,kind),set())
+            if (spu,kind) in pending or len(values)>1 or ((spu,kind) in approved and not values):
+                uncertain.append({'spuId':spu,'kind':kind,'reason':'来源缺失、歧义或审核中；先核对，不报精确付费量'})
+            elif len(values)==1:reuse+=1
+            elif kind=='transparent':derived+=1
+            else:new+=1;generation_spus.add(spu)
+    return {'generationSpuCount':len(generation_spus),'missingSpuCount':len(missing),
+            'missingSlotCount':sum(len(v) for v in missing.values()),
+            'imageGenerationRequestCount':None if uncertain else new,'newImageCandidateCount':new,
+            'reuseImageSlotCount':reuse,'transparentDerivationCount':derived,'sourceIssues':uncertain,
+            'estimateComplete':not uncertain,'spuImageReuse':True,
+            'note':'按同SPU唯一已通过素材复用；透明图本地派生不计付费生图。不是最终扣费或绑定生效证明。'}
 
 
 def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, product_ids=None, authorized_sku_ids=None):
@@ -991,6 +1010,7 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
     identity = _shop_identity(seller)
     if identity['shopName'] != expected_shop_name or not seller.get('success') or not seller.get('whitelistMatch', True) or not seller.get('isPop') or not seller.get('active'):
         raise ValueError('coverage audit requires the expected active POP shop identity')
+    scoped_products=product_ids is not None
     if product_ids is None:
         products = collect_jdo_pages(client.online_products, 100, 'productId', 'coverage online products')
         product_ids = [cell_text(item.get('productId')) for item in products]
@@ -1036,7 +1056,7 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
             statuses = [int(entry.get('status') or 0) for entry in found]
             approved = any(int(entry.get('status') or 0) == 4 and _material_value(entry) for entry in found)
             state = 'pending' if 3 in statuses else 'approved' if approved else 'rejected' if 5 in statuses else 'missing'
-            slots[slot] = {'state': state, 'statuses': statuses, 'auditReasons': list(dict.fromkeys(cell_text(entry.get('auditDesc')) for entry in found if entry.get('auditDesc')))}
+            slots[slot] = {'state': state, 'statuses': statuses, 'approvedValues':list(dict.fromkeys(_material_value(entry) for entry in found if int(entry.get('status') or 0)==4 and _material_value(entry))), 'auditReasons': list(dict.fromkeys(cell_text(entry.get('auditDesc')) for entry in found if entry.get('auditDesc')))}
         states = {value['state'] for value in slots.values()}
         if states & {'missing', 'rejected'}:
             deficits.append(sku_id)
@@ -1052,11 +1072,18 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
         with closing(load_workbook(source, read_only=True)) as workbook:
             historical_ids.update(cell_text(row[0]) for row in workbook['Sheet1'].iter_rows(min_row=3, max_col=2, values_only=True) if row[0] is not None)
         historical_files.append(validation)
-    final_products = collect_jdo_pages(client.online_products, 100, 'productId', 'coverage final products')
-    if {cell_text(item.get('productId')) for item in final_products} != set(product_ids) or _shop_identity(client.seller_info()) != identity:
-        raise ValueError('shop identity or on-sale product scope changed during coverage audit')
+    if scoped_products:
+        final_siblings=[item for group in groups for item in client.skus(group)]
+        if any(cell_text(item.get('productId')) not in product_ids for item in final_siblings) or {cell_text(item.get('skuId')) for item in final_siblings}!=set(sku_ids):
+            raise ValueError('目标商品SKU范围已改变，不能组合两次盘点')
+    else:
+        final_products = collect_jdo_pages(client.online_products, 100, 'productId', 'coverage final products')
+        if {cell_text(item.get('productId')) for item in final_products} != set(product_ids):
+            raise ValueError('on-sale product scope changed during coverage audit')
+    if _shop_identity(client.seller_info()) != identity:
+        raise ValueError('shop identity changed during coverage audit')
     appeals = collect_pop_image_appeals(online, materials)
-    return {'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'appealRows': appeals, 'manualAppealSkuIds': list(dict.fromkeys(item['skuId'] for item in appeals)), 'shopIdentity': identity, 'onlineProductCount': len(products), 'onlineSkuCount': len(online), 'allSiblingSkuCount': len(siblings), 'healthSkuCount': len(health), 'unscoredSkuIds': [sku for sku in online_ids if sku not in scores], 'materialDeficitSkuCount': len(deficits), 'materialDeficitSkuIds': deficits, 'rejectedSkuCount': len(rejected), 'rejectedSkuIds': rejected, 'pendingSkuCount': len(pending), 'pendingSkuIds': pending, 'shortTitleIssueSkuIds': list(dict.fromkeys(short_titles)), 'issueCounts': issues, 'historicalTitleSkuCount': len(historical_ids), 'historicalTitleFiles': historical_files, 'notInHistoricalTitleSkuIds': [sku for sku in online_ids if sku not in historical_ids], 'historicalTitleNoLongerOnlineSkuIds': sorted(historical_ids - set(online_ids)), 'rows': rows, 'writesPerformed': False, 'platformTitleImportVerified': False, 'scopeNote': 'Complete paginated on-sale inventory, not a transaction snapshot; scores and workbook delivery do not prove material acceptance. Rejected white/scene/transparent images default to manual appeal delivery, not automatic repair; other rejected slots require a reviewed strategy.'}
+    return {'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'appealRows': appeals, 'manualAppealSkuIds': list(dict.fromkeys(item['skuId'] for item in appeals)), 'shopIdentity': identity, 'onlineProductCount': len(product_ids), 'onlineSkuCount': len(online), 'allSiblingSkuCount': len(siblings), 'healthSkuCount': len(health), 'unscoredSkuIds': [sku for sku in online_ids if sku not in scores], 'materialDeficitSkuCount': len(deficits), 'materialDeficitSkuIds': deficits, 'rejectedSkuCount': len(rejected), 'rejectedSkuIds': rejected, 'pendingSkuCount': len(pending), 'pendingSkuIds': pending, 'shortTitleIssueSkuIds': list(dict.fromkeys(short_titles)), 'issueCounts': issues, 'historicalTitleSkuCount': len(historical_ids), 'historicalTitleFiles': historical_files, 'notInHistoricalTitleSkuIds': [sku for sku in online_ids if sku not in historical_ids], 'historicalTitleNoLongerOnlineSkuIds': sorted(historical_ids - set(online_ids)), 'rows': rows, 'writesPerformed': False, 'platformTitleImportVerified': False, 'scopeNote': 'Complete paginated on-sale inventory, not a transaction snapshot; scores and workbook delivery do not prove material acceptance. Rejected white/scene/transparent images default to manual appeal delivery, not automatic repair; other rejected slots require a reviewed strategy.'}
 
 def _short_title_issue(score_item: dict[str, Any]) -> bool:
     for entry in score_item.get('improvementList') or []:
@@ -1436,7 +1463,10 @@ def _merge_image_model_stats(previous: dict[str, Any] | None, stats: dict[str, A
 class ModelClient:
 
     def __init__(self, api_key: str, timeout: float=600.0, image_concurrency: int | None=None, text_model: str | None=None):
-        if not api_key or not api_key.isascii() or any((character.isspace() for character in api_key)):
+        if not api_key:
+            from heideng_merchant.mature_image import merchant_key
+            api_key=merchant_key()
+        if not api_key.isascii() or any((character.isspace() for character in api_key)):
             raise ValueError(f'{PROVIDER.api_key_env} 未设置或格式无效。')
         from heideng_merchant.mature_image import MerchantImageClient
         self._merchant_images = MerchantImageClient(api_key)
@@ -2315,6 +2345,7 @@ def execute_material_binding_plan(client: Any, plan: MaterialBindingPlan) -> Mat
                 _save_state(state_path, state)
             record.update({'status': 'submitted', 'reason': 'submitted'})
             submitted += 1
+            print(json.dumps({'event':'binding-submitted','spuId':spu_id,'materialType':material_type,'skuCount':len(request['body']['skuMaterials']),'submittedTypeCount':submitted,'message':'本类型绑定已受理；尚待平台回读和审核。'},ensure_ascii=False),flush=True)
         except JdoPermissionError as error:
             record.update({'status': 'rejected', 'reason': 'official permission denied'})
             browser_required = True
@@ -2334,6 +2365,7 @@ def execute_material_binding_plan(client: Any, plan: MaterialBindingPlan) -> Mat
         finally:
             _save_state(state_path, state)
     materials_by_sku = {}
+    print(json.dumps({'event':'binding-readback','submittedTypeCount':submitted,'message':'正在核对原绑定回执；不重提已受理的请求。'},ensure_ascii=False),flush=True)
     if not browser_required:
         sku_ids = [sku_id for job in plan.prepared.jobs for sku_id in job.sku_ids if job.spu_id in requests_by_spu]
         try:
@@ -3145,7 +3177,7 @@ def host_task_handoff(prepared, output, seller, profile=None):
     base=['python',entry,'run','materials','--']
     scope_args=['--output-dir',str(output)] + (['--profile',profile] if profile else [])
     expected=['--expected-shop-name',_shop_identity(seller)['shopName']]
-    execute=base+['auto-maintain',*scope_args,*expected,'--agent-text-file',str(output/'host-text.json'),'--confirm','AUTO_MAINTAIN']
+    execute=base+['auto-maintain',*scope_args,*expected,'--agent-text-file',str(output/'host-text.json'),'--confirm','AUTO_MAINTAIN','--no-paid-repairs']
     selected={job.spu_id for job in prepared.jobs}
     if selected!=allowed:
         if len(selected)!=1:raise ValueError('恢复命令只支持完整任务或单SPU子集')
@@ -3420,7 +3452,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
     repair_result = {'status': 'not-requested'}
     if getattr(args, 'repair_rejected', False):
         from pop_repair import run_rejected_repairs
-        repair_args = argparse.Namespace(excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
+        repair_args = argparse.Namespace(no_paid_generation=not bool(getattr(args,'paid_repairs',False)), excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
         try: repair_result = run_rejected_repairs(repair_args, sys.modules[__name__])
         except JdoWriteUncertainError: raise
         except Exception as error: repair_result = {'status': 'repair-incomplete', 'failureClass': type(error).__name__, 'reason': 'Repair scope/dependency not ready; preserve frozen audit and receipts'}
@@ -3933,6 +3965,7 @@ def build_parser() -> argparse.ArgumentParser:
     repair.add_argument('--timeout', type=float, default=180)
     repair.add_argument('--joyagent-adapter', type=Path)
     repair.add_argument('--reference-override', action='append', default=[], help='SKUID=trusted-local-product-image')
+    repair.add_argument('--paid-generation',action=argparse.BooleanOptionalAction,default=False,help='默认只走免费路径/申诉；另获本次费用批准后显式开启模型修复。')
     repair.add_argument('--profile-dir', help='Own shop Chrome profile; enables Jingmai batch cutout first for rejected white/transparent')
     repair.add_argument('--jingmai-first', action=argparse.BooleanOptionalAction, default=True)
     repair.add_argument('--jingmai-ledger', type=Path)
@@ -3951,6 +3984,7 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument('--joyagent-adapter', type=Path)
     auto.add_argument('--complete-attrs', action=argparse.BooleanOptionalAction, default=True, help='Inventory and complete missing category attributes after materials/titles')
     auto.add_argument('--agent-attrs-file', type=Path, help='Host-evidenced legal attribute choices, no external model call')
+    auto.add_argument('--paid-repairs',action=argparse.BooleanOptionalAction,default=False,help='默认驳回修复免费；本次额外修复范围/费用已批准才开启。普通新素材费用独立。')
     auto.add_argument('--repair-rejected', action=argparse.BooleanOptionalAction, default=True, help='One bounded fresh-byte repair pass; disable only for a frozen legacy scope')
     auto.add_argument('--verification-mode', choices=('submit-only', 'strict'), default='submit-only')
     auto.add_argument('--spu-concurrency', type=int, default=50)
@@ -3994,7 +4028,7 @@ def merchant_result_summary(payload, output_dir, command):
     from heideng_merchant.safety import redact
     path = Path(output_dir).resolve()/'.state'/('merchant-result-'+command+'.json')
     atomic_json(path, redact(payload))
-    keys = ('status','skuCount','spuCount','browserRequired','planReused','verificationMode','manualVerificationRequired','manualVerificationMessage')
+    keys = ('status','skuCount','spuCount','noPaidGeneration','remainingImageSlotCount','manualAppealRequired','browserRequired','planReused','verificationMode','manualVerificationRequired','manualVerificationMessage')
     summary = {key: payload[key] for key in keys if key in payload}
     from heideng_merchant.merchant_experience import task_summary
     summary.update(task_summary(payload))

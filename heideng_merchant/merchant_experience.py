@@ -24,7 +24,7 @@ def _receipt_facts(value):
                row_states.count('rejected')+row_states.count('blocked')+row_states.count('unknown'))
     pending=max(_count(value.get('pendingReviewCount')), _count(value.get('pending_spus')), row_states.count('pending'))
     unknown=('unknown' in status or any('unknown' in item for item in row_states))
-    blocked=(failed>0 or any(word in status for word in ('incomplete','with-failures','blocked','partial-titles','failed'))
+    blocked=(_count(value.get('remainingImageSlotCount'))>0 or failed>0 or any(word in status for word in ('incomplete','with-failures','blocked','partial-titles','failed'))
              or value.get('allVerified') is False or bool(value.get('blocked')))
     waiting=pending>0 or ('review' in status and value.get('allApproved') is not True)
     submitted=status.startswith(('submitted','jingmai-submitted','repairs-submitted')) or status=='appeal-only'

@@ -70,3 +70,10 @@
 - 最终 `ready`/`mismatch`/`cancelled`/失败与 `paused` 分开。只有官方完整核店才ready。ID-only新店请求中，可靠工作台店名仅证明登录会话存在，可以衔接本次OAuth；原期望venderId不改、不由DOM猜ID，最终官方ID不匹配仍拒绝登记。
 - 同店暂停的callback_unknown优先核验原Profile；未核实则保留暂停，不启动新OAuth。不同店空ID不视为匹配，不串用pending或Profile。
 - 以上为代码/离线契约修复；真实WorkBuddy可见窗口、商家登录→OAuth→ready仍须另外获得授权后验证。
+
+## 口述名称与宿主误用（g9jb现场）
+
+- 口述别名未登记、页面官方名不同，返回mismatch时看expectedShopName/actual与needsMerchantAction，问一次是否为同店；未确认不能改证明文件让它通过。以后登记的别名沿用原工具，最终仍以venderinfo核店。
+- 内置Playwright直接持有BrowserContext/Page，不以人为打开TCP调试端口为前置。缺少--remote-debugging-port不能直接诊断“控制器看不到”，不能据此改走手工OAuth。可见页面和登录检测的失败应看真实阶段/错误，不读Cookie/History来猜。
+- jdo-cli直调必须使用商家隔离环境；不同HOME写出的Profile不是包装器的同一份Profile。禁止cp日常HOME Profile或手改authorization-proof.json作为恢复。修复应复用原待核对回执与正确隔离入口。
+- venderinfo的productCount不是商品盘点成功证据；是否有商品以原商品/SKU分页完整性核验为准，不能据0就让商家重新上架。

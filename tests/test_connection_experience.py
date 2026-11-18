@@ -181,7 +181,7 @@ class ConnectionExperienceTests(unittest.TestCase):
             payload={'shopIdentity':{'shopName':'fixture'},'rows':[{'productId':'11','skuId':'1','slots':{'white':{'state':'missing'},'scene1':{'state':'missing'},'scene2':{'state':'missing'},'selling':{'state':'missing'},'transparent':{'state':'missing'},'point1':{'state':'missing'}}},{'productId':'11','skuId':'2','slots':{'white':{'state':'missing'},'scene1':{'state':'missing'},'scene2':{'state':'missing'},'selling':{'state':'missing'},'transparent':{'state':'missing'},'point1':{'state':'missing'}}}]}
             path=Path(d)/'audit.json';path.write_text(json.dumps(payload))
             summary=agent.audit_generation_summary(path)
-        self.assertEqual(summary['missingSlotCount'],6);self.assertEqual(summary['generationSpuCount'],1);self.assertEqual(summary['imageGenerationRequestCount'],5)
+        self.assertEqual(summary['missingSlotCount'],6);self.assertEqual(summary['generationSpuCount'],1);self.assertEqual(summary['imageGenerationRequestCount'],4);self.assertEqual(summary['transparentDerivationCount'],1)
 
 class SimpleNamespaceFactory:
     def __init__(self,**kw):

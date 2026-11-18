@@ -64,3 +64,12 @@ jd-material-pop-skill 2026.11.207 / b56b223；[导入说明](../mature/materials
 4. 宿主规划与授权检查仍由宿主做；交接 `executionAuthorized=false` 不会自动扩大授权。executeArgv 是原成熟入口，用原目录/Profile，原摘要保存全回执于 resultFile。素材/标题/属性/修复分项有各自状态；局部完成不能称整项完成。
 5. 返回命令已结束时不默认称处理中。`submitted`、`waiting-review`、`prepared`、`completed`、`needs-agent-action`、`needs-reconciliation` 分开；所有返回默认不建议重提。具体失败先由Agent处理；技术失败与未知核对使用 needsAgentAction；needsUserAction/needsMerchantAction 不因技术失败自动设为真。本人登录验证或新增费用/范围决策才提示商家。
 6. 未知写入只使用原任务 recoverArgv/回执核对。完整性、店铺、范围校验仍保留；不能删除状态或伪造受理来跳过保护。
+
+## 商家实战 g9jb 的执行纠偏（0.4.8代码适配）
+
+- **先复用，后谈生成费用。** audit里的新估算按同SPU缺口并集与唯一approved来源区分：已有图绑定复用、真正新图、本地透明派生、来源歧义/审核中。imageGenerationRequestCount不再把透明图算作第五次付费，也不把SKU缺口当生图次数；estimateComplete=false时禁止拿数字报价，先读sourceIssues。历史snapshot缺来源可只读重盘，不删除原执行状态。
+- 已确认全任务可直接用hostHandoff里的原目录/Profile执行一次，由成熟代码内部做批次/槽位；不要为每个SPU新建目录串行重跑全店盘点、修复和标题核验。必要试点后仍回到同一冻结任务。绑定仍用原京麦CLI/API，不另造网页写入调度。binding-submitted只说明该类型受理，binding-readback说明正在核对；不等于审核通过，不要用head截断活命令。
+- **已有Key不是新费用授权。** 实际模型分支会从HEIDENG_MERCHANT_HOME的商家安全存储复用已记住Key；正常已批准生图无需因为入口差异再配置。没有Key时才走with_image_key.py安全输入，不显示解密值；同设备/同系统用户/同状态目录可复用，不能保证上游Key永不失效。
+- **驳回修复默认免费。** repair-rejected默认等同--no-paid-generation，只执行京麦免费路径和申诉准备，返回remainingTargets/remainingImageSlotCount与已受理回执，不靠故意清Key抛异常收尾。auto-maintain默认--no-paid-repairs；仅当本次额外修复费用范围已批准，宿主才传--paid-repairs，或独立repair-rejected --paid-generation。原AUTO_MAINTAIN确认仍需保持，不增加商家层重复问卷。
+- **商品本体字误驳回不是生图任务。** 白底/透明的“禁止出现文字信息”走原productTextAppeals清单，不擦字、不因这条理由重复付费重生。不能把修复分支的缺Key错误推断成“240个白底都必须付费”；具体剩余以repair-scope和remainingTargets为准。申诉清单生成≠已提交申诉。
+- 标题导入后单SPU平台回读已修正为同目标商品/SKU核验，不再与全店集合比较。工具结果仍须区分import-completed-awaiting-review和verified，不用上传数推断真实扣费或信息分已上涨。

@@ -38,7 +38,7 @@
     },
     "scripts/linker.py": {
       "upstreamSha256": "fcc261f757b6de8c3cfdfb76216d54a448777dbd2d37eac54dfdf3b6bb3e74e0",
-      "sha256": "a2ce0199cf0b9194d29aa8bcd7950d655c838f23e9a2ebae0ffcccbdad545014",
+      "sha256": "c5522c2f44e104393079d0f0665d2d65572c0be389304c93ba93106e5e501e20",
       "adapted": true
     },
     "scripts/browser_bridge.py": {

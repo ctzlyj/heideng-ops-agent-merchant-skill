@@ -395,6 +395,8 @@ def _cmd_ensure_shop(a, wait_timeout=None):
         return {"ok": True, "status": "ready", "reauthorized": True, **sl._public(profile, ident, entry), **out_base, 'stage': 'ready'}
     if st == "mismatch":
         return {"ok": False, "status": "mismatch", "profile": profile, "message": job.get("message"),
+                'expectedShopName':shop_name,'needsMerchantAction':True,
+                'nextAction':'请确认口述店名与当前官方店名是否为同店；未确认不登记，不复制Profile或修改授权证明。',
                 "actual": {"shopName": (job.get("identity") or {}).get("shopName", ""),
                            "venderId": (job.get("identity") or {}).get("venderId", "")}, **out_base}
     if waited.get('status') == 'awaiting_auth':

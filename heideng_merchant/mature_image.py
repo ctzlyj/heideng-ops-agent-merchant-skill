@@ -11,8 +11,12 @@ MODEL = 'gpt-image-2.5'
 
 def merchant_key():
     value = os.environ.get('HEIDENG_MERCHANT_LTS4AI_API_KEY', '').strip()
+    if not value and os.environ.get('HEIDENG_MERCHANT_HOME'):
+        # Only the isolated merchant namespace; never discover a personal/company secret store.
+        from .merchant_key_store import read_key
+        value=(read_key(Path(os.environ['HEIDENG_MERCHANT_HOME'])) or '').strip()
     if not value:
-        raise SafetyError('merchant-lts4ai-key-required')
+        raise SafetyError('merchant-lts4ai-key-required：实际生图需要商家自己的Key；请通过 scripts/with_image_key.py 安全配置，不粘贴到聊天。')
     return value
 
 class MerchantImageClient:

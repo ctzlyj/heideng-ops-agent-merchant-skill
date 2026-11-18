@@ -246,7 +246,7 @@ def capture_previous_version(state, target):
     from .distribution import _owned
     history = read_json(Path(state) / 'install-history.json', {})
     if not history.get('previous'): return None
-    backup = _owned(history['previous'], Path(target).absolute(), 'backup')
+    backup = _owned(history['previous'], Path(target).absolute(), 'backup', state)
     receipt = read_json(backup / RECEIPT, {})
     if receipt.get('skill') != SKILL_NAME: raise SafetyError('previous-update-receipt-invalid')
     snapshot = area(state) / 'versions' / (receipt['version'] + '-' + receipt['archiveSha256'][:16]) / SKILL_NAME
