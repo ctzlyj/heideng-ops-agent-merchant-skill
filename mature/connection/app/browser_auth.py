@@ -135,7 +135,8 @@ class BrowserAuthJob:
             if self.browser is None:
                 from browser_adapters import create_browser
                 self.browser = create_browser(self.browser_config)
-            self._stage('waiting_browser', '正在等待当前 Agent 接管任务浏览器，尚未打开扫码页面。')
+            builtin = self.browser_config.get('provider') == 'builtin'
+            self._stage('waiting_browser', '正在打开商家专用京麦登录页，请保持当前命令运行，不要手工发起OAuth。' if builtin else '正在等待当前 Agent 接管任务浏览器，尚未打开扫码页面。')
             self.browser.open_login(self.shop_name or self.expect_vender_id)
             self._stage('waiting_login', LOGIN_HINT)
             deadline = time.monotonic() + self.login_timeout

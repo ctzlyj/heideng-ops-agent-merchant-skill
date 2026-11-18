@@ -13,7 +13,7 @@
     },
     "app/browser_auth.py": {
       "upstreamSha256": "b8377e77716588c906337c1d3d7e4aca7e897d5fde3f9eb82c38c06ec938dbaa",
-      "sha256": "349fbc9cb8eb4c557fdfefb0fdf21cf5d389e524c29c193a331e059b18739624",
+      "sha256": "34defc9bc047edb9e33afb51a002a2b8693aa69d57be17937b6630b32e3ef93f",
       "adapted": true
     },
     "app/redaction.py": {
@@ -23,7 +23,7 @@
     },
     "app/server.py": {
       "upstreamSha256": "fdbe3a272f6ebfec99dff8340da787c830f2373944d870f6404d7878fdb7bcd8",
-      "sha256": "ed732cd017e5ce8cf5afeebd68a14979af951aca7c37faf4509024e963f048ce",
+      "sha256": "46829a1a370001391eacccbddb452b93aa6dfffc9dfd19f1cc4bd0b7fce84cda",
       "adapted": true
     },
     "app/shoplib.py": {
@@ -38,7 +38,7 @@
     },
     "scripts/linker.py": {
       "upstreamSha256": "fcc261f757b6de8c3cfdfb76216d54a448777dbd2d37eac54dfdf3b6bb3e74e0",
-      "sha256": "b5191e8f949306cfa21d9d9f3506ca4df1102245cde790c9df9c94390ecfbc31",
+      "sha256": "cdddef33b5801712a34805d62604bc51303f1c0984810c2d2d4fc122fb4ea20c",
       "adapted": true
     },
     "scripts/browser_bridge.py": {

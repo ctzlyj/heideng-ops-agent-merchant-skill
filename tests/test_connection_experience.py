@@ -46,6 +46,60 @@ class ConnectionExperienceTests(unittest.TestCase):
         self.assertIsNot(current,old);created.assert_called_once();old.resume.assert_not_called()
 
 
+    def test_default_builtin_auth_uses_owned_foreground_service_and_full_timeout(self):
+        cli=load('foreground_linker',SOURCE/'scripts/linker.py')
+        args=type('Args',(),{'shop':'fixture','profile':None,'no_auth':False,'no_open':False,'no_wait':False,'resume':False,'fresh':False,'browser_config':None,'timeout':600})()
+        with patch.object(cli,'ensure_embedded_server',create=True) as embedded,patch.object(cli,'close_embedded_server',create=True) as close,patch.object(cli,'_cmd_ensure_shop',create=True,return_value={'ok':True,'status':'ready'}) as run:
+            result=cli.cmd_ensure_shop(args)
+        self.assertEqual(result['status'],'ready');self.assertEqual(run.call_args.args[1],600)
+        close.assert_called_once()
+
+    def test_ready_shop_never_starts_foreground_connector(self):
+        cli=load('ready_foreground_linker',SOURCE/'scripts/linker.py')
+        args=type('Args',(),{'shop':'fixture','profile':None,'no_auth':False,'no_open':False,'no_wait':False,'resume':False,'fresh':False,'browser_config':None,'timeout':600})()
+        with patch.object(cli,'_env_blockers',return_value=None),patch.object(cli.sl,'resolve',return_value={'status':'ready','profile':'fixture-profile'}),patch.object(cli,'ensure_embedded_server',create=True) as embedded:
+            result=cli.cmd_ensure_shop(args)
+        self.assertEqual(result['status'],'ready');embedded.assert_not_called()
+
+
+    def test_embedded_server_starts_and_closes_inside_current_process(self):
+        import socket
+        cli=load('embedded_linker',SOURCE/'scripts/linker.py')
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+        old_port,old_base=cli.DEFAULT_PORT,cli.BASE
+        cli.DEFAULT_PORT=port;cli.BASE=f'http://127.0.0.1:{port}'
+        try:
+            self.assertTrue(hasattr(cli,'ensure_embedded_server'),'缺少当前命令持有的嵌入服务')
+            cli.ensure_embedded_server()
+            self.assertTrue(cli.server_info()['ok'])
+            self.assertIsNotNone(cli._EMBEDDED_HTTPD)
+        finally:
+            getattr(cli,'close_embedded_server',lambda:None)();cli.DEFAULT_PORT=old_port;cli.BASE=old_base
+        self.assertIsNone(cli._EMBEDDED_HTTPD)
+
+    def test_job_query_reports_lost_job_instead_of_raw_null(self):
+        cli=load('job_null_linker',SOURCE/'scripts/linker.py')
+        with patch.object(cli,'api',return_value=(200,{'ok':True,'job':None})):
+            result=cli.cmd_job(type('Args',(),{})())
+        self.assertFalse(result['ok']);self.assertEqual(result['status'],'job_lost')
+
+    def test_builtin_waiting_message_never_redirects_host_to_manual_oauth(self):
+        import browser_auth
+        browser=Mock();browser.observe.return_value={'loggedIn':False,'identity':{},'challenge':''};seen=[]
+        browser.open_login.side_effect=lambda _target:seen.append(job.message)
+        with patch.object(browser_auth.sl,'mark_auth_pending'):
+            job=browser_auth.BrowserAuthJob('fixture-profile','fixture',browser=browser,login_timeout=0)
+            job.run()
+        self.assertIn('保持当前命令',seen[0]);self.assertNotIn('接管',seen[0])
+
+    def test_default_ensure_shop_timeout_allows_merchant_login(self):
+        cli=load('timeout_linker',SOURCE/'scripts/linker.py')
+        with patch.object(cli,'cmd_ensure_shop',return_value={'ok':True,'status':'ready'}) as command,patch('builtins.print'),patch.object(sys,'argv',['linker.py','ensure-shop','--shop','fixture']):
+            cli.main()
+        self.assertEqual(command.call_args.args[0].timeout,600)
+
+
     def test_browser_idle_timeout_keeps_authorization_alive(self):
         import browser_adapters
         browser=browser_adapters.HostBrowser({'timeout':0.01,'poll':0.001})

@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -29,6 +30,8 @@ SERVER_PY = APP_DIR / "server.py"
 DEFAULT_PORT = int(os.environ.get('JINGMAI_LINKER_PORT') or 8765)
 BASE = f"http://127.0.0.1:{DEFAULT_PORT}"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+_EMBEDDED_HTTPD = None
+_EMBEDDED_THREAD = None
 
 
 def http_json(path: str, payload=None, token=None, timeout: int = 30):
@@ -80,7 +83,45 @@ def stop_stale_server() -> None:
         time.sleep(0.3)
 
 
+def ensure_embedded_server() -> bool:
+    """Own the connector lifetime in the current foreground command, not the host's child reaper."""
+    global _EMBEDDED_HTTPD, _EMBEDDED_THREAD
+    if _EMBEDDED_HTTPD is not None:
+        return False
+    info = server_info()
+    if info:
+        status, current = http_json('/api/job', token=get_token())
+        job = current.get('job') if status == 200 else None
+        if job and job.get('status') in ('starting', 'waiting', 'verifying'):
+            return False  # Resume the exact live task; never replace its service.
+        stop_stale_server()
+    import server
+    httpd = server.create_httpd(DEFAULT_PORT)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True, name='merchant-embedded-connector')
+    _EMBEDDED_HTTPD, _EMBEDDED_THREAD = httpd, thread
+    thread.start()
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        if server_info():
+            return True
+        time.sleep(0.1)
+    close_embedded_server()
+    raise RuntimeError('前台连接服务启动超时，未发起授权。')
+
+
+def close_embedded_server() -> None:
+    global _EMBEDDED_HTTPD, _EMBEDDED_THREAD
+    httpd, thread = _EMBEDDED_HTTPD, _EMBEDDED_THREAD
+    _EMBEDDED_HTTPD = _EMBEDDED_THREAD = None
+    if httpd is not None:
+        httpd.shutdown();httpd.server_close()
+    if thread is not None:
+        thread.join(timeout=5)
+
+
 def ensure_server() -> bool:
+    if _EMBEDDED_HTTPD is not None:
+        return False
     info = server_info()
     if info and info.get("version") == expected_version() and (
             not info.get('appDir') or Path(info['appDir']).resolve() == APP_DIR.resolve()):
@@ -133,7 +174,11 @@ def cmd_state(_a):
 
 
 def cmd_job(_a):
-    return _unwrap(*api("/api/job"))
+    result = _unwrap(*api("/api/job"))
+    if result.get('ok') and not result.get('job'):
+        return {'ok': False, 'status': 'job_lost', 'errorKind': 'job_lost',
+                'error': '连接服务中的原任务已丢失；请用同店 ensure-shop 恢复，不要手工重发 OAuth。'}
+    return result
 
 
 def cmd_cancel(_a):
@@ -244,7 +289,7 @@ def remember_shop(profile, query, shop_name, ident, shortcut_path=""):
     sl.save_registry(reg)
 
 
-def cmd_ensure_shop(a):
+def _cmd_ensure_shop(a, wait_timeout=None):
     blocker = _env_blockers()
     if blocker:
         return blocker
@@ -264,6 +309,8 @@ def cmd_ensure_shop(a):
     vender_id = res.get("venderId") or (q if q.isdigit() else "")
     if not shop_name and not vender_id:
         return {"ok": False, "status": "error", "error": "无法确定店铺名称或 venderId"}
+    if wait_timeout is not None:
+        ensure_embedded_server()
     pending=sl.load_pending()
     same_pending=(pending.get('shopName')==shop_name or pending.get('venderId')==vender_id) and pending.get('profile')==profile
     resume=bool(getattr(a,'resume',False)) or (same_pending and not getattr(a,'fresh',False))
@@ -297,7 +344,7 @@ def cmd_ensure_shop(a):
                      'venderId': vender_id})
     if a.no_wait:
         return {'ok': True, 'status': 'awaiting_auth', 'message': (started.get('job') or {}).get('message', ''), **out_base}
-    waited = wait_job(min(a.timeout, 3), interval=0.5, job_id=started.get('jobId', ''), profile=profile,
+    waited = wait_job(wait_timeout if wait_timeout is not None else min(a.timeout, 3), interval=0.5, job_id=started.get('jobId', ''), profile=profile,
                        vender_id=vender_id, shop_name=shop_name)
     job = waited.get("job") or {}
     st = job.get("status")
@@ -321,6 +368,17 @@ def cmd_ensure_shop(a):
     hint = sl.permission_hint() if job.get("errorKind") == "permission" else ""
     return {"ok": False, "status": "error", "errorKind": waited.get('errorKind') or job.get("errorKind") or "timeout",
             "error": job.get("message") or waited.get("error"), "hint": hint, **out_base}
+
+
+def cmd_ensure_shop(a):
+    foreground = (not getattr(a, 'no_wait', False) and not getattr(a, 'no_open', False) and not getattr(a, 'browser_config', None)
+                  and os.environ.get('HEIDENG_BACKGROUND') != '1' and os.environ.get('JINGMAI_LINKER_BACKGROUND') != '1')
+    if not foreground:
+        return _cmd_ensure_shop(a)
+    try:
+        return _cmd_ensure_shop(a, getattr(a, 'timeout', 600))
+    finally:
+        close_embedded_server()
 
 
 def cmd_audit(a):
@@ -366,7 +424,7 @@ def main() -> int:
     p = sub.add_parser("ensure-shop", help="解析→可用即返回→否则授权→核验→登记")
     p.add_argument("--shop", required=True, help="店名、简称或明确 venderId；不把 shopId 当 venderId")
     p.add_argument("--profile", help="新店用的 Profile 名（默认自动生成）")
-    p.add_argument("--timeout", type=int, default=3)
+    p.add_argument("--timeout", type=int, default=600)
     p.add_argument("--no-auth", action="store_true", help="只解析，未授权也不发起授权")
     p.add_argument("--no-open", action="store_true", help="暂不打开页面，返回等待浏览器状态")
     p.add_argument("--no-wait", action="store_true", help="立即返回任务与阶段，由 Agent 短轮询")

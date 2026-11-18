@@ -53,3 +53,12 @@
 - 返回中的 `browserChannel` 是实际通道，`browserSelectionReason=system-default-https` 表示跟随系统默认浏览器，`reused-shop-session` 表示复用同店隔离会话。Edge/Chrome 不是串号依据；商家登录方式始终由本人选择。
 - `/api/job` 丢失会明确返回 `job_lost`，同店再次 `ensure-shop` 默认恢复；已取消任务新建同店 worker，不假装原线程仍存活。多店会话目录和 Profile 不混用。
 - 控制器 `--help` / `--describe-contract` 不需要商家状态目录。Key 的 Tk 回退页会输出不含 session/CSRF 的本机根地址；不得把带令牌的输入 URL、Key 或 Cookie 写入日志/回复。
+
+## 0.4.6 授权进程生命周期（必须遵守）
+
+- 新店默认只执行 `run connection -- ensure-shop --shop <目标> --timeout 600`。builtin 在**当前命令进程内**运行既有连接服务并等待完整授权窗口；`waiting_browser` 是内置控制器正在打开页面，不是让宿主接管。
+- 不要在这条默认路径里另跑 `jdo-cli login --no-browser`、手工拼 OAuth URL、`Start-Process msedge/chrome`、用 `present_files` 展示链接，或让商家复制链接。上述绕法曾直接造成窗口不可见和商家放弃授权。
+- 商家仍在隔离的京麦登录页自行选择密码/短信/扫码；登录后由原 BrowserAuthJob 导航官方 OAuth、处理当前范围确认并实时核店。日常浏览器 Cookie 不复制，宿主内嵌面板不可操作时不得假称已代点。
+- 老店 ready 在只读解析阶段直接返回，不启动嵌入服务。需要新授权才启动；显式 `--no-wait`、自带 HostBrowser/`--browser-config` 保留原高级路径，但宿主必须真正拥有并持续驱动该会话。
+- `job` 或 `wait` 返回 `job_lost` 表示原服务任务已经不在，不能继续声称“窗口开着/任务活着”。同店再次 `ensure-shop` 默认恢复；禁止改成手工 OAuth 或跨店新任务。
+- 黑色控制台、外部窗口是否可见属于真实宿主/Windows 会话证据，未实机看到窗口前不得汇报“已打开”。前台生命周期修复不代替真实商家可见性验收。

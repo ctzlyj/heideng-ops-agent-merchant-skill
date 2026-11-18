@@ -714,6 +714,17 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "path": str(path)})
 
 
+def create_httpd(port=DEFAULT_PORT, host='127.0.0.1'):
+    if host != '127.0.0.1':
+        raise ValueError('服务只允许监听 127.0.0.1')
+    Handler.session_token = secrets.token_urlsafe(24)
+    Handler.manager = Manager()
+    Handler.port = port
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd.daemon_threads = True
+    return httpd
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="京麦 CLI 店铺连接器")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -723,11 +734,7 @@ def main() -> int:
     if args.host != '127.0.0.1':
         parser.error('服务只允许监听 127.0.0.1')
 
-    Handler.session_token = secrets.token_urlsafe(24)
-    Handler.manager = Manager()
-    Handler.port = args.port
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    httpd.daemon_threads = True
+    httpd = create_httpd(args.port, args.host)
     url = f"http://127.0.0.1:{args.port}/"
     if not args.no_clipboard:
         try:
