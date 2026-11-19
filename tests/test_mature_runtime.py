@@ -66,8 +66,10 @@ class MatureRuntimeTests(unittest.TestCase):
         from unittest.mock import patch
         from heideng_merchant.merchant_key_ui import with_key
         ran = []
-        with patch('heideng_merchant.merchant_key_ui.prompt_key', return_value=None):
-            self.assertEqual(with_key(lambda: ran.append('business')), 2)
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True), patch(
+                'heideng_merchant.merchant_key_ui.read_key', return_value=None), patch(
+                'heideng_merchant.merchant_key_ui.prompt_key', return_value=None):
+            self.assertEqual(with_key(lambda: ran.append('business'), state=Path(directory)), 2)
         self.assertEqual(ran, [])
 
     def test_key_wrapper_restores_environment_after_child(self):
