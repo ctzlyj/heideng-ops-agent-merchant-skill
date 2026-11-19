@@ -326,17 +326,20 @@ class LoginJob:
             return
         # Persist only a boolean plus target identity, before network verification.
         # Neither the credential account nor tokens are stored in our proof file.
-        if self.expect_vender_id:
-            account = str(data.get('tokenCredentialAccount') or '')
-            if not account.endswith(':' + self.expect_vender_id):
-                sl.mark_auth_rejected(self.profile)
-                self._fail('官方凭据槽未证明属于本任务，未登记。', 'credential_isolation')
-                return
-            try:
-                sl.mark_auth_slot(self.profile, self.expect_vender_id)
-            except sl.VerifyError as exc:
-                self._fail(exc.message, exc.kind)
-                return
+        if not self._owned_login_receipt(data):
+            self._fail('官方授权回执不属于本任务Profile/目录，未登记。','credential_isolation')
+            return
+        slot=str(data.get('tokenCredentialAccount') or '').rsplit(':',1)[-1]
+        if slot!='default' and (not slot.isdigit() or self.expect_vender_id and slot!=self.expect_vender_id):
+            sl.mark_auth_rejected(self.profile)
+            self._fail('官方凭据槽未证明属于本任务，未登记。','credential_isolation')
+            return
+        try:
+            sl.mark_auth_native_completed(self.profile,getattr(self,'proof_job_id',self.id),self.id)
+            if slot.isdigit():sl.mark_auth_slot(self.profile,slot)
+        except sl.VerifyError as exc:
+            self._fail(exc.message,exc.kind)
+            return
         if self.status in ("cancelled", "failed"):
             return
         self.status = "verifying"
@@ -402,21 +405,50 @@ class LoginJob:
             reg["profiles"].pop(self.profile, None)
             sl.save_registry(reg)
 
+    def _owned_login_receipt(self, data):
+        account=str(data.get('tokenCredentialAccount') or '')
+        def owned_home(value):
+            return isinstance(value,str) and bool(value) and os.path.normcase(str(Path(value).resolve()))==os.path.normcase(str(sl.jdo_home().resolve()))
+        if data.get('profile')!=self.profile or len(account.split(':'))<3 or account.split(':')[-2]!=self.profile:return False
+        if 'home' in data and not owned_home(data['home']):return False
+        flags={'loginCompleted':True,'tokenStored':True,'tokenMocked':False}
+        if any(k in data and data[k] is not value for k,value in flags.items()):return False
+        if owned_home(data.get('home')) and all(k in data for k in flags):return True
+        # Native output formats vary. Missing fields are not proof: attest via the same owned CLI's
+        # read-only metadata, never a global Profile or a hand-edited proof/receipt.
+        if data.get('ok') is not True:return False
+        try:
+            code,out=sl.run_jdo(['status','--profile',self.profile],timeout=15)
+            status=sl.extract_json(out)
+        except Exception:return False
+        return (code==0 and isinstance(status,dict) and status.get('ok') is True and status.get('profile')==self.profile
+                and owned_home(status.get('home')) and status.get('tokenCredentialAccount')==account
+                and status.get('oauthTokenStored') is True and status.get('oauthTokenMocked') is False)
+
     def _apply_identity(self, identity: dict, login_data: dict):
         path = self._profiles_path / f"{self.profile}.json"
         data = sl.read_json(path, {}) or {}
         vender_id = str(identity.get("venderId") or "")
         account = str(login_data.get("tokenCredentialAccount") or "")
-        if not vender_id or not account.endswith(":" + vender_id):
+        if not vender_id.isdigit() or not self._owned_login_receipt(login_data) or self.check_expected(identity):
             sl.mark_auth_rejected(self.profile)
-            raise CredentialIsolationError("官方凭据槽未证明属于目标 venderId，未迁移、未登记；请保留当前结果供核验。")
+            raise CredentialIsolationError('官方回执、Profile或核店不符，未迁移、未登记。')
+        if account.endswith(':default'):
+            destination=account.rsplit(':',1)[0]+':'+vender_id
+            if not copy_credential(account,destination,delete_old=False):
+                raise CredentialIsolationError('本任务默认槽定位未完成，保留原Profile/回执，不重发授权。')
+        elif not account.endswith(':'+vender_id):
+            sl.mark_auth_rejected(self.profile)
+            raise CredentialIsolationError('官方凭据槽与实时核店不符，未迁移。')
+        sl.mark_auth_slot(self.profile,vender_id)  # Location is proved; later network failure must not erase it.
         data["vender_id"] = vender_id
         data["shop_name"] = identity.get("shopName") or data.get("shop_name") or self.shop_name
         data["updated_at"] = int(time.time() * 1000)
         sl.write_json(path, data)
         # 迁移后再核验一次，确保凭据真的可用
         verified = sl.verify_profile(self.profile)
-        if self.check_expected(verified):
+        if str(verified.get('venderId') or '')!=vender_id or verified.get('shopName')!=identity.get('shopName') or self.check_expected(verified):
+            sl.mark_auth_rejected(self.profile)
             raise RuntimeError("凭据定位后店铺身份发生变化，未登记。")
         if not self.defer_registry:
             sl.update_registry(self.profile, verified)
@@ -455,6 +487,29 @@ class LoginJob:
 
 
 ACTIVE = ("starting", "waiting", "verifying")
+
+
+def recover_owned_auth_slot(profile, job_id):
+    try:
+        sl.require_auth_slot(profile,required=True)
+        return False  # Already located; normal live identity verification remains the caller's job.
+    except sl.VerifyError:pass
+    proof=sl._proof_data()['profiles'].get(profile) or {}
+    if (proof.get('status')=='rejected' or proof.get('jobId')!=job_id or proof.get('nativeCompleted') is not True
+            or not proof.get('nativeJobId') or not (sl.profiles_dir()/f'{profile}.json').is_file()):return False
+    # Only a recorded original native completion may be located after network recovery; no new OAuth.
+    try:
+        code,out=sl.run_jdo(['status','--profile',profile],timeout=15)
+        metadata=sl.extract_json(out)
+        if code or not isinstance(metadata,dict):raise CredentialIsolationError('原官方凭据元数据未核实。')
+        login=LoginJob(profile,proof.get('shopName') or '',proof.get('venderId') or '',defer_registry=True)
+        if not login._owned_login_receipt(metadata):raise CredentialIsolationError('原官方凭据元数据不属于本任务。')
+        identity=sl.verify_profile(profile)
+        login._apply_identity(identity,metadata)
+    except sl.VerifyError:raise
+    except Exception:
+        raise sl.VerifyError('credential_isolation','原完成回执尚未安全定位；保留原任务，未重发OAuth。') from None
+    return True
 
 
 class Manager:

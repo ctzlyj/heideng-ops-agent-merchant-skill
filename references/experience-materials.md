@@ -73,3 +73,16 @@ jd-material-pop-skill 2026.11.207 / b56b223；[导入说明](../mature/materials
 - **驳回修复默认免费。** repair-rejected默认等同--no-paid-generation，只执行京麦免费路径和申诉准备，返回remainingTargets/remainingImageSlotCount与已受理回执，不靠故意清Key抛异常收尾。auto-maintain默认--no-paid-repairs；仅当本次额外修复费用范围已批准，宿主才传--paid-repairs，或独立repair-rejected --paid-generation。原AUTO_MAINTAIN确认仍需保持，不增加商家层重复问卷。
 - **商品本体字误驳回不是生图任务。** 白底/透明的“禁止出现文字信息”走原productTextAppeals清单，不擦字、不因这条理由重复付费重生。不能把修复分支的缺Key错误推断成“240个白底都必须付费”；具体剩余以repair-scope和remainingTargets为准。申诉清单生成≠已提交申诉。
 - 标题导入后单SPU平台回读已修正为同目标商品/SKU核验，不再与全店集合比较。工具结果仍须区分import-completed-awaiting-review和verified，不用上传数推断真实扣费或信息分已上涨。
+
+
+## 0.4.9：保留原卖点、驳回范围与可读回查
+
+- **不重写已有合格卖点。** 同店盘点取得的、同 SPU 唯一平台 approved 三条原值，带原来源快照原样复用，不因本地商业词表否决旧值；只是“已有”但未证明通过的草稿、冲突来源或新宿主文本仍走原校验。不得自造 `selling_points_origin` 来绕过新文本校验。1002 文本局部失败不阻断有效图片绑定；原未知/已提交的文本回执仍必须先核对。
+- `audit` 默认只输出计数、估算完整性和 `resultFile/report`，完整槽位/来源问题留在原 JSON；确需全部字段时用 `audit --detail`。宿主直接解析该命令 JSON 或读取原文件，不做逐字符倒序切片找 `}`，不把 `tail/head/grep` 截断的数据当成完整结果。多店任务由宿主按原已连接身份逐店读取，不另造业务调度引擎。
+- **付费维修显式限定类型。** 宿主根据商家已批准目标传可重复的 `--repair-kind white|transparent|scene1|scene2|selling`，只选实际 rejected 槽位；独立入口用 `--paid-generation`，auto 用 `--paid-repairs`。这些是宿主传参，不要求商家学习命令或重复批准同一范围。缺类型时返回 `repair-scope-required`，模型未调用。默认仍免费。
+- 同原目录的 SKU 子集、`--exclude-spu-id`、`--exclude-binding`、类型过滤可单调缩小冻结范围，不能重新扩大。原共享请求/回执不改，恢复只读核对原请求，返回当前有效子集；未请求/未驳回的场景、卖点等不加入本次维修。
+- 新付费图片前再次读当前槽位。approved/pending 直接保留，不生图、不重绑；缺失、URL 已改变、来源不唯一或新增商品文字驳回则跳过并说明需只读核对/原申诉。上传后、绑定前仍保留原第二次槽位核对。原共享未知绑定先对账，不重发。
+- 可用 `repair-rejected --max-model-requests N`，或 auto 的 `--max-repair-model-requests N` 限定**本次调用**剩余已批准图片请求额度（含质量重试与显式合法图片适配器）。N=0 不请求新图但可复用收到的响应/回执；未指定不代表无限费用授权。再次调用时由宿主依据原记录传剩余额度；它不是金额报价、总预算账本或终身上限。
+- 每个付费维修响应保留同目录 `.request.json` 与收到的图片字节：received 按哈希复用；intent/unknown 或响应丢失不再次付费，不切换供应商猜重试。更换参考图也不能绕过同 SKU/同派生槽位的原未知请求；其它无关槽位仍按原范围处理。现有图片接口失败不保证没有扣费，缺少可查任务身份时须核对原服务记录，不能自动找回未知成品。已判定不合格的本地候选在有界质量重试前移除，避免中断后误上传。
+- 输出分别报告候选修复素材组 `assetGroupCount`、失败组 `failedAssetGroupCount`、已提交回执覆盖的 SKU 槽位 `submittedSkuSlotCount`、当前槽位复用 `liveReusedSkuSlotCount`、本次模型请求尝试 `modelRequestAttemptCount`。已提交槽位包含原回执复用，不等于本次新增绑定数；模型尝试也不等于最终扣费。不能仅以不变的 totalCount 断言没有发模型请求，不能把“6 个待审 SKU 槽位 + 2 个失败组”说成“8 张图片”。
+- 质量门禁原值 `cropped-edge/too-small/blurry` 会保留在完整结果，宿主据实际原因检查可靠 SKU 主图/参考图，不把笼统报错都称模糊。通用和实际生图提示词仍不改；商品本体文字误驳回走原申诉，不擦字、不加重试费。

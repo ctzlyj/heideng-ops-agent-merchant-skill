@@ -4,7 +4,7 @@ Only page/session operations live here; shop identity, OAuth and authorization r
 in the mature connector. No cookie/storage/history/credential is read or exported.
 """
 from __future__ import annotations
-import json, os, secrets, sys, uuid
+import json, os, secrets, sys, uuid, time
 from pathlib import Path
 from urllib.parse import urlsplit
 from .state import FileLock
@@ -32,10 +32,10 @@ def _identity(page):
     """Read only public identity DOM, never cookies or authorization codes."""
     for script in (
         """() => {let e=document.querySelector('#shop-base-name, .shop-menu-accountV1__right-account-top-name, [data-shop-name]');return e&&e.innerText}""",
-        r"""() => {let t=document.body.innerText;let m=t.match(/(?:店铺名称|当前店铺|店铺)[:：\s]*([^\n]{2,80})/);return m&&m[1]}"""):
+        r"""() => {let t=document.body.innerText;let m=t.match(/(?:店铺名称|当前店铺)[:：]\s*([^\n]{2,80})/);return m&&m[1]}"""):
         try:
             name=page.evaluate(script)
-            if isinstance(name,str) and 1<len(name.strip())<80 and name.strip() not in ('京东-欢迎登录','京麦工作台-京东商家一站式工作台') and not any(x in name for x in ('密码登录','短信登录','立即登录','开店')):return {'shopName':name.strip()}
+            if isinstance(name,str) and 1<len(name.strip())<80 and name.strip() not in ('京东-欢迎登录','京麦工作台-京东商家一站式工作台','客服','店铺','首页','消息','全部') and not any(x in name for x in ('密码登录','短信登录','立即登录','开店')):return {'shopName':name.strip()}
         except Exception:pass
     return {}
 
@@ -51,7 +51,7 @@ class HostConnectionController:
         self._state_path=self.root/'session.json'
         self._state=None
         self._playwright=None;self.context=None;self.page=None;self.context_id=None;self.channel=None;self.profile=None;self.oauth_confirm_handled=False
-        self.owned_pages=[];self.oauth_identity=None;self.channel_reason=''
+        self.owned_pages=[];self.oauth_identity=None;self.channel_reason='';self._workspace_probe=None;self._next_probe=0
 
     def describe_contract(self):return _public(None)
 
@@ -122,9 +122,47 @@ class HostConnectionController:
         url=self.page.url;host=(urlsplit(url).hostname or '').lower()
         if host=='aq.jd.com' and urlsplit(url).path.startswith('/certified'):
             return self._result({'loggedIn':False,'identity':{},'challenge':'account-risk-blocked','requiresUserAction':'请在京东商城 App 完成账号安全验证，再回到当前页面继续。'})
-        host=(urlsplit(url).hostname or '').lower()
-        identity=_identity(self.page) if host not in {'passport.shop.jd.com','passport.jd.com'} else {}
-        return self._result({'loggedIn':bool(identity),'identity':identity,'challenge':''})
+        # Do not replace the current pending OAuth page with an unrelated workspace tab.
+        if host in {'passport.jd.com','open-oauth.jd.com'} and self.oauth_identity:
+            return self._result({'loggedIn':True,'identity':self.oauth_identity,'challenge':''})
+        pages=getattr(self.context,'pages',[])
+        candidates=[self.page,*reversed(pages if isinstance(pages,(list,tuple)) else [])]
+        for page in candidates:
+            if page.is_closed():continue
+            parsed=urlsplit(page.url)
+            if not _trusted_shop_page(page.url) or parsed.hostname=='passport.shop.jd.com':continue
+            identity=_identity(page)
+            if identity:
+                self.page=page;page.bring_to_front()
+                return self._result({'loggedIn':True,'identity':identity,'challenge':''})
+        # Only an owned session probe; no storage/History read and no refresh of the merchant's login page.
+        if host=='passport.shop.jd.com' and time.monotonic()>=self._next_probe:
+            self._next_probe=time.monotonic()+5
+            if self._workspace_probe is None or self._workspace_probe.is_closed():
+                self._workspace_probe=self.context.new_page();self.owned_pages.append(self._workspace_probe)
+                self.page.bring_to_front()
+            probe=self._workspace_probe
+            if (urlsplit(probe.url).hostname or '')=='aq.jd.com':
+                return self._result({'loggedIn':False,'identity':{},'challenge':'account-risk-blocked'})
+            # A workspace that is still rendering must not be reloaded every five seconds.
+            if _trusted_shop_page(probe.url) and urlsplit(probe.url).hostname!='passport.shop.jd.com':
+                return self._result({'loggedIn':False,'identity':{},'challenge':''})
+            try:
+                probe.goto('https://shop.jd.com/jdm/home',wait_until='domcontentloaded',timeout=10000)
+                if urlsplit(probe.url).hostname=='aq.jd.com':
+                    self.page=probe;probe.bring_to_front()
+                    return self._result({'loggedIn':False,'identity':{},'challenge':'account-risk-blocked'})
+                if _trusted_shop_page(probe.url) and urlsplit(probe.url).hostname!='passport.shop.jd.com':
+                    identity=_identity(probe)
+                    if identity:
+                        self.page=probe;probe.bring_to_front()
+                        return self._result({'loggedIn':True,'identity':identity,'challenge':''})
+            except Exception:
+                # An optional probe failing is not a failed login or permission to create another session.
+                return self._result({'loggedIn':False,'identity':{},'challenge':'','probeStatus':'temporarily-unavailable'})
+            finally:
+                if self.page is not probe and not self.page.is_closed():self.page.bring_to_front()
+        return self._result({'loggedIn':False,'identity':{},'challenge':''})
 
     def _open_oauth(self,action):
         self._launch()

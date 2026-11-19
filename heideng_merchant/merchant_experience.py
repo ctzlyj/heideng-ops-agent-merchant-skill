@@ -84,7 +84,10 @@ def task_summary(payload):
             'submitted':'可以离开；从原任务核对平台结果，不重复提交。',
             'prepared':'沿用本次计划与输入，由Agent继续已授权范围；新费用另行确认。',
             'completed':'查看交付结果。'}[phase]
-    needs=phase in ('needs-agent-action','needs-reconciliation')
+    if phase=='needs-merchant-action' and value.get('manualAppealRequired'):
+        message='原申诉清单已生成但尚未提交；请按审核原因处理，不重复付费生图。'
+        action='按原审核原因处理申诉；Agent继续核对其余剩余项，不重复提交或扩大付费范围。'
+    needs=phase in ('needs-agent-action','needs-reconciliation') or _count(value.get('remainingImageSlotCount'))>0
     return {'phase':phase,'message':message,'nextAction':action,'completed':phase=='completed','canLeave':True,
             'completedCount':completed,'totalCount':total,'pendingReviewCount':pending,'failedCount':failed,
             'needsUserAction':merchant_action,'needsAgentAction':needs,'needsMerchantAction':merchant_action,

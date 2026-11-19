@@ -282,6 +282,15 @@ def mark_auth_pending(profile, job_id, vender_id='', shop_name=''):
         write_json(linker_home() / 'authorization-proof.json', data)
 
 
+def mark_auth_native_completed(profile, job_id, native_job_id):
+    with _proof_lock():
+        data=_proof_data();proof=data['profiles'].get(profile)
+        if not proof or proof.get('jobId')!=job_id or proof.get('status')=='rejected':
+            raise VerifyError('credential_isolation','官方完成回执不属于当前连接任务，未登记。')
+        proof.update(nativeCompleted=True,nativeJobId=str(native_job_id))
+        write_json(linker_home()/'authorization-proof.json',data)
+
+
 def mark_auth_slot(profile, vender_id):
     with _proof_lock():
         data = _proof_data()
@@ -524,6 +533,7 @@ def build_view(reg=None) -> dict:
     reg = reg if reg is not None else load_registry()
     disk = set(list_disk_profiles())
     view = {}
+    proofs=_proof_data().get('profiles',{})
     for name, meta in (reg.get("profiles") or {}).items():
         e = dict(meta)
         e["hasProfile"] = name in disk
@@ -537,6 +547,7 @@ def build_view(reg=None) -> dict:
             e["shopName"] = local["shop_name"]
         if not e.get("venderId") and local.get("vender_id"):
             e["venderId"] = str(local["vender_id"])
+    for name,e in view.items():e['authRejected']=proofs.get(name,{}).get('status')=='rejected'
     return view
 
 
@@ -562,6 +573,7 @@ def match_groups(view: dict, query: str):
     exact = {}
     loose = {}
     for name, e in view.items():
+        if e.get('authRejected'):continue
         if is_id:
             if q in (str(e.get("venderId") or ""), str(e.get("shopId") or "")):
                 exact[name] = e
@@ -585,6 +597,7 @@ def match_groups(view: dict, query: str):
     # 把同店铺的其他 Profile（同 venderId）也并入分组，便于备选
     for g in groups.values():
         for name, e in view.items():
+            if e.get('authRejected'):continue
             if name not in g["profiles"] and _group_key(name, e) == g["key"]:
                 g["profiles"].append(name)
             elif e.get("aliasOf") in g["profiles"] and name not in g["profiles"]:
@@ -673,7 +686,7 @@ def resolve(query: str, verify=verify_profile, live_scan: bool = True) -> dict:
     view = build_view()
     groups = match_groups(view, q)
     if not groups and live_scan:
-        names = [n for n in view if view[n].get("hasProfile") and not view[n].get("aliasOf")]
+        names = [n for n in view if view[n].get("hasProfile") and not view[n].get("aliasOf") and not view[n].get('authRejected')]
         record_scan(scan_profiles(names, verify))
         view = build_view()
         groups = match_groups(view, q)

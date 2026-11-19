@@ -142,7 +142,11 @@ class BrowserAuthJob:
 
     def _verify_and_commit(self):
         self._stage('verifying_cli', '正在实时核验这家店的 CLI 连接。', 'verifying')
-        sl.require_auth_slot(self.profile, required=True)
+        try:sl.require_auth_slot(self.profile,required=True)
+        except sl.VerifyError:
+            from server import recover_owned_auth_slot
+            recover_owned_auth_slot(self.profile,self.id)
+            sl.require_auth_slot(self.profile,required=True)
         identity = sl.verify_profile(self.profile)
         if not self._matches(identity):
             sl.mark_auth_rejected(self.profile)
@@ -216,6 +220,7 @@ class BrowserAuthJob:
             self._stage('waiting_oauth', '网页登录已确认，正在自动连接官方 CLI。')
             self.login = self.login_factory(self.profile, self.shop_name, self.expect_vender_id,
                                             defer_registry=True, timeout=max(1,int(self.phase_deadline(self.oauth_timeout)-time.monotonic())))
+            self.login.proof_job_id=self.id
             self.login.start()
             if self._cancelled.is_set() or self._shutdown_requested.is_set():
                 self.login.cancel()
@@ -287,7 +292,6 @@ class BrowserAuthJob:
             if getattr(self.login, 'error_kind', '') == 'credential_isolation':
                 return
             try:
-                sl.require_auth_slot(self.profile, required=True)
                 self._verify_and_commit()
                 self._resume_event.set()  # Let the original worker close only its resources.
                 return

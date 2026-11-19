@@ -116,8 +116,11 @@ def close_embedded_server() -> None:
     if httpd is not None:
         job=httpd.RequestHandlerClass.manager.current()
         if job is not None:
-            if not job.shutdown():raise RuntimeError('本任务资源收尾未完成；不能声明已退出或重新授权。')
-            snapshot=job.to_dict()
+            cleanup=job.shutdown()
+            worker=getattr(job,'_worker_thread',None)
+            if not cleanup and (job.status!='success' or worker is None or worker.is_alive()):
+                raise RuntimeError('本任务资源收尾未完成；不能声明已退出或重新授权。')
+            snapshot={**job.to_dict(),'cleanupComplete':cleanup}
         httpd.shutdown();httpd.server_close()
     _EMBEDDED_HTTPD = _EMBEDDED_THREAD = None
     if thread is not None:
@@ -336,7 +339,11 @@ def _cmd_ensure_shop(a, wait_timeout=None):
     if same_pending and pending.get('processRunning') is False and pending.get('outcome')=='callback_unknown':
         original=pending.get('profile')
         try:
-            sl.require_auth_slot(original,required=True)
+            try:sl.require_auth_slot(original,required=True)
+            except sl.VerifyError:
+                from server import recover_owned_auth_slot
+                recover_owned_auth_slot(original,pending.get('jobId'))
+                sl.require_auth_slot(original,required=True)
             identity=sl.verify_profile(original)
             sl.assert_profile_proof(original,identity)
             if (vender_id and identity.get('venderId')!=vender_id) or (shop_name and not sl.name_matches(shop_name,[identity.get('shopName','')])):
@@ -419,10 +426,13 @@ def cmd_ensure_shop(a):
         result={'ok':False,'status':'awaiting_auth','message':'用户结束等待，正在核对并收尾原任务。'}
     finally:
         snapshot=close_embedded_server()
+    if snapshot and result:
+        result['resourceCleanup']='completed' if snapshot.get('cleanupComplete',True) else 'pending'
     if snapshot and result and result.get('status') not in ('ready','mismatch'):
         if snapshot.get('status')=='success':
             return {'ok':True,'status':'ready','profile':snapshot['profile'],'identity':snapshot.get('identity'),
-                    'processRunning':False,'reconciledOriginal':True,'retryAllowed':False}
+                    'processRunning':False,'reconciledOriginal':True,'retryAllowed':False,
+                    'resourceCleanup':result['resourceCleanup']}
         ended='paused' if snapshot.get('stage')=='paused' else snapshot.get('status','failed')
         result.update(ok=False,status=ended,profile=snapshot.get('profile'),jobId=snapshot.get('id'),stage=snapshot.get('stage'),errorKind=snapshot.get('errorKind'),
                       processRunning=False,canLeave=True,retryAllowed=False,

@@ -681,6 +681,15 @@ def _binding_material(material_type: int, order: int, value: str, sku_id: str) -
         material['imageMaterial'] = {'imgType': 1, 'replaceType': 1, 'skuImages': [{'index': 1, 'imgUrl': _jfs_path(value)}]}
     return material
 
+def binding_selling_points(spu_id, points, item):
+    origin=item.get('selling_points_origin') or {}
+    if (origin.get('source')=='platform-approved' and str(origin.get('spuId'))==str(spu_id)
+            and origin.get('values')==list(points) and item.get('selling_points')==list(points)
+            and len(points)==3 and all(isinstance(p,str) and p and len(p)<=4096 and not any(c in p for c in ('\x00','\r','\n')) for p in points)):
+        return list(points)  # Exactly the frozen approved values; not a bypass for new host text.
+    return validate_selling_points(points)
+
+
 def build_material_binding_requests(job: SpuJob, state_item: dict[str, Any]) -> list[dict[str, Any]]:
     uploaded = state_item.get('uploaded_urls') or {}
     specifications: list[tuple[int, list[tuple[int, str]]]] = []
@@ -693,7 +702,7 @@ def build_material_binding_requests(job: SpuJob, state_item: dict[str, Any]) -> 
     if job.needs_transparent:
         specifications.append((36, [(1, cell_text(uploaded.get('transparent')))]))
     if job.needs_selling_points:
-        points = validate_selling_points(state_item.get('selling_points') or [])
+        points = binding_selling_points(job.spu_id,state_item.get('selling_points') or [],state_item)
         specifications.append((1002, list(enumerate(points, 1))))
     requests = []
     for material_type, ordered_values in specifications:
@@ -874,6 +883,7 @@ def inspect_unscored_materials(client: Any, sku_rows: list[dict[str, Any]]) -> t
             points.append(next(iter(values)))
         if points:
             state['selling_points'] = points
+            state['selling_points_origin']={'source':'platform-approved','spuId':spu_id,'values':list(points)}
         missing_by_spu[spu_id] = missing
         existing_by_spu[spu_id] = state
     return (missing_by_spu, existing_by_spu)
@@ -1419,6 +1429,9 @@ class RequestGate:
                     return
             time.sleep(min(delay, 1.0))
 
+class ModelRequestLimitError(RuntimeError):
+    """This invocation has used its explicitly approved image-request allowance."""
+
 class ModelQuotaExceeded(RuntimeError):
 
     def __init__(self, detail: str | None=None):
@@ -1488,6 +1501,8 @@ class ModelClient:
         self.unavailable_models: set[str] = set()
         self.pool_usage: dict[str, int] = {}
         self.pool_failures: dict[str, int] = {}
+        self.pool_attempts: dict[str, int] = {}
+        self.max_model_requests=None
         self._pool_slots = tuple((model for model, weight in PROVIDER.image_model_pool for _ in range(max(1, int(weight)))))
         self._pool_cursor = 0
         self._material_context = threading.local()
@@ -1503,7 +1518,7 @@ class ModelClient:
 
     def image_model_stats(self) -> dict[str, Any]:
         with self._pool_lock:
-            return {'usage': dict(self.pool_usage), 'failures': dict(self.pool_failures), 'exhausted': sorted(self.exhausted_models)}
+            return {'usage': dict(self.pool_usage), 'failures': dict(self.pool_failures), 'attempts':dict(self.pool_attempts),'exhausted': sorted(self.exhausted_models)}
 
     def material_pool_models(self, kind):
         if kind == 'transparent':
@@ -1596,9 +1611,21 @@ class ModelClient:
             self.image_gate.wait()
             return self._edit_once(prompt, source_path, 'gpt-image-2.5')
 
+    def reserve_image_request(self, model):
+        with self._pool_lock:
+            event=getattr(self,'cancel_event',None)
+            if event is not None and event.is_set():raise JdoWriteUncertainError('原结果待核对，未发起新的图片请求。')
+            if self.max_model_requests is not None and sum(self.pool_attempts.values())>=self.max_model_requests:
+                raise ModelRequestLimitError('model-request-budget-exhausted；本次图片请求上限已达到，未再调用模型。')
+            self.pool_attempts[model]=self.pool_attempts.get(model,0)+1
+
     def _edit_once(self, prompt: str, source_path: Path, image_model: str, *, pool: bool=False) -> bytes:
         if image_model != 'gpt-image-2.5':raise RuntimeError('merchant-image-model-not-configured')
-        result = self._merchant_images.edit(prompt=prompt, images=[source_path])
+        self.reserve_image_request(image_model)
+        try:result = self._merchant_images.edit(prompt=prompt, images=[source_path])
+        except Exception:
+            self._record_model(image_model,failed=True)
+            raise
         self._record_model(image_model)
         return result
 
@@ -2225,7 +2252,16 @@ def prepare_material_binding_plan(client: Any, prepared: PreparedSource, output_
         state_item = state['jobs'].setdefault(job.spu_id, {})
         binding_state = state_item.setdefault('material_bindings', {})
         try:
-            desired = build_material_binding_requests(job, state_item)
+            binding_job=job
+            if job.needs_selling_points:
+                try:binding_selling_points(job.spu_id,state_item.get('selling_points') or [],state_item)
+                except ValueError as error:
+                    previous_text=(binding_state.get('1002') or {}).get('status')
+                    if previous_text in ('intent','unknown','submitted'):raise JdoWriteUncertainError('原卖点提交须先核对，未覆盖回执')
+                    preflight_failures.append({'spuId':job.spu_id,'materialType':1002,'reason':str(error)})
+                    state_item['selling_point_issue']={'status':'blocked-local','reason':str(error)}
+                    binding_job=replace(job,needs_selling_points=False)
+            desired = build_material_binding_requests(binding_job, state_item)
             from pop_safety import missing_only_requests
             fresh = []
             for request in desired:
@@ -2437,7 +2473,7 @@ def _has_material_work(job: SpuJob) -> bool:
 def _material_is_complete(job: SpuJob, item: dict, images: Path) -> bool:
     if job.needs_selling_points:
         try:
-            validate_selling_points(item.get('selling_points') or [])
+            binding_selling_points(job.spu_id,item.get('selling_points') or [],item)
         except ValueError:
             return False
     names = image_names(job.spu_id)
@@ -2651,6 +2687,8 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
             points = seed.get('selling_points') or []
             if len(points) == 3:
                 item['selling_points'] = list(points)
+        if seed.get('selling_points_origin') and item.get('selling_points')==seed.get('selling_points'):
+            item['selling_points_origin']=dict(seed['selling_points_origin'])
     _save_state(state_path, state)
     if existing_url_exports:
         existing_urls = load_url_exports(existing_url_exports)
@@ -2932,6 +2970,7 @@ def fill_material_template(manifest_path: str | Path, url_exports: Iterable[str 
     urls = load_url_exports(url_exports)
     manifest = load_workbook(manifest_path, read_only=True, data_only=True)
     rows = []
+    manifest_state=_load_state(Path(manifest_path).parent/'.state/task.json')
     try:
         sheet = manifest['素材生成清单']
         headers = [cell_text(value) for value in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
@@ -2941,7 +2980,7 @@ def fill_material_template(manifest_path: str | Path, url_exports: Iterable[str 
         for values in sheet.iter_rows(min_row=2, values_only=True):
             spu_id = cell_text(values[columns.get('SPUID', 0)])
             required = {key: not has_requirements or cell_text(values[columns[name]]).lower() in {'1', 'true', '是', '需要'} for key, name in requirement_headers.items()}
-            points = validate_selling_points(values[4:7]) if required['points'] else ['', '', '']
+            points = binding_selling_points(spu_id,values[4:7],manifest_state.get('jobs',{}).get(spu_id,{})) if required['points'] else ['', '', '']
             stems = {kind: normalize_material_stem(name) for kind, name in image_names(spu_id).items()}
             required_kinds = []
             if required['white']:
@@ -3452,7 +3491,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
     repair_result = {'status': 'not-requested'}
     if getattr(args, 'repair_rejected', False):
         from pop_repair import run_rejected_repairs
-        repair_args = argparse.Namespace(no_paid_generation=not bool(getattr(args,'paid_repairs',False)), excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
+        repair_args = argparse.Namespace(max_model_requests=getattr(args,'max_repair_model_requests',None),repair_kinds=getattr(args,'repair_kind',None),no_paid_generation=not bool(getattr(args,'paid_repairs',False)), excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
         try: repair_result = run_rejected_repairs(repair_args, sys.modules[__name__])
         except JdoWriteUncertainError: raise
         except Exception as error: repair_result = {'status': 'repair-incomplete', 'failureClass': type(error).__name__, 'reason': 'Repair scope/dependency not ready; preserve frozen audit and receipts'}
@@ -3874,6 +3913,7 @@ def build_parser() -> argparse.ArgumentParser:
     local_cutout.add_argument('--model', choices=('birefnet-general-lite', 'birefnet-general'), default='birefnet-general-lite')
     local_cutout.add_argument('--alpha-matting', action='store_true')
     audit = sub.add_parser('audit-pop-coverage')
+    audit.add_argument('--detail',action='store_true',help='仅维护者需要完整技术字段时使用；普通回查返回计数与报告路径。')
     audit.add_argument('--profile', required=True)
     audit.add_argument('--expected-shop-name', required=True)
     audit.add_argument('--title-workbook', nargs='*', type=Path, default=[])
@@ -3965,6 +4005,8 @@ def build_parser() -> argparse.ArgumentParser:
     repair.add_argument('--timeout', type=float, default=180)
     repair.add_argument('--joyagent-adapter', type=Path)
     repair.add_argument('--reference-override', action='append', default=[], help='SKUID=trusted-local-product-image')
+    repair.add_argument('--max-model-requests',type=int,help='本次已批准的模型请求上限；包含失败响应/质量重试，不是最终扣费。')
+    repair.add_argument('--repair-kind',action='append',choices=tuple(IMAGE_SUFFIXES),help='仅修这些类型的已驳回槽位，可重复；付费修复必须显式指定。')
     repair.add_argument('--paid-generation',action=argparse.BooleanOptionalAction,default=False,help='默认只走免费路径/申诉；另获本次费用批准后显式开启模型修复。')
     repair.add_argument('--profile-dir', help='Own shop Chrome profile; enables Jingmai batch cutout first for rejected white/transparent')
     repair.add_argument('--jingmai-first', action=argparse.BooleanOptionalAction, default=True)
@@ -3984,6 +4026,8 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument('--joyagent-adapter', type=Path)
     auto.add_argument('--complete-attrs', action=argparse.BooleanOptionalAction, default=True, help='Inventory and complete missing category attributes after materials/titles')
     auto.add_argument('--agent-attrs-file', type=Path, help='Host-evidenced legal attribute choices, no external model call')
+    auto.add_argument('--max-repair-model-requests',type=int,help='本次已批准的驳回修复模型请求上限，不影响普通新图。')
+    auto.add_argument('--repair-kind',action='append',choices=tuple(IMAGE_SUFFIXES),help='仅限制驳回修复类型，不扩大原冻结范围。')
     auto.add_argument('--paid-repairs',action=argparse.BooleanOptionalAction,default=False,help='默认驳回修复免费；本次额外修复范围/费用已批准才开启。普通新素材费用独立。')
     auto.add_argument('--repair-rejected', action=argparse.BooleanOptionalAction, default=True, help='One bounded fresh-byte repair pass; disable only for a frozen legacy scope')
     auto.add_argument('--verification-mode', choices=('submit-only', 'strict'), default='submit-only')
@@ -4023,6 +4067,18 @@ def _unknown_write_payload(args) -> dict[str, Any]:
             'nextAction': '部分写入结果未确认；保留原任务和回执，先执行恢复命令核对，不要重复提交。',
             'recoveryCommand': command}
 
+def audit_cli_summary(payload,estimate,report,delivery):
+    summary={'status':'audited','message':'只读回查完成，未执行修复或付费；完整明细在原报告。',
+             'resultFile':str(report),'report':str(report),'issueCounts':payload.get('issueCounts',{}),
+             'generationEstimate':{k:v for k,v in estimate.items() if not isinstance(v,(list,dict))},
+             'sourceIssueCount':len(estimate.get('sourceIssues') or []),'appealFiles':delivery.get('appealFiles',[])}
+    for key in ('onlineProductCount','onlineSkuCount','allSiblingSkuCount','healthSkuCount'):
+        if key in payload:summary[key]=payload[key]
+    for key in ('materialDeficitSkuIds','rejectedSkuIds','pendingSkuIds','shortTitleIssueSkuIds','unscoredSkuIds','manualAppealSkuIds'):
+        if isinstance(payload.get(key),list):summary[key+'Count']=len(payload[key])
+    return summary
+
+
 def merchant_result_summary(payload, output_dir, command):
     from pop_safety import atomic_json
     from heideng_merchant.safety import redact
@@ -4033,6 +4089,10 @@ def merchant_result_summary(payload, output_dir, command):
     from heideng_merchant.merchant_experience import task_summary
     summary.update(task_summary(payload))
     summary['resultFile'] = str(path)
+    for key in ('assetGroupCount','failedAssetGroupCount','submittedSkuSlotCount','liveReusedSkuSlotCount'):
+        if key in payload:summary[key]=payload[key]
+    stats=payload.get('modelStats') or {}
+    if isinstance(stats,dict) and isinstance(stats.get('attempts'),dict):summary['modelRequestAttemptCount']=sum(stats['attempts'].values())
     for key in ('batches','rows','reconciledUploads','reconciledBindings','unresolvedUploads','unresolvedBindings'):
         if isinstance(payload.get(key), list):summary[key+'Count'] = len(payload[key])
     for key in ('coverage','externalImages','rejectedRepairs','shortTitleDelivery','productAttributes'):
@@ -4069,7 +4129,10 @@ def main(argv: list[str] | None=None) -> int:
         report = args.output_dir.resolve() / 'POP全量覆盖核验.json'
         _save_state(report, payload)
         delivery = export_pop_image_appeals(payload, args.output_dir)
-        print(json.dumps({**{key: value for key, value in payload.items() if key not in {'rows', 'historicalTitleFiles', 'appealRows'}}, 'appealFiles': delivery['appealFiles'], 'appealDelivery': delivery, 'generationEstimate': audit_generation_summary(report), 'report': str(report)}, ensure_ascii=False, indent=2))
+        estimate=audit_generation_summary(report)
+        _save_state(report,{**payload,'generationEstimate':estimate})
+        result={**payload,'appealFiles':delivery['appealFiles'],'generationEstimate':estimate,'report':str(report)} if args.detail else audit_cli_summary(payload,estimate,report,delivery)
+        print(json.dumps(result,ensure_ascii=False,indent=2))
         return 0
     if args.command == 'reconcile-receipts':
         client = JdoClient(args.profile, args.output_dir / '.state' / 'jdo-runtime')

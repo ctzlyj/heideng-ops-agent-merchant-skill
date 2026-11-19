@@ -77,3 +77,12 @@
 - 内置Playwright直接持有BrowserContext/Page，不以人为打开TCP调试端口为前置。缺少--remote-debugging-port不能直接诊断“控制器看不到”，不能据此改走手工OAuth。可见页面和登录检测的失败应看真实阶段/错误，不读Cookie/History来猜。
 - jdo-cli直调必须使用商家隔离环境；不同HOME写出的Profile不是包装器的同一份Profile。禁止cp日常HOME Profile或手改authorization-proof.json作为恢复。修复应复用原待核对回执与正确隔离入口。
 - venderinfo的productCount不是商品盘点成功证据；是否有商品以原商品/SKU分页完整性核验为准，不能据0就让商家重新上架。
+
+
+## 0.4.9：已登录识别、原凭据槽与收尾
+
+- 商家说“登录好了但没反应”时，继续同一条 `ensure-shop` 和 owned BrowserContext。控制器观察同上下文已有工作台页，并使用可靠店名节点；“店铺/客服/首页”等菜单不是店名。登录页不跳转时可低频探测同会话工作台；探测网络超时不刷新商家的登录页、不另建授权任务，仍受原连接预算约束。
+- 工作台店名只用来衔接原官方 OAuth。晚出现的 venderId 仍由官方只读核店证明；官方 CLI 本任务的 `:default` 凭据槽只允许在**原 Profile 命名空间、原商家 JDO_HOME**内定位到该数字 ID。要有本任务真实完成/保存/非模拟元数据，并再次核店；原回执缺保存/模拟布尔字段时，只读核对本 Profile 的官方 status 元数据，不猜字段值。首次核店断网前保存原 native 完成标记；网络恢复仅原 jobId、原 Profile 文件、原真实完成记录可恢复槽位并再次核店，没有完成证明的未知授权不重提。不是借全局 default Profile、跨 Profile 复制授权或手改证明的恢复方法。
+- 明确 rejected 的失败试连 Profile 保留原文件和审计记录，但不作为可用同店候选；真实不同 venderId 仍按原歧义规则处理，网络失败/未知 Profile 不能随意忽略。
+- `ready` 与 `resourceCleanup` 分开：本地浏览器关闭确认无需已经消失的活 contextId；仅已核店、worker 已停止时才可保留 ready 并报告清理待核对。worker 仍活着或回调未知，仍不能声称资源已关闭、后台仍运行或重新发起授权。
+- 以上有离线回归和真实 Playwright/Edge 的拦截页面验证，**不是**真实 WorkBuddy 可见窗口、扫码/OAuth、老店免扫码复用的商家验收。

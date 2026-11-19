@@ -50,6 +50,7 @@ class SingleFlowTests(unittest.TestCase):
   controller.context=Mock();controller.context_id='fixture';controller.profile=Mock();controller.channel='chrome'
   page=Mock();page.url='https://passport.shop.jd.com/login/index.action/jdm';page.evaluate.return_value='店铺: 错误示例'
   controller.page=page
+  controller.context.new_page.return_value=Mock(url='https://passport.shop.jd.com/login/index.action')
   with patch.object(controller,'_result',side_effect=lambda value:value),patch('heideng_merchant.host_connection_controller._identity',return_value={}):
    observation=controller._observe()
   self.assertFalse(observation['loggedIn']);self.assertEqual(observation['identity'],{})

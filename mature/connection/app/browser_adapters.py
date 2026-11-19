@@ -183,6 +183,9 @@ class BuiltinBrowser:
         if self._closed and kind!='close':raise BrowserError('closed')
         result=self.controller.dispatch({'action':{'kind':kind,**payload}})
         if not isinstance(result,dict):raise BrowserError('browser_error')
+        if kind=='close':
+            if result.get('ok') is True and not result.get('error'):return result
+            raise BrowserError('browser_error')
         if result.get('profileDir'):
             from heideng_merchant.mature_runtime import merchant_profile_directory
             self.profile_directory=merchant_profile_directory(result['profileDir'])
