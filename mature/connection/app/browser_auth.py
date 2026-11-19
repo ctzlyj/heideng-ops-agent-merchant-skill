@@ -34,6 +34,7 @@ class BrowserAuthJob:
         self.poll_interval = poll_interval
         self.status, self.stage, self.message = 'starting', 'checking_existing', '正在检查店铺连接。'
         self.identity, self.error, self.error_kind = None, '', ''
+        self.desktop_shortcut = None
         self.login = None
         self.oauth_navigation_attempted = False
         self.started_at, self.finished_at = time.time(), None
@@ -47,6 +48,7 @@ class BrowserAuthJob:
         return safe_value({'id': self.id, 'profile': self.profile, 'shopName': self.shop_name,
                            'expectVenderId': self.expect_vender_id, 'status': self.status,
                            'stage': self.stage, 'message': self.message, 'identity': self.identity,
+                           'desktopShortcut': self.desktop_shortcut,
                            'error': self.error, 'errorKind': self.error_kind,
                            'browserChannel': getattr(self.browser, 'profile_channel', '') or '',
                            'browserSelectionReason': getattr(self.browser, 'profile_channel_reason', '') or '',
@@ -173,6 +175,7 @@ class BrowserAuthJob:
             channel=getattr(self.browser,'profile_channel',None)
             if metadata and channel in ('chrome','msedge','chromium'):metadata['browserChannel']=channel
             sl.update_registry(self.profile, identity, extra=metadata)
+            self.desktop_shortcut = sl.ensure_desktop_shortcut(self.profile, identity)
             self.identity = identity
             self._finish('success', 'ready', '已连接：' + identity['shopName'])
 

@@ -627,39 +627,6 @@ class Manager:
 
 # ---------------------------------------------------------------- HTTP
 
-def create_shop_shortcut(shop_name: str, profile: str, port: int, names=()):
-    from urllib.parse import urlencode
-    entry = sl.load_registry()["profiles"].get(profile, {})
-    source = sl.find_shop_shortcut([shop_name, *names], entry.get("browserShortcut", ""))
-    if not source:
-        raise RuntimeError(f"没有找到 京麦-{shop_name}.lnk（店铺专用浏览器快捷方式）。")
-    info = sl.read_shortcut(source)
-    url = f"http://127.0.0.1:{port}/?" + urlencode({"shop": shop_name, "profile": profile})
-    cmd = sl.browser_command(info, url)
-    if not cmd:
-        raise RuntimeError("源快捷方式没有目标程序。")
-    out_path = source.parent / f"京麦CLI-{shop_name}.lnk"
-    try:
-        import pythoncom
-        import win32com.client
-    except ImportError as exc:
-        raise RuntimeError("缺少 pywin32，无法创建快捷方式（pip install pywin32）。") from exc
-    pythoncom.CoInitialize()
-    try:
-        lnk = win32com.client.Dispatch("WScript.Shell").CreateShortcut(str(out_path))
-        lnk.TargetPath = cmd[0]
-        lnk.Arguments = sl.quote_args(cmd[1:])
-        lnk.WorkingDirectory = str(info.get("WorkingDirectory") or "")
-        lnk.IconLocation = str(info.get("IconLocation") or "")
-        lnk.Save()
-    finally:
-        pythoncom.CoUninitialize()
-    reg = sl.load_registry()
-    reg["profiles"].setdefault(profile, {})["browserShortcut"] = str(source)
-    sl.save_registry(reg)
-    return out_path
-
-
 class Handler(BaseHTTPRequestHandler):
     server_version = "JingmaiCliLinker/" + SERVER_VERSION
     session_token = ""
@@ -830,8 +797,7 @@ class Handler(BaseHTTPRequestHandler):
         profile = str(body.get("profile") or "").strip()
         if not shop_name or not profile:
             raise ValueError("缺少店铺名称或 Profile。")
-        path = create_shop_shortcut(shop_name, profile, self.port)
-        self._send_json(200, {"ok": True, "path": str(path)})
+        self._send_json(200, sl.create_verified_desktop_shortcut(profile, shop_name))
 
 
 def create_httpd(port=DEFAULT_PORT, host='127.0.0.1'):

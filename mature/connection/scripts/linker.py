@@ -203,7 +203,7 @@ def cmd_verify(a):
 
 
 def cmd_shortcut(a):
-    return _unwrap(*api("/api/shortcut", {"shopName": a.shop, "profile": a.profile}))
+    return sl.create_verified_desktop_shortcut(a.profile, a.shop)
 
 
 def cmd_connect(a):
@@ -286,6 +286,8 @@ def cmd_wait(a):
                       pending.get("shortcutPath", ""))
         entry = sl.load_registry()["profiles"].get(pending["profile"], {})
         res.update({"status": "ready", **sl._public(pending["profile"], ident, entry)})
+        if job.get('desktopShortcut'):
+            res['desktopShortcut'] = job['desktopShortcut']
     if same_job and job.get("status") in ("success", "cancelled", "mismatch"):
         sl.clear_pending(pending.get('jobId'))
     return res
@@ -435,7 +437,10 @@ def _cmd_ensure_shop(a, wait_timeout=None):
         remember_shop(profile, q, shop_name, ident)
         entry = sl.load_registry()["profiles"].get(profile, {})
         sl.clear_pending(started.get('jobId'))
-        return {"ok": True, "status": "ready", "reauthorized": True, **sl._public(profile, ident, entry), **out_base, 'stage': 'ready'}
+        result = {"ok": True, "status": "ready", "reauthorized": True, **sl._public(profile, ident, entry), **out_base, 'stage': 'ready'}
+        if job.get('desktopShortcut'):
+            result['desktopShortcut'] = job['desktopShortcut']
+        return result
     if st == "mismatch":
         return {"ok": False, "status": "mismatch", "profile": profile, "message": job.get("message"),
                 'expectedShopName':shop_name,'needsMerchantAction':True,
@@ -466,17 +471,24 @@ def cmd_ensure_shop(a):
         result['resourceCleanup']='completed' if snapshot.get('cleanupComplete',True) else 'pending'
     if snapshot and result and result.get('status') not in ('ready','mismatch'):
         if snapshot.get('status')=='success':
-            return {'ok':True,'status':'ready','profile':snapshot['profile'],'identity':snapshot.get('identity'),
+            result = {'ok':True,'status':'ready','profile':snapshot['profile'],'identity':snapshot.get('identity'),
                     'processRunning':False,'reconciledOriginal':True,'retryAllowed':False,
                     'resourceCleanup':result['resourceCleanup']}
-        ended='paused' if snapshot.get('stage')=='paused' else snapshot.get('status','failed')
-        result.update(ok=False,status=ended,profile=snapshot.get('profile'),jobId=snapshot.get('id'),stage=snapshot.get('stage'),errorKind=snapshot.get('errorKind'),
-                      processRunning=False,canLeave=True,retryAllowed=False,
-                      nextAction='原命令已收尾；同店再次ensure-shop先核对原Profile，不手工重发OAuth。')
+            if snapshot.get('desktopShortcut'):
+                result['desktopShortcut'] = snapshot['desktopShortcut']
+        else:
+            ended='paused' if snapshot.get('stage')=='paused' else snapshot.get('status','failed')
+            result.update(ok=False,status=ended,profile=snapshot.get('profile'),jobId=snapshot.get('id'),stage=snapshot.get('stage'),errorKind=snapshot.get('errorKind'),
+                          processRunning=False,canLeave=True,retryAllowed=False,
+                          nextAction='原命令已收尾；同店再次ensure-shop先核对原Profile，不手工重发OAuth。')
     if snapshot and result and result.get('status') != 'ready':
         pending=sl.load_pending()
         if pending.get('jobId')==snapshot.get('id'):
             sl.save_pending({**pending,'stage':snapshot.get('stage'),'processRunning':False,'outcome':snapshot.get('errorKind')})
+    if (result and result.get('status') == 'ready' and 'desktopShortcut' not in result
+            and not getattr(a, 'no_auth', False) and result.get('profile')):
+        identity = result.get('identity') or {name: result.get(name) for name in ('shopName', 'shopId', 'venderId')}
+        result['desktopShortcut'] = sl.ensure_desktop_shortcut(result['profile'], identity)
     return result
 
 
