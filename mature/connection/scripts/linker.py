@@ -183,7 +183,11 @@ def cmd_state(_a):
 
 
 def cmd_job(_a):
-    result = _unwrap(*api("/api/job"))
+    info = server_info()
+    if info and Path(info.get('appDir') or '').resolve() != APP_DIR.resolve():
+        return {'ok': False, 'status': 'blocked', 'errorKind': 'other_connector',
+                'error': '当前运行的连接服务不属于这份安装。'}
+    result = _unwrap(*http_json("/api/job", token=get_token())) if info else {'ok': True}
     if result.get('ok') and not result.get('job'):
         return {'ok': False, 'status': 'job_lost', 'errorKind': 'job_lost',
                 'error': '连接服务中的原任务已丢失；请用同店 ensure-shop 恢复，不要手工重发 OAuth。'}
@@ -251,6 +255,7 @@ def wait_job(timeout: int, interval: float = 2.0, *, job_id='', profile='', vend
                               'waiting_login':'请在京麦页自行登录；当前命令仍在等待。',
                               'checking_browser_identity':'正在核对网页登录的店铺。',
                               'waiting_oauth':'正在衔接本次官方授权，不需要复制链接。',
+                              'waiting_oauth_confirmation':'请在当前京东授权页完成页面提示，连接仍在等待原授权回执。',
                               'verifying_cli':'正在核验原Profile的官方店铺身份。',
                               'ready':'官方核店已通过。'}
                 event={'event':'connection-progress','jobId':job.get('id'),'profile':job.get('profile'),
@@ -334,6 +339,28 @@ def _cmd_ensure_shop(a, wait_timeout=None):
     if not shop_name and not vender_id:
         return {"ok": False, "status": "error", "error": "无法确定店铺名称或 venderId"}
     pending=sl.load_pending()
+    confirmed_name = (getattr(a, 'confirmed_shop_name', '') or '').strip()
+    browser_identity = {'shopName': shop_name, 'venderId': vender_id}
+    same_query = bool(pending.get('query')) and sl.norm(pending['query']) == sl.norm(q)
+    if confirmed_name:
+        if (not getattr(a, 'resume', False) or not same_query or pending.get('processRunning') is not False
+                or pending.get('outcome') not in ('login_timeout', 'mismatch', 'oauth_not_opened')
+                or not pending.get('shopName') or getattr(a, 'browser_config', None)
+                or getattr(a, 'fresh', False) or a.no_open or a.no_wait
+                or not 1 < len(confirmed_name) <= 80 or any(ord(char) < 32 for char in confirmed_name)):
+            return {'ok': False, 'status': 'blocked', 'errorKind': 'confirmed_shop_resume_unavailable',
+                    'error': '确认店名仅用于恢复已结束、且没有待核对授权的原店铺连接。'}
+        original_vender_id = pending.get('venderId') or ''
+        if original_vender_id and vender_id and original_vender_id != vender_id:
+            return {'ok': False, 'status': 'mismatch', 'errorKind': 'mismatch',
+                    'error': '原任务的店铺 ID 与当前目标不一致。'}
+        vender_id = vender_id or original_vender_id
+        browser_identity = pending.get('browserShopIdentity') or {
+            'shopName': pending['shopName'], 'venderId': pending.get('venderId', '')}
+        shop_name = confirmed_name
+    elif same_query and pending.get('confirmedShopName'):
+        shop_name = pending['confirmedShopName']
+        browser_identity = pending['browserShopIdentity']
     same_target=(bool(shop_name) and pending.get('shopName')==shop_name) or (bool(vender_id) and pending.get('venderId')==vender_id)
     same_pending=bool(same_target and (not a.profile or a.profile==pending.get('profile')))
     if same_pending and pending.get('processRunning') is False and pending.get('outcome')=='callback_unknown':
@@ -346,9 +373,13 @@ def _cmd_ensure_shop(a, wait_timeout=None):
                 sl.require_auth_slot(original,required=True)
             identity=sl.verify_profile(original)
             sl.assert_profile_proof(original,identity)
-            if (vender_id and identity.get('venderId')!=vender_id) or (shop_name and not sl.name_matches(shop_name,[identity.get('shopName','')])):
+            expected_exact = pending.get('confirmedShopName')
+            if (vender_id and identity.get('venderId')!=vender_id) or (shop_name and not sl.name_matches(shop_name,[identity.get('shopName','')])) or (expected_exact and identity.get('shopName') != expected_exact):
                 return {'ok':False,'status':'mismatch','profile':original,'message':'原Profile核店与目标不符，未重发授权。'}
-            sl.update_registry(original,identity);sl.clear_pending(pending.get('jobId'))
+            sl.update_registry(original,identity)
+            if pending.get('confirmedShopName'):
+                remember_shop(original,q,shop_name,identity)
+            sl.clear_pending(pending.get('jobId'))
             return {'ok':True,'status':'ready','profile':original,'identity':identity,'reconciledOriginal':True}
         except sl.VerifyError as exc:
             return {'ok':False,'status':'paused','errorKind':'callback_unknown','profile':original,
@@ -364,7 +395,9 @@ def _cmd_ensure_shop(a, wait_timeout=None):
     if a.no_open:
         payload['browserConfig'] = {'provider': 'host'}
     elif 'browserConfig' not in payload:
-        payload['browserConfig']={'provider':'builtin','shopIdentity':{'shopName':shop_name,'venderId':vender_id}}
+        payload['browserConfig']={'provider':'builtin','shopIdentity':browser_identity}
+        if confirmed_name or (same_query and pending.get('confirmedShopName')):
+            payload['browserConfig']['confirmedShopName'] = shop_name
     started = _unwrap(*api("/api/connect", payload))
     if started.get('status') == 'ready':
         return started
@@ -382,8 +415,11 @@ def _cmd_ensure_shop(a, wait_timeout=None):
     for key in ('browserChannel', 'browserSelectionReason'):
         if started_job.get(key):
             out_base[key] = started_job[key]
-    sl.save_pending({'jobId': started.get('jobId'), 'profile': profile, 'query': q, 'shopName': shop_name,
-                     'venderId': vender_id})
+    pending_data = {'jobId': started.get('jobId'), 'profile': profile, 'query': q, 'shopName': shop_name,
+                    'venderId': vender_id}
+    if (payload.get('browserConfig') or {}).get('confirmedShopName'):
+        pending_data.update(confirmedShopName=shop_name,browserShopIdentity=browser_identity)
+    sl.save_pending(pending_data)
     if a.no_wait:
         return {'ok': True, 'status': 'awaiting_auth', 'message': (started.get('job') or {}).get('message', ''), **out_base}
     waited = wait_job(wait_timeout if wait_timeout is not None else min(a.timeout, 3), interval=0.5, job_id=started.get('jobId', ''), profile=profile,
@@ -437,6 +473,7 @@ def cmd_ensure_shop(a):
         result.update(ok=False,status=ended,profile=snapshot.get('profile'),jobId=snapshot.get('id'),stage=snapshot.get('stage'),errorKind=snapshot.get('errorKind'),
                       processRunning=False,canLeave=True,retryAllowed=False,
                       nextAction='原命令已收尾；同店再次ensure-shop先核对原Profile，不手工重发OAuth。')
+    if snapshot and result and result.get('status') != 'ready':
         pending=sl.load_pending()
         if pending.get('jobId')==snapshot.get('id'):
             sl.save_pending({**pending,'stage':snapshot.get('stage'),'processRunning':False,'outcome':snapshot.get('errorKind')})
@@ -491,6 +528,7 @@ def main() -> int:
     p.add_argument("--no-open", action="store_true", help="暂不打开页面，返回等待浏览器状态")
     p.add_argument("--no-wait", action="store_true", help="立即返回任务与阶段，由 Agent 短轮询")
     p.add_argument('--resume', action='store_true', help='先核验已有结果，再恢复同任务')
+    p.add_argument('--confirmed-shop-name', help='用户确认的京麦官方店名；与原查询及 --resume 一起使用')
     p.add_argument('--fresh', action='store_true', help='明确放弃旧会话并新建任务；不用于普通网络中断恢复')
     p.add_argument('--browser-config', help='Agent 提供的非敏感浏览器适配配置文件')
     p.set_defaults(func=cmd_ensure_shop)

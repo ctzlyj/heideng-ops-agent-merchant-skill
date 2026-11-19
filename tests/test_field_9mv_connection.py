@@ -93,12 +93,63 @@ class LateProofTests(unittest.TestCase):
             status={'ok':True,'profile':job.profile,'home':d,'tokenCredentialAccount':account,'oauthTokenStored':True,'oauthTokenMocked':False}
             with patch.object(server.sl,'run_jdo',return_value=(0,json.dumps(status))) as run:
                 self.assertTrue(job._owned_login_receipt(login))
-                run.assert_called_once_with(['status','--profile',job.profile],timeout=15)
+                run.assert_called_once_with(['status'],timeout=15)
             for changed in ({'profile':'other-profile'},{'home':str(Path(d)/'other')},{'tokenMocked':True}):
                 with self.subTest(changed=changed),patch.object(server.sl,'run_jdo') as run:
                     self.assertFalse(job._owned_login_receipt({**login,**changed}));run.assert_not_called()
             with patch.object(server.sl,'run_jdo',return_value=(0,json.dumps({**status,'oauthTokenMocked':True}))):
                 self.assertFalse(job._owned_login_receipt(login))
+
+    def test_jdo_037_status_only_attests_its_exact_default_profile(self):
+        import server
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {'JDO_HOME': d}, clear=True):
+            job = server.LoginJob('fixture-profile', 'fixture-shop', defer_registry=True)
+            account = 'token:fixture-profile:0123456789abcdef:default'
+            login = {'ok': True, 'profile': job.profile, 'tokenCredentialAccount': account}
+            status = {'ok': True, 'home': d, 'defaultProfile': job.profile,
+                      'profile': {'path': str(Path(d) / 'profiles' / f'{job.profile}.json'), 'exists': True},
+                      'credentialInputs': {'oauthTokenStored': True, 'oauthTokenMocked': False},
+                      'credentialStore': {'tokenCredentialAccount': account}}
+            with patch.object(server.sl, 'run_jdo', return_value=(0, json.dumps(status))) as run:
+                self.assertTrue(job._owned_login_receipt(login))
+                run.assert_called_once_with(['status'], timeout=15)
+            for changed in ({'defaultProfile': 'other-profile'},
+                            {'profile': {**status['profile'], 'path': str(Path(d) / 'profiles/other-profile.json')}},
+                            {'credentialInputs': {'oauthTokenStored': True, 'oauthTokenMocked': True}}):
+                with self.subTest(changed=changed), patch.object(
+                        server.sl, 'run_jdo', return_value=(0, json.dumps({**status, **changed}))):
+                    self.assertFalse(job._owned_login_receipt(login))
+
+    def test_jdo_037_native_default_slot_is_recovered_in_its_own_vault_scope(self):
+        import server
+        scope = '0123456789abcdef'
+        with tempfile.TemporaryDirectory() as d, patch.dict(
+                os.environ, {'JDO_HOME': d, 'JINGMAI_LINKER_HOME': str(Path(d) / 'linker')}, clear=True):
+            job = server.LoginJob('fixture-profile', 'fixture-shop', defer_registry=True)
+            account = f'token:{job.profile}:{scope}:default'
+            receipt = {'ok': True, 'profile': job.profile, 'home': d, 'tokenCredentialAccount': account,
+                       'loginCompleted': True, 'tokenStored': True, 'tokenMocked': False}
+            path = Path(d) / 'profiles' / f'{job.profile}.json'
+            path.parent.mkdir()
+            path.write_text('{}')
+            server.sl.mark_auth_pending(job.profile, job.id, '', job.shop_name)
+            self.assertFalse(job._owned_login_receipt({**receipt, 'tokenCredentialAccount': account.replace(job.profile, 'other-profile')}))
+            self.assertTrue(job._owned_login_receipt(receipt))
+            job.proc = Mock()
+            job.proc.wait.return_value = 0
+            job._raw_output = [json.dumps(receipt)]
+            identity = {'shopName': job.shop_name, 'venderId': '123'}
+            with patch.object(server.sl, 'verify_profile', side_effect=server.sl.VerifyError('network', 'offline')):
+                job._monitor()
+            proof = server.sl._proof_data()['profiles'][job.profile]
+            self.assertEqual(proof['nativeDefaultSlotScope'], scope)
+            self.assertNotIn(account, json.dumps(proof))
+            with patch.object(server.sl, 'verify_profile', return_value=identity), patch.object(
+                    server, 'copy_credential', return_value=True) as copy:
+                self.assertTrue(server.recover_owned_auth_slot(job.profile, job.id))
+                copy.assert_called_once_with(f'jdo-cli:{account}',
+                    f'jdo-cli:token:{job.profile}:{scope}:123', delete_old=False)
+            server.sl.require_auth_slot(job.profile, required=True)
 
     def test_completed_native_default_slot_recovers_after_first_identity_read_was_offline(self):
         import server
@@ -125,6 +176,30 @@ class LateProofTests(unittest.TestCase):
                 server.sl.mark_auth_native_completed('fixture-profile','original-job','synthetic-native-job')
                 self.assertFalse(server.recover_owned_auth_slot('fixture-profile','other-job'))
                 run.assert_not_called();copy.assert_not_called()
+
+    def test_original_native_slot_recovers_when_cli_status_cannot_select_profile(self):
+        import server
+        with tempfile.TemporaryDirectory() as d, patch.dict(
+                os.environ, {'JDO_HOME': d, 'JINGMAI_LINKER_HOME': str(Path(d) / 'linker')}, clear=True):
+            job = server.LoginJob('fixture-profile', 'fixture-shop', defer_registry=True)
+            path = Path(d) / 'profiles/fixture-profile.json'
+            path.parent.mkdir()
+            path.write_text('{}')
+            server.sl.mark_auth_pending(job.profile, job.id, '', job.shop_name)
+            server.sl.mark_auth_native_completed(
+                job.profile, job.id, 'synthetic-native-job', default_slot_namespace='jdo-cli:sp-api:token')
+            identity = {'shopName': job.shop_name, 'venderId': '123'}
+            with patch.object(server.sl, 'run_jdo') as status, patch.object(
+                    server.sl, 'verify_profile', return_value=identity), patch.object(
+                    server, 'copy_credential', return_value=True) as copy, patch.object(
+                    server.LoginJob, 'start') as start:
+                self.assertTrue(server.recover_owned_auth_slot(job.profile, job.id))
+                status.assert_not_called()
+                start.assert_not_called()
+                copy.assert_called_once_with(
+                    'jdo-cli:sp-api:token:fixture-profile:default',
+                    'jdo-cli:sp-api:token:fixture-profile:123', delete_old=False)
+            server.sl.require_auth_slot(job.profile, required=True)
 
     def test_native_completion_is_preserved_before_first_network_identity_failure(self):
         import server
