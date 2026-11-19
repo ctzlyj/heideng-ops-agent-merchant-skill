@@ -2197,8 +2197,7 @@ def load_pop_auto_maintain_plan(output_dir: str | Path, seller: dict[str, Any], 
         prepared, references, existing = _scope_pop_discovery(prepared, references, existing, target_spu_id)
     return (prepared, references, existing, source_path)
 
-def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None:
-    mode = _business_mode(prepared)
+def _bound_task_scope(prepared: PreparedSource, state_path: Path):
     signature = _task_signature(prepared)
     allowed_signatures={signature,_task_signature(route_jingmai_batch_images(prepared,model_cutout_images=False)[0])}
     allowed_jobs={job.spu_id for job in prepared.jobs}
@@ -2217,6 +2216,12 @@ def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None
                     allowed_jobs={job.spu_id for job in batch_prepared.jobs}
                     allowed_signatures={signature,_task_signature(route_jingmai_batch_images(batch_prepared,model_cutout_images=False)[0])}
             except (OSError,ValueError,KeyError,json.JSONDecodeError):pass
+    return signature, allowed_signatures, allowed_jobs
+
+
+def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None:
+    mode = _business_mode(prepared)
+    signature, allowed_signatures, allowed_jobs = _bound_task_scope(prepared, state_path)
     existing_jobs = set((state.get('jobs') or {}).keys())
     current_jobs = {job.spu_id for job in prepared.jobs}
     existing_variant = state.get('variant')
@@ -3853,15 +3858,16 @@ def export_short_title_delivery(runs, output_dir, *, shop_name):
         directory = Path(directory).resolve()
         signatures.append(_task_signature(prepared))
         expected.extend(sku for job in prepared.jobs for sku in job.short_title_sku_ids)
-        for index, rows in frozen_scope_batches(prepared, output):
+        for index, rows in frozen_scope_batches(prepared, directory):
             batch = _subset_prepared(prepared, rows)
             batch_dir = directory / f'批次{index:03d}'
             state_path = batch_dir / '.state/task.json'
             if not state_path.is_file():
                 continue
             state = _load_state(state_path)
-            allowed_signatures = {_task_signature(batch), _task_signature(route_jingmai_batch_images(batch)[0])}
-            if state.get('task_signature') not in allowed_signatures or state.get('business_mode') != 'pop':
+            _, allowed_signatures, allowed_jobs = _bound_task_scope(batch, state_path)
+            if (state.get('task_signature') not in allowed_signatures or state.get('business_mode') != 'pop'
+                    or not set(state.get('jobs', {})).issubset(allowed_jobs)):
                 raise ValueError('short-title source task signature or business mode mismatch')
             state_rows = []
             for job in batch.jobs:
