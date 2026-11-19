@@ -73,7 +73,7 @@
 
 ## 口述名称与宿主误用（g9jb现场）
 
-- 口述别名未登记、页面官方名不同，返回mismatch时看expectedShopName/actual与needsMerchantAction，问一次是否为同店；未确认不能改证明文件让它通过。以后登记的别名沿用原工具，最终仍以venderinfo核店。
+- 口述别名未登记、页面官方名不同，返回 mismatch 时按 expectedShopName 和 actual 向商家确认是否为同店。确认后，用原口述名称执行 `ensure-shop --shop <原名称> --resume --confirmed-shop-name <官方名称>`。此入口沿用原店铺浏览器资料，以官方名称核店后登记原口述别名。回调结果未知时先核对原授权。
 - 内置Playwright直接持有BrowserContext/Page，不以人为打开TCP调试端口为前置。缺少--remote-debugging-port不能直接诊断“控制器看不到”，不能据此改走手工OAuth。可见页面和登录检测的失败应看真实阶段/错误，不读Cookie/History来猜。
 - jdo-cli直调必须使用商家隔离环境；不同HOME写出的Profile不是包装器的同一份Profile。禁止cp日常HOME Profile或手改authorization-proof.json作为恢复。修复应复用原待核对回执与正确隔离入口。
 - venderinfo的productCount不是商品盘点成功证据；是否有商品以原商品/SKU分页完整性核验为准，不能据0就让商家重新上架。

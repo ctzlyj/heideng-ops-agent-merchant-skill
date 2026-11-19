@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from .state import FileLock
 
 LOGIN_URL='https://passport.shop.jd.com/login/index.action'
+WORKSPACE_URL='https://shop.jd.com/jdm/home'
 CHANNELS=('chrome','msedge','chromium')
 
 def _public(value):
@@ -31,12 +32,24 @@ def _trusted_shop_page(url):
 def _identity(page):
     """Read only public identity DOM, never cookies or authorization codes."""
     for script in (
-        """() => {let e=document.querySelector('#shop-base-name, .shop-menu-accountV1__right-account-top-name, [data-shop-name]');return e&&e.innerText}""",
+        """() => {
+            const selectors = ['.shop-menu-accountV1__right-account-top-name', '#shop-base-name', '[data-shop-name]'];
+            return selectors.flatMap(selector => Array.from(document.querySelectorAll(selector))
+                .filter(element => element.getClientRects().length && getComputedStyle(element).visibility === 'visible')
+                .map(element => element.innerText));
+        }""",
         r"""() => {let t=document.body.innerText;let m=t.match(/(?:店铺名称|当前店铺)[:：]\s*([^\n]{2,80})/);return m&&m[1]}"""):
         try:
-            name=page.evaluate(script)
-            if isinstance(name,str) and 1<len(name.strip())<80 and name.strip() not in ('京东-欢迎登录','京麦工作台-京东商家一站式工作台','客服','店铺','首页','消息','全部') and not any(x in name for x in ('密码登录','短信登录','立即登录','开店')):return {'shopName':name.strip()}
-        except Exception:pass
+            result = page.evaluate(script)
+        except Exception:
+            continue
+        for value in result if isinstance(result, list) else [result]:
+            if not isinstance(value, str):
+                continue
+            name = value.strip()
+            if (1 < len(name) < 80 and name not in ('京东-欢迎登录','京麦工作台-京东商家一站式工作台','客服','店铺','首页','消息','全部')
+                    and not any(text in name for text in ('密码登录','短信登录','立即登录','开店'))):
+                return {'shopName': name}
     return {}
 
 
@@ -79,7 +92,15 @@ class HostConnectionController:
         if directory is None:raise RuntimeError('merchant-owned-profile-required')
         directory.mkdir(parents=True,exist_ok=True)
         self._playwright=sync_playwright().start()
-        self.context=self._playwright.chromium.launch_persistent_context(str(directory),channel=None if self.channel=='chromium' else self.channel,headless=False,accept_downloads=False,args=['--no-first-run','--no-default-browser-check'])
+        try:
+            self.context=self._playwright.chromium.launch_persistent_context(
+                str(directory), channel=None if self.channel=='chromium' else self.channel,
+                headless=False, accept_downloads=False, timeout=20000,
+                args=['--no-first-run','--no-default-browser-check'])
+        except Exception:
+            self._playwright.stop()
+            self._playwright=None
+            raise
         self.context.set_default_timeout(15000)
         pages=list(self.context.pages)
         self.page=next((p for p in pages if not p.is_closed()),None) or self.context.new_page()
@@ -105,13 +126,25 @@ class HostConnectionController:
         return result
 
     def _open_login(self,action):
+        reused = bool(self._load())
         self._launch(action.get('browserChannel'))
         url=self.page.url
+        if reused and (url=='about:blank' or urlsplit(url).hostname=='passport.shop.jd.com'):
+            from playwright.sync_api import TimeoutError as PlaywrightTimeout
+            try:
+                self.page.goto(WORKSPACE_URL, wait_until='domcontentloaded', timeout=10000)
+            except PlaywrightTimeout:
+                pass
+            url=self.page.url
+            if urlsplit(url).hostname in ('shop.jd.com','aq.jd.com'):
+                self.page.bring_to_front()
+                return self._result()
         if url=='about:blank' or not _trusted_shop_page(url) or urlsplit(url).hostname=='passport.shop.jd.com' and not self.shop_identity.get('_loginComplete'):
             # Opening the login page is only for a not-yet-authenticated session; never force logout.
             if urlsplit(url).hostname=='passport.shop.jd.com' and self.shop_identity.get('_loginComplete'):return self._result()
             self.page.goto(LOGIN_URL,wait_until='domcontentloaded')
         # Do not select QR/password/SMS on the merchant's behalf.
+        self.page.bring_to_front()
         return self._result()
 
     def _observe(self):
@@ -148,9 +181,9 @@ class HostConnectionController:
             if _trusted_shop_page(probe.url) and urlsplit(probe.url).hostname!='passport.shop.jd.com':
                 return self._result({'loggedIn':False,'identity':{},'challenge':''})
             try:
-                probe.goto('https://shop.jd.com/jdm/home',wait_until='domcontentloaded',timeout=10000)
+                probe.goto(WORKSPACE_URL,wait_until='domcontentloaded',timeout=10000)
                 if urlsplit(probe.url).hostname=='aq.jd.com':
-                    self.page=probe;probe.bring_to_front()
+                    probe.bring_to_front()
                     return self._result({'loggedIn':False,'identity':{},'challenge':'account-risk-blocked'})
                 if _trusted_shop_page(probe.url) and urlsplit(probe.url).hostname!='passport.shop.jd.com':
                     identity=_identity(probe)
@@ -161,7 +194,9 @@ class HostConnectionController:
                 # An optional probe failing is not a failed login or permission to create another session.
                 return self._result({'loggedIn':False,'identity':{},'challenge':'','probeStatus':'temporarily-unavailable'})
             finally:
-                if self.page is not probe and not self.page.is_closed():self.page.bring_to_front()
+                if (self.page is not probe and not self.page.is_closed()
+                        and urlsplit(probe.url).hostname != 'aq.jd.com'):
+                    self.page.bring_to_front()
         return self._result({'loggedIn':False,'identity':{},'challenge':''})
 
     def _open_oauth(self,action):
@@ -180,18 +215,26 @@ class HostConnectionController:
         if self.oauth_confirm_handled:return {'ok':False,'error':'confirmation_already_processed'}
         observation=self._observe()
         if observation.get('challenge'):return self._result({'challenge':observation['challenge']})
-        # Normal current-scope OAuth confirmation only. No hidden scope/cost approval.
-        text=_page_text(self.page)
-        if any(word in text for word in ('新增权限','额外付费','购买服务','开通付费')):return {'ok':False,'error':'confirmation_scope_changed'}
-        page_url=self.page.url
-        if urlsplit(page_url).hostname!='passport.jd.com' or not page_url.startswith('https://passport.jd.com/oauth/'):
+        self.page.bring_to_front()
+        parsed=urlsplit(self.page.url)
+        if parsed.hostname in ('127.0.0.1','localhost') and parsed.port == 9001:
+            return self._result()
+        if parsed.scheme != 'https' or parsed.hostname not in ('passport.jd.com','open-oauth.jd.com'):
             return {'ok':False,'error':'oauth_confirmation_page_required'}
+        if parsed.hostname!='passport.jd.com' or not parsed.path.startswith('/oauth/'):
+            return self._result({'challenge':'请在当前京东授权页完成页面要求的操作'})
+        text=_page_text(self.page)
+        if any(word in text for word in ('新增权限','额外付费','购买服务','开通付费')):
+            return self._result({'challenge':'请在当前京东授权页核对新增权限或费用'})
+        button=self.page.get_by_role('button',name='登录',exact=True)
+        if not button.count():button=self.page.get_by_text('登录',exact=True)
+        if button.count() != 1 or not button.first.is_visible():
+            return self._result({'challenge':'请在当前京东授权页确认授权'})
         for selector in ('input[type=checkbox]','input[name*=agree]'):
             box=self.page.locator(selector)
             if box.count() and not box.first.is_checked():box.first.check()
-        button=self.page.get_by_role('button',name='登录',exact=True)
-        if not button.count():button=self.page.get_by_text('登录',exact=True)
-        if not button.count():return {'ok':False,'error':'confirmation_button_unavailable'}
+        if not button.first.is_enabled():
+            return self._result({'challenge':'请在当前京东授权页确认授权'})
         button.first.click(timeout=15000);self.oauth_confirm_handled=True
         return self._result()
 
