@@ -9,10 +9,11 @@
 ## 判断与建议路径
 
 - 通常先 `run connection -- ensure-shop --shop "目标店铺" --no-auth`。登记别名/多个Profile只用于定位，最终以实时 venderinfo 核验为准。
-- 已有授权可用则直接复用；本地显示过期不代表不可用，官方可能自动刷新。网络/权限错误不能一律当授权失效；先按实际错误排障。
+- 已有授权可用则直接复用。商家明确交办连接时，如果只读探测已返回 `ready`，用 `run connection -- shortcut --shop <目标店铺> --profile <已核验 Profile>` 补齐桌面入口。本地显示过期时仍按实际结果判断，官方可能自动刷新。
 - 确实需新授权，沿用用户针对本店的明确许可，原 ensure-shop 去掉 --no-auth；商家本人在同一隔离浏览器页自行选择密码、短信或扫码，宿主衔接官方 OAuth。不要另建授权系统，不复制Cookie/Token。
 - `awaiting_auth` 只有在原会话确实仍运行时才表示等待，不是授权失败；默认builtin由包内流程驱动，不交给宿主手拼OAuth。按原 jobId、当前 browser-action 操作并回报真实上下文/身份，返回 callback_unknown 时先核对同一Profile，不能再扫一轮制造重复任务。
 - 网页后续任务需要真实商家持久 profileDir。用原连接器保存的 browserProfileDir，在同店匹配后交给 POP 原导入；不猜用户工作浏览器目录。
+- 连接达到 `ready` 后，黑灯使用实际浏览器和本店持久资料创建桌面快捷方式。双击「黑灯-店铺名」直接进入该店的京麦工作台。已授权老店正常执行连接时也会补建入口；只读的 `--no-auth` 探测保持只读。快捷方式的结果见 `desktopShortcut`，创建失败时店铺授权仍可用。
 
 路径可由宿主已有浏览器工具完成。包装器没有某个宿主操作入口并不禁止宿主处理原 HostBrowser 动作；配置/报告必须是实际拥有的上下文，不能凭标签存在填 owned/isolation/身份。
 
@@ -31,7 +32,7 @@
 
 ## 0.4.2 连接执行路径（本地适配，不替代真实验收）
 
-- 首次连接由宿主先 `ensure-shop --no-auth`；已有ready直接结束，不启动连接服务。确需本店新授权时去掉no-auth，保留awaiting_auth的jobId/Profile。
+- 首次连接由宿主先 `ensure-shop --no-auth`。已有 `ready` 时复用授权，明确交办连接时补齐桌面入口。确需本店新授权时去掉 `--no-auth`，保留 `awaiting_auth` 的 jobId 和 Profile。
 - 本包提供 `scripts/host_connection_controller.py`。宿主在任务目录用准备好的runtime解释器运行它作为browser_bridge的controller argv，不再自己编写CDP服务、OAuth确认脚本或Profile登记补丁。`python scripts/merchant.py run --entry scripts/browser_bridge.py connection -- --controller '<该argv JSON>' --once --timeout 20`。普通observe没有回报时继续观察原任务；导航/确认未明时先核对，不能重复点击。
 - 控制器只使用商家state/browser-profiles的持久目录和同contextId。登录页为passport.shop.jd.com/login/index.action；不替商家选择扫码/密码/短信，不复制Cookie。商家本人处理登录/风控；认证魔方明确去京东商城App完成安全验证，后台不继续发新授权。
 - 同店普通重试不会返回旧failed job。需要原Profile/页面恢复时用ensure-shop --resume，它先核验已有结果；不擅自cancel，不把result_unknown改为未提交。连接服务用脱离CLI进程组方式启动，宿主结束单条命令不等于结束授权。
