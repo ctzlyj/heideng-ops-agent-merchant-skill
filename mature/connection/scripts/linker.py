@@ -183,7 +183,11 @@ def cmd_state(_a):
 
 
 def cmd_job(_a):
-    result = _unwrap(*api("/api/job"))
+    info = server_info()
+    if info and Path(info.get('appDir') or '').resolve() != APP_DIR.resolve():
+        return {'ok': False, 'status': 'blocked', 'errorKind': 'other_connector',
+                'error': '当前运行的连接服务不属于这份安装。'}
+    result = _unwrap(*http_json("/api/job", token=get_token())) if info else {'ok': True}
     if result.get('ok') and not result.get('job'):
         return {'ok': False, 'status': 'job_lost', 'errorKind': 'job_lost',
                 'error': '连接服务中的原任务已丢失；请用同店 ensure-shop 恢复，不要手工重发 OAuth。'}

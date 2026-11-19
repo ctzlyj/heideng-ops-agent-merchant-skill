@@ -284,7 +284,7 @@ def mark_auth_pending(profile, job_id, vender_id='', shop_name='', *, exact_shop
         write_json(linker_home() / 'authorization-proof.json', data)
 
 
-def mark_auth_native_completed(profile, job_id, native_job_id, *, default_slot_namespace=''):
+def mark_auth_native_completed(profile, job_id, native_job_id, *, default_slot_namespace='', default_slot_scope=''):
     with _proof_lock():
         data=_proof_data();proof=data['profiles'].get(profile)
         if not proof or proof.get('jobId')!=job_id or proof.get('status')=='rejected':
@@ -292,6 +292,8 @@ def mark_auth_native_completed(profile, job_id, native_job_id, *, default_slot_n
         proof.update(nativeCompleted=True,nativeJobId=str(native_job_id))
         if default_slot_namespace:
             proof['nativeDefaultSlotNamespace'] = default_slot_namespace
+        if default_slot_scope:
+            proof['nativeDefaultSlotScope'] = default_slot_scope
         write_json(linker_home()/'authorization-proof.json',data)
 
 

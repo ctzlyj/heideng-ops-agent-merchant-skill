@@ -53,6 +53,23 @@ class CallbackPortBusy(RuntimeError):
     kind = 'port_busy'
     hint = '本机回调端口被占用，未结束其它进程；请先核对任务归属。'
 
+
+def owned_credential_slot(account, profile):
+    """Return the vault target and slot from a CLI account bound to this Profile."""
+    if not isinstance(account, str) or not account:
+        return None
+    parts = account.removeprefix('jdo-cli:').split(':')
+    if (len(parts) == 4 and parts[0] == 'token' and parts[1] == profile
+            and re.fullmatch(r'[0-9a-f]{16}', parts[2])):
+        target = 'jdo-cli:' + ':'.join(parts)
+    elif (len(parts) in (3, 4) and parts[-3] == 'token' and parts[-2] == profile
+          and account.startswith('jdo-cli:')):
+        target = account
+    else:
+        return None
+    slot = parts[-1]
+    return (target, slot) if slot == 'default' or slot.isascii() and slot.isdigit() else None
+
 # 兼容旧名
 read_json = sl.read_json
 write_json = sl.write_json
@@ -329,17 +346,18 @@ class LoginJob:
         if not self._owned_login_receipt(data):
             self._fail('官方授权回执不属于本任务Profile/目录，未登记。','credential_isolation')
             return
-        account = str(data.get('tokenCredentialAccount') or '')
-        slot = account.rsplit(':', 1)[-1]
+        account, slot = owned_credential_slot(data['tokenCredentialAccount'], self.profile)
         if slot!='default' and (not slot.isdigit() or self.expect_vender_id and slot!=self.expect_vender_id):
             sl.mark_auth_rejected(self.profile)
             self._fail('官方凭据槽未证明属于本任务，未登记。','credential_isolation')
             return
         try:
-            namespace = account.rsplit(':', 2)[0] if slot == 'default' else ''
+            account_parts = account.split(':')
+            default_scope = account_parts[-2] if slot == 'default' and len(account_parts) == 5 and account_parts[1] == 'token' else ''
+            default_namespace = account.rsplit(':', 2)[0] if slot == 'default' and not default_scope else ''
             sl.mark_auth_native_completed(
                 self.profile, getattr(self, 'proof_job_id', self.id), self.id,
-                default_slot_namespace=namespace)
+                default_slot_namespace=default_namespace, default_slot_scope=default_scope)
             if slot.isdigit():sl.mark_auth_slot(self.profile,slot)
         except sl.VerifyError as exc:
             self._fail(exc.message,exc.kind)
@@ -440,7 +458,7 @@ class LoginJob:
         account=str(data.get('tokenCredentialAccount') or '')
         def owned_home(value):
             return isinstance(value,str) and bool(value) and os.path.normcase(str(Path(value).resolve()))==os.path.normcase(str(sl.jdo_home().resolve()))
-        if data.get('profile')!=self.profile or len(account.split(':'))<3 or account.split(':')[-2]!=self.profile:return False
+        if data.get('profile')!=self.profile or not owned_credential_slot(account,self.profile):return False
         if 'home' in data and not owned_home(data['home']):return False
         flags={'loginCompleted':True,'tokenStored':True,'tokenMocked':False}
         if any(k in data and data[k] is not value for k,value in flags.items()):return False
@@ -451,7 +469,8 @@ class LoginJob:
         try:
             status = self._owned_status()
         except Exception:return False
-        return status is not None and status.get('tokenCredentialAccount') == account
+        return status is not None and owned_credential_slot(
+            status.get('tokenCredentialAccount'), self.profile) == owned_credential_slot(account, self.profile)
 
     def _apply_identity(self, identity: dict, login_data: dict):
         if not self._owned_login_receipt(login_data):
@@ -463,15 +482,16 @@ class LoginJob:
         path = self._profiles_path / f"{self.profile}.json"
         data = sl.read_json(path, {}) or {}
         vender_id = str(identity.get("venderId") or "")
-        parts = account.rsplit(':', 2)
-        if not vender_id.isdigit() or len(parts) != 3 or parts[1] != self.profile or self.check_expected(identity):
+        owned = owned_credential_slot(account, self.profile)
+        if not vender_id.isdigit() or owned is None or self.check_expected(identity):
             sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方回执、Profile或核店不符，未迁移、未登记。')
-        if account.endswith(':default'):
+        account, slot = owned
+        if slot == 'default':
             destination=account.rsplit(':',1)[0]+':'+vender_id
             if not copy_credential(account,destination,delete_old=False):
                 raise CredentialIsolationError('本任务默认槽定位未完成，保留原Profile/回执，不重发授权。')
-        elif not account.endswith(':'+vender_id):
+        elif slot != vender_id:
             sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方凭据槽与实时核店不符，未迁移。')
         sl.mark_auth_slot(self.profile,vender_id)  # Location is proved; later network failure must not erase it.
@@ -535,8 +555,11 @@ def recover_owned_auth_slot(profile, job_id):
     try:
         login=LoginJob(profile,proof.get('shopName') or '',proof.get('venderId') or '',defer_registry=True)
         login.require_exact_shop_name = proof.get('exactShopName') is True
+        scope = proof.get('nativeDefaultSlotScope')
         namespace = proof.get('nativeDefaultSlotNamespace')
-        if isinstance(namespace, str) and re.fullmatch(r'[\w.-]+(?::[\w.-]+)*', namespace):
+        if isinstance(scope, str) and re.fullmatch(r'[0-9a-f]{16}', scope):
+            account = f'token:{profile}:{scope}:default'
+        elif isinstance(namespace, str) and re.fullmatch(r'[\w.-]+(?::[\w.-]+)*', namespace):
             account = f'{namespace}:{profile}:default'
         else:
             metadata = login._owned_status()

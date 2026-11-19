@@ -80,7 +80,8 @@ class ConnectionExperienceTests(unittest.TestCase):
 
     def test_job_query_reports_lost_job_instead_of_raw_null(self):
         cli=load('job_null_linker',SOURCE/'scripts/linker.py')
-        with patch.object(cli,'api',return_value=(200,{'ok':True,'job':None})):
+        with patch.object(cli,'server_info',return_value={'appDir':str(cli.APP_DIR)}), patch.object(
+                cli,'get_token',return_value='fixture'), patch.object(cli,'http_json',return_value=(200,{'ok':True,'job':None})):
             result=cli.cmd_job(type('Args',(),{})())
         self.assertFalse(result['ok']);self.assertEqual(result['status'],'job_lost')
 

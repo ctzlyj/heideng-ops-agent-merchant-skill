@@ -200,6 +200,13 @@ class SingleFlowTests(unittest.TestCase):
    result=cli.wait_job(0,0,job_id='fixture-job')
   self.assertFalse(result['ok']);self.assertEqual(result['status'],'job_lost');self.assertIn('恢复',result['error'])
 
+ def test_polling_a_closed_job_does_not_start_a_connector(self):
+  cli = self.load('flow_idle_job', SOURCE/'scripts/linker.py')
+  with patch.object(cli, 'server_info', return_value=None), patch.object(cli, 'ensure_server') as start:
+   result = cli.cmd_job(None)
+  self.assertEqual(result['status'], 'job_lost')
+  start.assert_not_called()
+
  def test_no_wait_result_exposes_actual_browser_channel(self):
   cli=self.load('flow_channel_receipt',SOURCE/'scripts/linker.py')
   args=type('Args',(),{'shop':'fixture','profile':None,'no_auth':False,'no_open':False,'no_wait':True,'resume':False,'fresh':False,'browser_config':None,'timeout':3})()
