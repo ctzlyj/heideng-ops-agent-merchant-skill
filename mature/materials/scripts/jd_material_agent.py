@@ -1446,8 +1446,8 @@ class ModelUnauthorized(RuntimeError):
 class ModelModerationBlocked(RuntimeError):
 
     def __init__(self, detail: str=''):
-        message = ('GPT 生图模型池全部被内容安全策略拦截；不要继续重试同一参考图。'
-                   '请改用纯商品参考图（无人物/道具/营销文字）或 JoyAgent-image 兜底。')
+        message = ('本次生图已明确被内容审核拦截。Agent应根据原因重新设计本任务提示词、构图或选用可靠参考图，'
+                   '在已批准范围和剩余预算内继续；不要原样重提失败请求，结果未知时先核对。')
         super().__init__(message + (f'（{detail}）' if detail else ''))
 
 def is_model_unauthorized(error: BaseException) -> bool:
@@ -1937,14 +1937,15 @@ def request_material_image(client, kind, prompt, source, *, model=None):
         return client.edit_material_image(kind, prompt, source, model=selected)
     return client.edit_image(prompt, source, model=selected)
 
-def _request_image_set(client: ModelClient, kinds: Iterable[str], source: Path, title: str | None, scene_model: str | None=None, image_model: str | None=None) -> tuple[dict[str, bytes], dict[str, Exception]]:
+def _request_image_set(client: ModelClient, kinds: Iterable[str], source: Path, title: str | None, scene_model: str | None=None, image_model: str | None=None, *, prompts=None) -> tuple[dict[str, bytes], dict[str, Exception]]:
     kinds = tuple(kinds)
+    prompts=prompts or {}
     results: dict[str, bytes] = {}
     errors: dict[str, Exception] = {}
     if not kinds:
         return (results, errors)
     with ThreadPoolExecutor(max_workers=min(len(kinds), PROVIDER.maximum_image_concurrency)) as image_pool:
-        futures = {image_pool.submit(request_material_image, client, kind, image_prompt(kind, title), source, model=_image_model_for_kind(kind, scene_model, image_model)): kind for kind in kinds}
+        futures = {image_pool.submit(request_material_image, client, kind, prompts.get(kind) or image_prompt(kind, title), source, model=_image_model_for_kind(kind, scene_model, image_model)): kind for kind in kinds}
         for future in as_completed(futures):
             kind = futures[future]
             try:
@@ -1957,7 +1958,7 @@ def _request_image_set(client: ModelClient, kinds: Iterable[str], source: Path, 
         if not isinstance(error, (ModelModerationBlocked, ModelUnauthorized)) or not fallback:
             continue
         try:
-            results[kind] = request_material_image(client, kind, image_prompt(kind, title), source, model=fallback)
+            results[kind] = request_material_image(client, kind, prompts.get(kind) or image_prompt(kind, title), source, model=fallback)
             errors.pop(kind, None)
         except Exception as fallback_error:
             errors[kind] = fallback_error
@@ -2487,6 +2488,43 @@ def _short_titles_are_complete(job: SpuJob, item: dict) -> bool:
     values = item.get('short_titles') or {}
     return all((valid_short_title(values.get(sku_id)) for sku_id in job.short_title_sku_ids))
 
+def validate_image_prompts(payload, spu_ids):
+    if not isinstance(payload,dict):raise ValueError('任务提示词必须是 SPU → 图片类型 → 提示词的 JSON 对象。')
+    known=set(map(str,spu_ids));result={}
+    for spu,kinds in payload.items():
+        if str(spu) not in known:raise ValueError('任务提示词存在当前冻结范围外的 SPU；宿主应对照原计划修正输入。')
+        if not isinstance(kinds,dict) or not kinds:raise ValueError('图片类型提示词必须是非空对象。')
+        result[str(spu)]={}
+        for kind,value in kinds.items():
+            if kind not in IMAGE_SUFFIXES:raise ValueError('任务提示词包含未知图片类型。')
+            entry={'prompt':value} if isinstance(value,str) else dict(value) if isinstance(value,dict) else {}
+            if set(entry)-{'prompt','textOrigin','evidence','rejectedImageUrl'}:raise ValueError('任务提示词存在未识别字段。')
+            prompt=entry.get('prompt')
+            if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>32768 or '\x00' in prompt:raise ValueError('任务提示词为空、过长或格式无效。')
+            if entry.get('textOrigin','unknown') not in ('unknown','product','generated'):raise ValueError('文字来源必须是 unknown/product/generated。')
+            if entry.get('textOrigin') in ('generated','product') and (not isinstance(entry.get('evidence'),str) or not entry['evidence'].strip() or not isinstance(entry.get('rejectedImageUrl'),str) or not entry['rejectedImageUrl'].strip()):
+                raise ValueError('文字来源判断需要宿主看图证据与对应驳回图片 URL。')
+            result[str(spu)][kind]=entry
+    return result
+
+
+def load_image_prompts(path, spu_ids):
+    source=Path(path)
+    if source.stat().st_size>1024*1024:raise ValueError('任务提示词文件超过 1 MiB。')
+    def unique_fields(pairs):
+        result={}
+        for key,value in pairs:
+            if key in result:raise ValueError('任务提示词 JSON 存在重复 SPU/类型字段。')
+            result[key]=value
+        return result
+    return validate_image_prompts(json.loads(source.read_text(encoding='utf-8-sig'),object_pairs_hook=unique_fields),spu_ids)
+
+
+def image_prompt_revision(entry, *, request_only=False):
+    payload=entry.get('prompt') if entry and request_only else entry
+    return hashlib.sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest() if entry else ''
+
+
 def load_agent_text(path: str | Path) -> dict[str, Any]:
     source = Path(path)
     def unique_fields(pairs):
@@ -2661,9 +2699,10 @@ def _write_results(prepared: PreparedSource, output: Path, state: dict, failures
     return BatchResult(len(prepared.jobs), len(completed), len(incomplete), output, manifest_path, short_title_path, failure_path)
 
 @measured_stage('generation', 'output_dir')
-def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_dir: str | Path, *, spu_concurrency: int=5, image_concurrency: int | None=None, timeout: float=600.0, existing_url_exports: Iterable[str | Path]=(), existing_materials: dict[str, dict[str, Any]] | None=None, agent_text: dict[str, Any] | None=None, scene_image_model: str | None=None, image_model: str | None=None, text_model: str | None=None, model_client_factory=None, joyagent_adapter=None) -> BatchResult:
+def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_dir: str | Path, *, spu_concurrency: int=5, image_concurrency: int | None=None, timeout: float=600.0, existing_url_exports: Iterable[str | Path]=(), existing_materials: dict[str, dict[str, Any]] | None=None, agent_text: dict[str, Any] | None=None, scene_image_model: str | None=None, image_model: str | None=None, text_model: str | None=None, model_client_factory=None, joyagent_adapter=None, image_prompts=None) -> BatchResult:
     if not 1 <= spu_concurrency <= MAX_SPU_CONCURRENCY:
         raise ValueError('SPU 并发必须为 1-50。')
+    image_prompts=validate_image_prompts(image_prompts or {},[job.spu_id for job in prepared.jobs])
     if text_model == 'agent':text_model = None
     _image_model_for_kind('scene1', scene_image_model, image_model)
     output = Path(output_dir)
@@ -2784,6 +2823,9 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
 
     @stage_timer(output, 'images')
     def process_images(job: SpuJob, item: dict) -> None:
+        entries=image_prompts.get(job.spu_id,{})
+        job_prompts={kind:entry['prompt'] for kind,entry in entries.items() if kind!='transparent'}
+        if job.needs_transparent and 'white' not in job_prompts and 'transparent' in entries:job_prompts['white']=entries['transparent']['prompt']
         names = image_names(job.spu_id)
         uploaded = item.get('uploaded_urls') or {}
         required_model_kinds = _model_kinds(job)
@@ -2791,9 +2833,13 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
         if pending:
             assert client is not None
             source = resolve_reference(reference_dir, job)
-            recovery = dict(item.get('moderation_recovery') or {})
+            recovery = {} if job_prompts else dict(item.get('moderation_recovery') or {})
+            if job_prompts:
+                save_job(job.spu_id,'image_prompt_revisions',{kind:image_prompt_revision(entry) for kind,entry in entries.items()})
+                for kind,entry in entries.items():
+                    _save_state(output/'.state/image-prompts'/f'{job.spu_id}-{kind}-{image_prompt_revision(entry)}.json',entry)
             if recovery.get('normal_status') != 'blocked':
-                results, errors = _request_image_set(client, pending, source, job.title, scene_model=scene_image_model, image_model=image_model)
+                results, errors = _request_image_set(client, pending, source, job.title, scene_model=scene_image_model, image_model=image_model,**({'prompts':job_prompts} if job_prompts else {}))
                 # Gateway disconnect waves (peer closed/timeouts across every pool model) used to fail the whole
                 # SPU and wait for a manual rerun; retry only the transiently failed kinds a few times in-run.
                 for retry_round in range(1, 4):
@@ -2801,7 +2847,7 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
                     if not transient:
                         break
                     time.sleep(3 * retry_round)
-                    retried, retried_errors = _request_image_set(client, transient, source, job.title, scene_model=scene_image_model, image_model=image_model)
+                    retried, retried_errors = _request_image_set(client, transient, source, job.title, scene_model=scene_image_model, image_model=image_model,**({'prompts':job_prompts} if job_prompts else {}))
                     results.update(retried)
                     for kind in transient:
                         errors.pop(kind, None)
@@ -2819,7 +2865,7 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
                 if recovery.get('titleless_status') not in {'failed', 'succeeded'}:
                     recovery['titleless_status'] = 'running'
                     save_job(job.spu_id, 'moderation_recovery', recovery)
-                    results, errors = _request_image_set(client, required_model_kinds, source, None, scene_model=scene_image_model, image_model=image_model)
+                    results, errors = _request_image_set(client, required_model_kinds, source, None, scene_model=scene_image_model, image_model=image_model,**({'prompts':job_prompts} if job_prompts else {}))
                     if not errors and set(results) == set(required_model_kinds):
                         _commit_staged_images(results, images, names, job.spu_id)
                         recovery['titleless_status'] = 'succeeded'
@@ -2841,7 +2887,7 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
                         recovery['status'] = 'running'
                         save_job(job.spu_id, 'moderation_recovery', recovery)
                         try:
-                            white = request_material_image(client, 'white', image_prompt('white', None), candidate, model='pool')
+                            white = request_material_image(client,'white',job_prompts.get('white') or image_prompt('white',None),candidate,model='pool')
                         except Exception as error:
                             if is_moderation_error(error):
                                 continue
@@ -2852,7 +2898,7 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
                         if job.needs_transparent:
                             make_transparent(images / names['white'], images / names['transparent'])
                         derived = [kind for kind in required_model_kinds if kind != 'white' and (not valid_material_image(images / names[kind], kind))]
-                        results, errors = _request_image_set(client, derived, images / names['white'], None, scene_model=scene_image_model, image_model=image_model)
+                        results, errors = _request_image_set(client, derived, images / names['white'], None, scene_model=scene_image_model, image_model=image_model,**({'prompts':job_prompts} if job_prompts else {}))
                         if errors:
                             recovery['status'] = 'failed'
                             save_job(job.spu_id, 'moderation_recovery', recovery)
@@ -3223,6 +3269,7 @@ def host_task_handoff(prepared, output, seller, profile=None):
         execute+=['--target-spu-id',next(iter(selected))]
     return {'schemaVersion':1,'taskDirectory':str(output),'planHash':frozen['planHash'],'shopIdentity':_shop_identity(seller),
             'scope':{'spuIds':[j.spu_id for j in prepared.jobs],'skuIds':[r.sku_id for r in prepared.rows]},
+            'imagePromptInput':{'file':str(output/'host-image-prompts.json'),'optional':True,'option':'--image-prompts-file','scope':'当前冻结SPU/实际图片类型；宿主依据参考图与审核原因设计完整提示词','format':'{SPUID:{white|transparent|scene1|scene2|selling:prompt_or_reviewed_entry}}'},
             'facts':facts,'textInput':{'file':str(output/'host-text.json'),'neededSellingPointSpuIds':needs_points,
               'neededShortTitleSkuIds':needs_titles,'schema':{'type':'object','required':['sellingPoints','shortTitles'],
               'properties':{'sellingPoints':{'type':'object','additionalProperties':{'type':'array','minItems':3,'maxItems':3,'items':{'type':'string'}}},
@@ -3331,6 +3378,7 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
     prepared, reference_urls, existing_materials, source_path = load_pop_auto_maintain_plan(output, seller, target_spu_id)
     prepared, batch_image_handoff = route_jingmai_batch_images(prepared, model_cutout_images=getattr(args, "model_cutout_images", False))
     agent_text = load_scoped_agent_text(args.agent_text_file,prepared,output,seller) if getattr(args, 'agent_text_file', None) else None
+    image_prompts=load_image_prompts(args.image_prompts_file,[job.spu_id for job in prepared.jobs]) if getattr(args,'image_prompts_file',None) else {}
     batch_payloads = []
     for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
         batch = _subset_prepared(prepared, rows)
@@ -3354,7 +3402,7 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
                 _download_reference(url, target_reference, args.timeout)
             except Exception as error:
                 reference_failures.append({'spuId': job.spu_id, 'error': str(error)})
-        generation = generate_batch(batch, references, batch_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_materials={job.spu_id: existing_materials.get(job.spu_id, {}) for job in batch.jobs}, agent_text=_batch_agent_text(agent_text, batch), scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None))
+        generation = generate_batch(batch, references, batch_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_materials={job.spu_id: existing_materials.get(job.spu_id, {}) for job in batch.jobs}, agent_text=_batch_agent_text(agent_text, batch), scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), image_prompts={job.spu_id:image_prompts[job.spu_id] for job in batch.jobs if job.spu_id in image_prompts})
         batch_payloads.append({'batch': index, 'spuCount': len(batch.jobs), 'skuCount': len(batch.rows), 'completedSpus': generation.completed_spus, 'failedSpus': generation.failed_spus, 'referenceFailures': reference_failures, 'manifest': str(generation.manifest_path) if generation.manifest_path else None, 'shortTitles': str(generation.short_title_path) if generation.short_title_path else None, 'failureWorkbook': str(generation.failure_path) if generation.failure_path else None})
     has_failures = any((batch['failedSpus'] or batch['referenceFailures'] for batch in batch_payloads))
     delivery = export_short_title_delivery([(prepared, output)], output, shop_name=_shop_identity(seller)['shopName'])
@@ -3390,6 +3438,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
         prepared = replace(prepared, jobs=tuple(replace(job, needs_transparent=False) for job in prepared.jobs))
     prepared, batch_image_handoff = route_jingmai_batch_images(prepared, model_cutout_images=getattr(args, 'model_cutout_images', False))
     agent_text = load_scoped_agent_text(args.agent_text_file,prepared,output,seller) if getattr(args, 'agent_text_file', None) else None
+    image_prompts=load_image_prompts(args.image_prompts_file,[job.spu_id for job in prepared.jobs]) if getattr(args,'image_prompts_file',None) else {}
     if not prepared.jobs:
         return {'status': 'no-work', 'batchImageHandoff': [], 'source': str(source_path), 'skuCount': 0, 'spuCount': 0, 'batches': [], 'browserRequired': False, 'planReused': plan_reused, 'verificationMode': getattr(args, 'verification_mode', 'submit-only'), 'manualVerificationRequired': False, 'manualVerificationMessage': None}
     if args.upload_mode != 'browser' and any(_has_material_work(job) for job in prepared.jobs):
@@ -3435,7 +3484,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
                 _download_reference(url, target_reference, args.timeout)
             except Exception as error:
                 reference_failures.append({'spuId': job.spu_id, 'error': str(error)})
-        generation = generate_batch(batch, references, batch_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_materials={job.spu_id: existing_materials.get(job.spu_id, {}) for job in batch.jobs}, agent_text=_batch_agent_text(agent_text, batch), scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), joyagent_adapter=getattr(args, 'joyagent_adapter', None))
+        generation = generate_batch(batch, references, batch_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_materials={job.spu_id: existing_materials.get(job.spu_id, {}) for job in batch.jobs}, agent_text=_batch_agent_text(agent_text, batch), scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), joyagent_adapter=getattr(args, 'joyagent_adapter', None), image_prompts={job.spu_id:image_prompts[job.spu_id] for job in batch.jobs if job.spu_id in image_prompts})
         upload = None
         finalization = None
         binding = None
@@ -3491,7 +3540,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
     repair_result = {'status': 'not-requested'}
     if getattr(args, 'repair_rejected', False):
         from pop_repair import run_rejected_repairs
-        repair_args = argparse.Namespace(max_model_requests=getattr(args,'max_repair_model_requests',None),repair_kinds=getattr(args,'repair_kind',None),no_paid_generation=not bool(getattr(args,'paid_repairs',False)), excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
+        repair_args = argparse.Namespace(image_prompts_file=getattr(args,'image_prompts_file',None),max_model_requests=getattr(args,'max_repair_model_requests',None),repair_kinds=getattr(args,'repair_kind',None),no_paid_generation=not bool(getattr(args,'paid_repairs',False)), excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
         try: repair_result = run_rejected_repairs(repair_args, sys.modules[__name__])
         except JdoWriteUncertainError: raise
         except Exception as error: repair_result = {'status': 'repair-incomplete', 'failureClass': type(error).__name__, 'reason': 'Repair scope/dependency not ready; preserve frozen audit and receipts'}
@@ -3942,6 +3991,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument('--sheet')
     generate.add_argument('--reference-dir', required=True, type=Path)
     generate.add_argument('--output-dir', required=True, type=Path)
+    generate.add_argument('--image-prompts-file',type=Path,help='宿主按当前冻结 SPU/类型设计的任务级完整提示词；可替换默认模板，不扩大费用或范围。')
     generate.add_argument('--spu-concurrency', type=int, default=5)
     generate.add_argument('--image-concurrency', type=int)
     generate.add_argument('--timeout', type=float, default=600)
@@ -3968,6 +4018,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_auto = sub.add_parser('generate-auto-maintain')
     generate_auto.add_argument('--business-mode', choices=('pop',), default='pop')
     generate_auto.add_argument('--output-dir', required=True, type=Path)
+    generate_auto.add_argument('--image-prompts-file',type=Path,help='宿主按当前冻结 SPU/类型设计的任务级完整提示词；可替换默认模板，不扩大费用或范围。')
     generate_auto.add_argument('--profile')
     generate_auto.add_argument('--expected-shop-name')
     generate_auto.add_argument('--target-spu-id')
@@ -4000,6 +4051,7 @@ def build_parser() -> argparse.ArgumentParser:
     repair.add_argument('--profile', required=True)
     repair.add_argument('--expected-shop-name', required=True)
     repair.add_argument('--output-dir', type=Path, required=True)
+    repair.add_argument('--image-prompts-file',type=Path,help='宿主按当前冻结 SPU/类型设计的任务级完整提示词；可替换默认模板，不扩大费用或范围。')
     repair.add_argument('--confirm', required=True)
     repair.add_argument('--image-concurrency', type=int, default=20)
     repair.add_argument('--timeout', type=float, default=180)
@@ -4015,6 +4067,7 @@ def build_parser() -> argparse.ArgumentParser:
     auto = sub.add_parser('auto-maintain')
     auto.add_argument('--business-mode', choices=('pop',), default='pop')
     auto.add_argument('--output-dir', type=Path)
+    auto.add_argument('--image-prompts-file',type=Path,help='宿主按当前冻结 SPU/类型设计的任务级完整提示词；可替换默认模板，不扩大费用或范围。')
     auto.add_argument('--category-id', type=int)
     auto.add_argument('--category-name')
     auto.add_argument('--profile')
@@ -4207,7 +4260,7 @@ def main(argv: list[str] | None=None) -> int:
         for path in write_split_sources(prepared, args.output_dir):
             print(path.resolve())
         return 0
-    result = generate_batch(prepared, args.reference_dir, args.output_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_url_exports=args.existing_url_export, agent_text=load_agent_text(args.agent_text_file) if getattr(args, 'agent_text_file', None) else None, scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None))
+    result = generate_batch(prepared, args.reference_dir, args.output_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_url_exports=args.existing_url_export, agent_text=load_agent_text(args.agent_text_file) if getattr(args, 'agent_text_file', None) else None, scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), image_prompts=load_image_prompts(args.image_prompts_file,[job.spu_id for job in prepared.jobs]) if getattr(args,'image_prompts_file',None) else None)
     payload = asdict(result)
     for key in ('output_dir', 'manifest_path', 'short_title_path', 'failure_path'):
         payload[key] = str(payload[key]) if payload[key] else None

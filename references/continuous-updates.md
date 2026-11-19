@@ -28,7 +28,7 @@ python scripts/merchant.py update usage begin --task-id <本任务唯一非敏�
 
 未知写入可用 heartbeat 的 `--receipt <原业务回执路径>` 记录恢复引用；它只是版本使用/恢复标记，不复制凭据或新增业务状态机。实际unknown由原业务读取/关联远端处理，不能因软件升级重提。旧快照不自动垃圾回收，避免破坏恢复。
 
-磁盘更新后status显示diskVersion与hostRefreshRequired；当前任务/聊天不声称立即换提示词。WorkBuddy/JoyCode在允许的刷新节点/新任务加载新版；如宿主缓存仍旧，由宿主安排重新加载或新任务，不能擅自重启/清空聊天。此协议未做所有宿主实机验证，宿主必须实际执行使用标记，不能声称捕获了所有隐式文件读取。
+磁盘更新后status显示diskVersion与hostRefreshRequired；当前任务/聊天不声称已经自动换掉加载的 Skill 代码/经验版本；这不限制任务生图提示词按需要重新设计。WorkBuddy/JoyCode在允许的刷新节点/新任务加载新版；如宿主缓存仍旧，由宿主安排重新加载或新任务，不能擅自重启/清空聊天。此协议未做所有宿主实机验证，宿主必须实际执行使用标记，不能声称捕获了所有隐式文件读取。
 
 ## 失败、撤回和恢复
 

@@ -24,7 +24,7 @@ def _receipt_facts(value):
                row_states.count('rejected')+row_states.count('blocked')+row_states.count('unknown'))
     pending=max(_count(value.get('pendingReviewCount')), _count(value.get('pending_spus')), row_states.count('pending'))
     unknown=('unknown' in status or any('unknown' in item for item in row_states))
-    blocked=(_count(value.get('remainingImageSlotCount'))>0 or failed>0 or any(word in status for word in ('incomplete','with-failures','blocked','partial-titles','failed'))
+    blocked=(_count(value.get('imageReviewRequired'))>0 or _count(value.get('remainingImageSlotCount'))>0 or failed>0 or any(word in status for word in ('incomplete','with-failures','blocked','partial-titles','failed'))
              or value.get('allVerified') is False or bool(value.get('blocked')))
     waiting=pending>0 or ('review' in status and value.get('allApproved') is not True)
     submitted=status.startswith(('submitted','jingmai-submitted','repairs-submitted')) or status=='appeal-only'
@@ -84,6 +84,9 @@ def task_summary(payload):
             'submitted':'可以离开；从原任务核对平台结果，不重复提交。',
             'prepared':'沿用本次计划与输入，由Agent继续已授权范围；新费用另行确认。',
             'completed':'查看交付结果。'}[phase]
+    if phase=='needs-agent-action' and _count(value.get('imageReviewRequired'))>0:
+        message='先由Agent查看驳回图、核实文字来源，再按实际原因重新设计本任务提示词；不是要求商家手工修图。'
+        action='读取imageReviewRequired和可靠参考图；额外生成文字按原任务/剩余预算修复，商品真实印刷误驳回走申诉。'
     if phase=='needs-merchant-action' and value.get('manualAppealRequired'):
         message='原申诉清单已生成但尚未提交；请按审核原因处理，不重复付费生图。'
         action='按原审核原因处理申诉；Agent继续核对其余剩余项，不重复提交或扩大付费范围。'
