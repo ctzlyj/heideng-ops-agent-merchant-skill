@@ -48,6 +48,21 @@ class RepairScopeTests(unittest.TestCase):
     setUp=helpers.MatureMaterialsTests.setUp
     tearDown=helpers.MatureMaterialsTests.tearDown
     agent=helpers.MatureMaterialsTests.agent
+    def test_shared_reference_and_durable_request_budget(self):
+        self.agent()
+        import pop_repair
+        from tempfile import TemporaryDirectory
+        rows=[{'skuId':'1','productId':'10'},{'skuId':'2','productId':'10'}]
+        sources={'1':{'logo':'a'},'2':{'logo':'b'}}
+        self.assertEqual(pop_repair.repair_references(rows,sources,{}),{'1':('1','a'),'2':('1','a')})
+        self.assertEqual(pop_repair.repair_references(rows,sources,{},'sku')['2'],('2','sku:2|b'))
+        with TemporaryDirectory() as directory:
+            reserve,_=pop_repair.repair_request_budget(Path(directory),2,ValueError)
+            reserve()
+            resume,budget=pop_repair.repair_request_budget(Path(directory),None,ValueError)
+            resume()
+            self.assertEqual(budget,{'limit':2,'reserved':2})
+            with self.assertRaisesRegex(ValueError,'budget-exhausted'):resume()
     def test_explicit_repair_kind_never_includes_other_rejected_or_missing_slots(self):
         a=self.agent();import pop_repair
         rows=[{'skuId':'1','productId':'11','slots':{'white':{'state':'rejected'},'scene1':{'state':'rejected'},'selling':{'state':'missing'}}}]

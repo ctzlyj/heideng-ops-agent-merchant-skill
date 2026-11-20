@@ -91,6 +91,80 @@ class SingleFlowTests(unittest.TestCase):
   page=Mock();page.evaluate.side_effect=lambda script:'fixture-shop' if '#shop-base-name' in script else None
   self.assertEqual(_identity(page),{'shopName':'fixture-shop'})
 
+ def test_empty_and_generic_identity_nodes_do_not_hide_the_visible_shop(self):
+  from heideng_merchant.host_connection_controller import _identity
+  page = Mock()
+  page.evaluate.return_value = ['', '店铺', 'fixture-shop']
+  self.assertEqual(_identity(page), {'shopName': 'fixture-shop'})
+
+ def test_resumed_profile_opens_the_workspace_before_the_login_form(self):
+  from heideng_merchant import host_connection_controller as controller
+  with tempfile.TemporaryDirectory() as directory:
+   host = controller.HostConnectionController(state=directory, shop_identity={'shopName': 'fixture-shop'})
+   host.page = Mock(url='about:blank')
+   host.page.goto.side_effect = lambda url, **kwargs: setattr(host.page, 'url', url)
+   with patch.object(host, '_load', return_value={'contextId': 'owned'}), patch.object(
+       host, '_launch'), patch.object(host, '_result', return_value={'ok': True}):
+    self.assertTrue(host._open_login({})['ok'])
+   host.page.goto.assert_called_once_with(controller.WORKSPACE_URL, wait_until='domcontentloaded', timeout=10000)
+
+ def test_unrecognized_official_consent_form_waits_for_the_merchant(self):
+  from heideng_merchant.host_connection_controller import HostConnectionController
+  with tempfile.TemporaryDirectory() as directory:
+   host = HostConnectionController(state=directory, shop_identity={'shopName': 'fixture-shop'})
+   host.page = Mock(url='https://open-oauth.jd.com/oauth2/to_login')
+   with patch.object(host, '_launch'), patch.object(host, '_observe', return_value={}), patch.object(
+       host, '_result', side_effect=lambda extra=None: {'ok': True, **(extra or {})}):
+    self.assertIn('challenge', host._confirm())
+   host.page.locator.assert_not_called()
+   host.page.get_by_role.assert_not_called()
+
+ def test_confirmed_shop_name_preserves_the_original_owned_browser_identity(self):
+  cli = self.load('flow_confirmed_alias', SOURCE/'scripts/linker.py')
+  args = type('Args', (), {'shop':'fixture alias', 'profile':None, 'no_auth':False, 'no_open':False,
+                          'no_wait':False, 'resume':True, 'browser_config':None, 'timeout':60,
+                          'confirmed_shop_name':'fixture official name'})()
+  pending = {'query':args.shop, 'shopName':args.shop, 'venderId':'', 'jobId':'previous',
+             'processRunning':False, 'outcome':'login_timeout'}
+  started = {'ok':True, 'status':'awaiting_auth', 'profile':'fixture-new', 'jobId':'next'}
+  with patch.object(cli,'_env_blockers',return_value=None), patch.object(
+      cli.sl,'resolve',return_value={'status':'needs_auth','shopName':args.shop,'suggestedProfile':'fixture-profile'}), patch.object(
+      cli.sl,'load_pending',return_value=pending), patch.object(cli.sl,'save_pending') as save, patch.object(
+      cli,'ensure_embedded_server'), patch.object(cli,'wait_job',return_value={'status':'awaiting_auth'}), patch.object(
+      cli,'api',return_value=(200,started)) as api:
+   cli._cmd_ensure_shop(args, wait_timeout=60)
+   payload = api.call_args.args[1]
+   self.assertEqual(payload['shopName'], args.confirmed_shop_name)
+   self.assertEqual(payload['browserConfig']['shopIdentity']['shopName'], args.shop)
+   self.assertEqual(save.call_args.args[0]['confirmedShopName'], args.confirmed_shop_name)
+   pending['outcome'] = 'callback_unknown'
+   api.reset_mock()
+   result = cli._cmd_ensure_shop(args, wait_timeout=60)
+   self.assertEqual(result['status'], 'blocked')
+   api.assert_not_called()
+
+ def test_confirmed_name_requires_exact_match_in_browser_and_cli(self):
+  browser_auth = self.load('flow_exact_browser_name', SOURCE/'app/browser_auth.py')
+  name = 'fixture official'
+  job = browser_auth.BrowserAuthJob('fixture-profile', name, browser=Mock(),
+                                   browser_config={'provider':'builtin','confirmedShopName':name})
+  self.assertTrue(job._browser_matches({'shopName':name}))
+  self.assertFalse(job._browser_matches({'shopName':name+' other'}))
+  self.assertTrue(job._matches({'shopName':name,'venderId':'123'}))
+  self.assertFalse(job._matches({'shopName':name+' other','venderId':'123'}))
+
+ def test_closed_name_mismatch_can_resume_the_original_browser(self):
+  cli = self.load('flow_closed_name_mismatch', SOURCE/'scripts/linker.py')
+  args = type('Args', (), {'no_wait':False,'no_open':False,'browser_config':None,'timeout':60})()
+  pending = {'jobId':'original','query':'fixture alias'}
+  snapshot = {'id':'original','status':'mismatch','stage':'mismatch','errorKind':'mismatch','cleanupComplete':True}
+  with patch.object(cli, '_cmd_ensure_shop', return_value={'ok':False,'status':'mismatch'}), patch.object(
+      cli, 'close_embedded_server', return_value=snapshot), patch.object(cli.sl,'load_pending',return_value=pending), patch.object(
+      cli.sl, 'save_pending') as save:
+   result = cli.cmd_ensure_shop(args)
+  self.assertEqual(result['status'], 'mismatch')
+  save.assert_called_once_with({**pending,'stage':'mismatch','outcome':'mismatch','processRunning':False})
+
  def test_name_only_workspace_identity_can_reach_official_oauth(self):
   import threading
   m=self.load('flow_name_only_auth',SOURCE/'app/browser_auth.py')
@@ -125,6 +199,88 @@ class SingleFlowTests(unittest.TestCase):
   with patch.object(cli,'api',return_value=(200,{'ok':True,'job':None})):
    result=cli.wait_job(0,0,job_id='fixture-job')
   self.assertFalse(result['ok']);self.assertEqual(result['status'],'job_lost');self.assertIn('恢复',result['error'])
+
+ def test_polling_a_closed_job_does_not_start_a_connector(self):
+  cli = self.load('flow_idle_job', SOURCE/'scripts/linker.py')
+  with patch.object(cli, 'server_info', return_value=None), patch.object(cli, 'ensure_server') as start:
+   result = cli.cmd_job(None)
+  self.assertEqual(result['status'], 'job_lost')
+  start.assert_not_called()
+
+ def test_foreground_ready_connection_backfills_shortcut_and_readonly_probe_does_not(self):
+  cli = self.load('flow_ready_shortcut', SOURCE/'scripts/linker.py')
+  ready = {'ok':True,'status':'ready','profile':'fixture-profile','shopName':'fixture-shop','venderId':'123'}
+  args = type('Args', (), {'timeout':60, 'no_auth':False})()
+  shortcut = {'status':'existing','path':'fixture'}
+  with patch.object(cli,'_cmd_ensure_shop',side_effect=lambda *a: dict(ready)), patch.object(
+      cli,'close_embedded_server',return_value=None), patch.object(
+      cli.sl,'ensure_desktop_shortcut',return_value=shortcut) as ensure:
+   self.assertEqual(cli.cmd_ensure_shop(args)['desktopShortcut'], shortcut)
+   ensure.assert_called_once_with(ready['profile'], {'shopName':ready['shopName'],'shopId':None,'venderId':ready['venderId']})
+   args.no_auth=True
+   self.assertNotIn('desktopShortcut', cli.cmd_ensure_shop(args))
+   ensure.assert_called_once()
+
+ def test_verified_new_authorization_returns_shortcut_result_without_changing_ready(self):
+  browser_auth = self.load('flow_new_shortcut', SOURCE/'app/browser_auth.py')
+  job = browser_auth.BrowserAuthJob('fixture-profile', 'fixture-shop', '123', browser=Mock())
+  identity = {'shopName':'fixture-shop','venderId':'123','shopId':'456'}
+  shortcut = {'status':'unavailable','reason':'desktop-directory-unavailable'}
+  with patch.object(browser_auth.sl,'require_auth_slot'), patch.object(
+      browser_auth.sl,'verify_profile',return_value=identity), patch.object(
+      browser_auth.sl,'update_registry') as registry, patch(
+      'heideng_merchant.mature_runtime.merchant_profile_directory',return_value=None), patch.object(
+      browser_auth.sl,'ensure_desktop_shortcut',return_value=shortcut) as ensure:
+   job._verify_and_commit()
+   registry.assert_called_once_with(job.profile,identity,extra=None)
+   ensure.assert_called_once_with(job.profile,identity)
+  self.assertEqual(job.to_dict()['status'], 'success')
+  self.assertEqual(job.to_dict()['desktopShortcut'], shortcut)
+
+ def test_shop_shortcut_keeps_same_shop_profile_and_uses_an_alternate_on_collision(self):
+  shoplib = self.load('fixture_desktop_shoplib', SOURCE/'app/shoplib.py')
+  identity = {'shopName':'fixture/store','venderId':'123','shopId':'456'}
+  with tempfile.TemporaryDirectory() as temporary:
+   root = Path(temporary)
+   desktop = root/'Desktop'
+   desktop.mkdir()
+   state = root/'state'
+   browser_profile = state/'browser-profiles'/'owned profile'
+   browser_profile.mkdir(parents=True)
+   entry = {**identity,'browserProfileDir':str(browser_profile),'browserChannel':'msedge'}
+   with patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':str(state),'JINGMAI_LINKER_HOME':str(state/'linker')}), patch.object(
+       shoplib,'load_registry',return_value={'profiles':{'fixture-profile':entry}}), patch.object(
+       shoplib,'_merchant_desktop',return_value=desktop), patch.object(
+       shoplib,'_desktop_browser',return_value=Path(sys.executable)), patch.object(
+       shoplib,'_write_browser_shortcut',side_effect=[FileExistsError(), 'created']) as write:
+    result = shoplib.ensure_desktop_shortcut('fixture-profile', identity)
+    self.assertEqual(result['status'],'created')
+    path=Path(result['path'])
+    self.assertEqual(path.parent, desktop)
+    self.assertRegex(path.stem, r'^黑灯-fixture-store-[0-9a-f]{8}$')
+    command=write.call_args.args[1]
+    self.assertIn(f'--user-data-dir={browser_profile}',command)
+    self.assertEqual(command[-1],'https://shop.jd.com/jdm/home')
+    entry['browserProfileDir']=str(desktop)
+    self.assertEqual(shoplib.ensure_desktop_shortcut('fixture-profile',identity)['reason'],'shop-browser-profile-unavailable')
+    self.assertEqual(write.call_count,2)
+
+ def test_shortcut_write_is_idempotent_and_updates_only_the_managed_link(self):
+  shoplib = self.load('fixture_shortcut_writer', SOURCE/'app/shoplib.py')
+  with tempfile.TemporaryDirectory() as directory:
+   suffix='.lnk' if os.name=='nt' else '.command'
+   path=Path(directory)/('Fixture Shop'+suffix)
+   first=[sys.executable,'--user-data-dir=First profile','https://shop.jd.com/jdm/home']
+   second=[sys.executable,'--user-data-dir=Second profile','https://shop.jd.com/jdm/home']
+   self.assertEqual(shoplib._write_browser_shortcut(path,first,'Heideng fixture A'),'created')
+   original=path.read_bytes()
+   self.assertEqual(shoplib._write_browser_shortcut(path,first,'Heideng fixture A'),'existing')
+   self.assertEqual(path.read_bytes(),original)
+   with self.assertRaises(FileExistsError):
+    shoplib._write_browser_shortcut(path,second,'Heideng fixture B')
+   self.assertEqual(path.read_bytes(),original)
+   self.assertEqual(shoplib._write_browser_shortcut(path,second,'Heideng fixture A'),'created')
+   self.assertEqual(shoplib._write_browser_shortcut(path,second,'Heideng fixture A'),'existing')
 
  def test_no_wait_result_exposes_actual_browser_channel(self):
   cli=self.load('flow_channel_receipt',SOURCE/'scripts/linker.py')

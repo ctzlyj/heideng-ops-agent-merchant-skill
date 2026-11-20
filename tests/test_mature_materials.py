@@ -58,6 +58,50 @@ class MatureMaterialsTests(unittest.TestCase):
         path,meta=source_path('materials');self.assertEqual(path,SOURCE/'scripts/jd_material_agent.py')
         self.assertEqual(meta['upstreamCommit'],'b56b22376db88182352d3f64ea3e9752d4ae5677')
         self.assertTrue((SOURCE/'assets/商品导入短标题模板.xlsx').is_file())
+
+    def test_targeted_title_export_uses_the_original_frozen_batch_in_a_separate_destination(self):
+        a = self.agent()
+        with tempfile.TemporaryDirectory() as d:
+            run = Path(d) / 'original'
+            run.mkdir()
+            output = Path(d) / 'delivery'
+            source = run / 'source.xlsx'
+            source.write_bytes(b'fixture source')
+            rows = (a.SourceRow('101', 'first', '201'), a.SourceRow('102', 'other', '202'))
+            jobs = tuple(a.SpuJob(row.spu_id, row.sku_id, row.title, (row.sku_id,),
+                                  ((row.sku_id, row.title),), (row.sku_id,)) for row in rows)
+            full = a.PreparedSource('jdo-pop', 'Sheet1', (), rows, jobs, 2, 0, 0)
+            identity = {'shopName': 'fixture', 'shopId': '801', 'venderId': '802'}
+            a.write_pop_auto_maintain_plan(full, {}, {}, identity, run, source, target_spu_id=None)
+            scoped = a._subset_prepared(full, [rows[0]])
+            batch = run / '批次001'
+            state_path = batch / '.state' / 'task.json'
+            state = a._load_state(state_path)
+            a._bind_state(state, scoped, state_path)
+            self.assertEqual(state['task_signature'], a._task_signature(full))
+            title = '保暖纯棉圆领长袖上衣'
+            state['jobs']['201']['short_titles'] = {'101': title}
+            a._save_state(state_path, state)
+            workbook = batch / '商品导入短标题模板_已回填.xlsx'
+            workbook.write_bytes(a._short_title_workbook_bytes([('101', title)]))
+            result = a.export_short_title_delivery([(scoped, run)], output, shop_name='fixture')
+            self.assertEqual(result['rowCount'], 1)
+            self.assertEqual(Path(result['shortTitleFiles'][0]).parent, output)
+
+    def test_missing_selling_point_uses_the_whole_group_and_keeps_approved_values(self):
+        a = self.agent()
+        from pop_safety import missing_only_requests
+        sku = '101'
+        job = a.SpuJob('201', sku, 'fixture', (sku,), ((sku, 'fixture'),),
+                       needs_white=False, needs_scenes=False, needs_selling_image=False, needs_transparent=False)
+        request = a.build_material_binding_requests(job, {'selling_points': ['原案设想', '室内使用', '便携移动']})
+        old = {**a._binding_material(1002, 1, '原已通过', sku), 'status': 4}
+        group = missing_only_requests(request, {sku: [old]})[0]
+        materials = group['body']['skuMaterials'][0]['materials']
+        self.assertEqual([a._material_value(item) for item in materials], ['原已通过', '室内使用', '便携移动'])
+        actual = [{**item, 'status': 4} for item in materials]
+        self.assertEqual(a._evaluate_binding_request(group, {sku: actual})[0], 'approved')
+        self.assertEqual(missing_only_requests(request, {sku: [{**old, 'status': 3}]}), [])
     def test_pop_title_workbook_validation_retains_mature_contract(self):
         a=self.agent()
         with tempfile.TemporaryDirectory() as d:

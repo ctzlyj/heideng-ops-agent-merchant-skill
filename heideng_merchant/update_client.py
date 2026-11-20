@@ -157,13 +157,16 @@ def usage(state, action, task_id, *, components=None, receipt=None, loaded_versi
         if loaded_version:
             version_key(loaded_version)
             found = next((p for p in (root / 'versions').glob(loaded_version + '-*/' + SKILL_NAME) if verify_install(p)['valid']), None)
-            if found is None: raise SafetyError('requested-loaded-version-snapshot-unavailable')
-            value = {'taskId':task_id,'loadedVersion':loaded_version,'packageRoot':str(found),'active':True,'expiresAt':time.time()+LEASE_SECONDS,'components':components or ['all'],'recoveryReceipt':str(Path(receipt).resolve()) if receipt else None}
-            atomic_json(path,value); return value
+            if found is not None:
+                value = {'taskId':task_id,'loadedVersion':loaded_version,'packageRoot':str(found),'active':True,'expiresAt':time.time()+LEASE_SECONDS,'components':components or ['all'],'recoveryReceipt':str(Path(receipt).resolve()) if receipt else None}
+                atomic_json(path,value); return value
         with FileLock(Path(state) / "install.lock", shared=True):
             installed = verify_install(target)
             if not installed["valid"]: raise SafetyError("usage-installation-modified")
-            version = installed["version"]; snapshot = root / "versions" / (version + "-" + installed["receipt"]["archiveSha256"][:16]) / SKILL_NAME
+            version = installed["version"]
+            if loaded_version and loaded_version != version:
+                raise SafetyError('requested-loaded-version-snapshot-unavailable')
+            snapshot = root / "versions" / (version + "-" + installed["receipt"]["archiveSha256"][:16]) / SKILL_NAME
             write_program_snapshot(state, target, installed["receipt"], snapshot)
 
         reg = read_json(snapshot / "registry.json", {})

@@ -23,6 +23,9 @@ class BrowserAuthJob:
         self.expect_vender_id = str(expect_vender_id or '')
         self.browser = browser
         self.browser_config = browser_config if browser_config is not None else {'provider':'builtin','shopIdentity':{'shopName':shop_name,'venderId':str(expect_vender_id or '')}}
+        self.confirmed_shop_name = self.browser_config.get('confirmedShopName')
+        if self.confirmed_shop_name is not None and self.confirmed_shop_name != shop_name:
+            raise ValueError('确认的店铺名称与当前目标不一致。')
         self.login_factory = login_factory
         self.login_timeout, self.oauth_timeout = login_timeout, oauth_timeout
         self.connection_timeout = connection_timeout
@@ -31,7 +34,9 @@ class BrowserAuthJob:
         self.poll_interval = poll_interval
         self.status, self.stage, self.message = 'starting', 'checking_existing', '正在检查店铺连接。'
         self.identity, self.error, self.error_kind = None, '', ''
+        self.desktop_shortcut = None
         self.login = None
+        self.oauth_navigation_attempted = False
         self.started_at, self.finished_at = time.time(), None
         self._done, self._cancelled = threading.Event(), threading.Event()
         self._commit_lock = threading.RLock()
@@ -43,6 +48,7 @@ class BrowserAuthJob:
         return safe_value({'id': self.id, 'profile': self.profile, 'shopName': self.shop_name,
                            'expectVenderId': self.expect_vender_id, 'status': self.status,
                            'stage': self.stage, 'message': self.message, 'identity': self.identity,
+                           'desktopShortcut': self.desktop_shortcut,
                            'error': self.error, 'errorKind': self.error_kind,
                            'browserChannel': getattr(self.browser, 'profile_channel', '') or '',
                            'browserSelectionReason': getattr(self.browser, 'profile_channel_reason', '') or '',
@@ -89,7 +95,10 @@ class BrowserAuthJob:
                 self._verify_and_commit()
                 return
             except sl.VerifyError:
-                self._finish('failed','paused','连接已暂停，授权结果须核对原Profile；没有持续后台执行。','callback_unknown')
+                if self.oauth_navigation_attempted:
+                    self._finish('failed','paused','连接已暂停，授权结果须核对原Profile；没有持续后台执行。','callback_unknown')
+                elif self.status != 'failed':
+                    self._finish('failed','paused','尚未打开授权页，可沿用原店铺会话继续。','oauth_not_opened')
         elif self.status not in ('failed','mismatch','cancelled'):
             self._finish('failed','paused','连接等待已结束，商家专用Profile已保留；没有持续后台执行。','login_timeout')
 
@@ -122,6 +131,8 @@ class BrowserAuthJob:
         vid, name = str(identity.get('venderId') or ''), identity.get('shopName') or ''
         if not vid.isdigit() or not name:
             return False
+        if self.confirmed_shop_name and name != self.confirmed_shop_name:
+            return False
         if self.expect_vender_id:
             if vid != self.expect_vender_id:
                 return False
@@ -132,6 +143,8 @@ class BrowserAuthJob:
         if not isinstance(identity, dict):
             return False
         vid, name = str(identity.get('venderId') or ''), identity.get('shopName') or ''
+        if self.confirmed_shop_name and name != self.confirmed_shop_name:
+            return False
         if vid and not vid.isdigit():
             return False
         if self.expect_vender_id and vid and vid != self.expect_vender_id:
@@ -162,6 +175,7 @@ class BrowserAuthJob:
             channel=getattr(self.browser,'profile_channel',None)
             if metadata and channel in ('chrome','msedge','chromium'):metadata['browserChannel']=channel
             sl.update_registry(self.profile, identity, extra=metadata)
+            self.desktop_shortcut = sl.ensure_desktop_shortcut(self.profile, identity)
             self.identity = identity
             self._finish('success', 'ready', '已连接：' + identity['shopName'])
 
@@ -170,7 +184,8 @@ class BrowserAuthJob:
             self._finish('failed', 'deferred', '后台任务不发起扫码或授权。', 'background')
             return
         try:
-            sl.mark_auth_pending(self.profile, self.id, self.expect_vender_id, self.shop_name)
+            sl.mark_auth_pending(self.profile, self.id, self.expect_vender_id, self.shop_name,
+                                 exact_shop_name=bool(self.confirmed_shop_name))
             if self.browser is None:
                 from browser_adapters import create_browser
                 self.browser = create_browser(self.browser_config)
@@ -220,6 +235,7 @@ class BrowserAuthJob:
             self._stage('waiting_oauth', '网页登录已确认，正在自动连接官方 CLI。')
             self.login = self.login_factory(self.profile, self.shop_name, self.expect_vender_id,
                                             defer_registry=True, timeout=max(1,int(self.phase_deadline(self.oauth_timeout)-time.monotonic())))
+            self.login.require_exact_shop_name = bool(self.confirmed_shop_name)
             self.login.proof_job_id=self.id
             self.login.start()
             if self._cancelled.is_set() or self._shutdown_requested.is_set():
@@ -228,6 +244,7 @@ class BrowserAuthJob:
             if self.login.status in ('failed', 'mismatch', 'cancelled'):
                 self._finish(self.login.status, self.login.status, self.login.message, self.login.error_kind)
                 return
+            self.oauth_navigation_attempted = True
             self.browser.open_oauth(self.login.url)
             self.login.url = ''  # navigation consumed; no persistent URL receipt
             try:
@@ -237,7 +254,7 @@ class BrowserAuthJob:
                     raise
                 response = {'challenge': '平台要求本人确认，请在当前授权页面完成'}
             if response.get('challenge'):
-                self.message = '请在授权页面完成：' + safe_text(response['challenge'])
+                self._stage('waiting_oauth_confirmation', '请在授权页面完成：' + safe_text(response['challenge']))
             deadline = self.phase_deadline(self.oauth_timeout)
             while not self._cancelled.is_set() and not self._shutdown_requested.is_set() and time.monotonic() < deadline:
                 if self.login._done.wait(self.poll_interval):

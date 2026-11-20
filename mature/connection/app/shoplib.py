@@ -10,10 +10,12 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unicodedata
 from contextlib import contextmanager
@@ -271,7 +273,7 @@ def _proof_data():
     return data
 
 
-def mark_auth_pending(profile, job_id, vender_id='', shop_name=''):
+def mark_auth_pending(profile, job_id, vender_id='', shop_name='', *, exact_shop_name=False):
     with _proof_lock():
         data = _proof_data()
         old = data['profiles'].get(profile)
@@ -279,15 +281,21 @@ def mark_auth_pending(profile, job_id, vender_id='', shop_name=''):
             return
         data['profiles'][profile] = {'jobId': job_id, 'venderId': str(vender_id or ''),
                                      'shopName': shop_name or '', 'status': 'pending', 'slotVerified': False}
+        if exact_shop_name:
+            data['profiles'][profile]['exactShopName'] = True
         write_json(linker_home() / 'authorization-proof.json', data)
 
 
-def mark_auth_native_completed(profile, job_id, native_job_id):
+def mark_auth_native_completed(profile, job_id, native_job_id, *, default_slot_namespace='', default_slot_scope=''):
     with _proof_lock():
         data=_proof_data();proof=data['profiles'].get(profile)
         if not proof or proof.get('jobId')!=job_id or proof.get('status')=='rejected':
             raise VerifyError('credential_isolation','官方完成回执不属于当前连接任务，未登记。')
         proof.update(nativeCompleted=True,nativeJobId=str(native_job_id))
+        if default_slot_namespace:
+            proof['nativeDefaultSlotNamespace'] = default_slot_namespace
+        if default_slot_scope:
+            proof['nativeDefaultSlotScope'] = default_slot_scope
         write_json(linker_home()/'authorization-proof.json',data)
 
 
@@ -840,6 +848,174 @@ def desktop_dir() -> Path:
         except Exception:
             pass
     return user_home() / "Desktop"
+
+
+def _desktop_browser(channel):
+    """Locate the recorded browser channel without choosing another profile."""
+    if channel not in ('chrome', 'msedge', 'chromium'):
+        return None
+    if channel == 'chromium':
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as playwright:
+            executable = Path(playwright.chromium.executable_path)
+        return executable if executable.is_file() else None
+    if sys.platform == 'darwin':
+        import pwd
+        name = {'chrome': 'Google Chrome', 'msedge': 'Microsoft Edge'}[channel]
+        local_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+        roots = [Path('/Applications'), local_home / 'Applications']
+        candidates = [root / f'{name}.app' / 'Contents' / 'MacOS' / name for root in roots]
+    elif os.name == 'nt':
+        import winreg
+        filename, relative = {
+            'chrome': ('chrome.exe', 'Google/Chrome/Application/chrome.exe'),
+            'msedge': ('msedge.exe', 'Microsoft/Edge/Application/msedge.exe'),
+        }[channel]
+        candidates = []
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                key_path = rf'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{filename}'
+                with winreg.OpenKey(hive, key_path) as key:
+                    candidates.append(Path(str(winreg.QueryValueEx(key, '')[0]).strip('"')))
+            except OSError:
+                continue
+        roots = [os.environ.get(key) for key in ('ProgramFiles', 'ProgramFiles(x86)', 'HEIDENG_HOST_LOCAL_APPDATA')]
+        candidates.extend(Path(root) / relative for root in roots if root)
+    else:
+        return None
+    return next((path for path in candidates if path.is_absolute() and path.is_file()), None)
+
+
+def _merchant_desktop():
+    if os.name == 'nt':
+        host_folder = os.environ.get('HEIDENG_HOST_DESKTOP')
+        return Path(host_folder) if host_folder else desktop_dir()
+    if sys.platform == 'darwin':
+        import pwd
+        return Path(pwd.getpwuid(os.getuid()).pw_dir) / 'Desktop'
+    return None
+
+
+def _write_browser_shortcut(path, command, marker):
+    """Publish a link without replacing a file that Black Lamp did not create."""
+    from heideng_merchant.safety import is_linked
+    if is_linked(path) or path.exists() and not path.is_file():
+        raise FileExistsError(path)
+    if os.name == 'nt':
+        script = """
+$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject WScript.Shell
+$exists = Test-Path -LiteralPath $env:JM_DESKTOP_LINK
+if ($exists) {
+    $old = $shell.CreateShortcut($env:JM_DESKTOP_LINK)
+    if ($old.Description -ne $env:JM_DESKTOP_OWNER) { exit 3 }
+    if ($old.TargetPath -eq $env:JM_DESKTOP_BROWSER -and $old.Arguments -ceq $env:JM_DESKTOP_ARGS) { exit 4 }
+}
+$link = $shell.CreateShortcut($env:JM_DESKTOP_STAGE)
+$link.TargetPath = $env:JM_DESKTOP_BROWSER
+$link.Arguments = $env:JM_DESKTOP_ARGS
+$link.Description = $env:JM_DESKTOP_OWNER
+$link.Save()
+if ($exists) {
+    [IO.File]::Replace($env:JM_DESKTOP_STAGE, $env:JM_DESKTOP_LINK, [NullString]::Value)
+} else {
+    [IO.File]::Move($env:JM_DESKTOP_STAGE, $env:JM_DESKTOP_LINK)
+}
+"""
+        with tempfile.TemporaryDirectory(dir=path.parent, prefix='.heideng-shortcut-') as directory:
+            env = dict(os.environ, JM_DESKTOP_LINK=str(path), JM_DESKTOP_OWNER=marker,
+                       JM_DESKTOP_BROWSER=command[0], JM_DESKTOP_ARGS=subprocess.list2cmdline(command[1:]),
+                       JM_DESKTOP_STAGE=str(Path(directory) / 'stage.lnk'))
+            result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                                    env=env, capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=12)
+        if result.returncode == 3:
+            raise FileExistsError(path)
+        if result.returncode == 4:
+            return 'existing'
+        if result.returncode != 0:
+            raise OSError('windows-shortcut-write-failed')
+        return 'created'
+
+    script = f'#!/bin/sh\n# {marker}\nexec {shlex.join(command)}\n'.encode('utf-8')
+    exists = path.exists()
+    if exists:
+        with path.open('rb') as old:
+            if old.readline(100) != b'#!/bin/sh\n' or old.readline(100).rstrip() != f'# {marker}'.encode():
+                raise FileExistsError(path)
+            if old.read(len(script) + 1) == script.split(b'\n', 2)[2]:
+                return 'existing'
+    with tempfile.TemporaryDirectory(dir=path.parent, prefix='.heideng-shortcut-') as directory:
+        staged = Path(directory) / 'stage.command'
+        staged.write_bytes(script)
+        staged.chmod(0o700)
+        if exists:
+            staged.replace(path)
+        else:
+            os.link(staged, path)
+    return 'created'
+
+
+def ensure_desktop_shortcut(profile, identity):
+    """Create or refresh the shortcut for a live-verified merchant identity."""
+    from heideng_merchant.host_connection_controller import WORKSPACE_URL
+    from heideng_merchant.mature_runtime import merchant_profile_directory
+    from heideng_merchant.safety import SafetyError
+    from heideng_merchant.state import FileLock, merchant_home
+    entry = load_registry()['profiles'].get(profile, {})
+    vender_id = str(identity.get('venderId') or '')
+    shop_id = str(identity.get('shopId') or '')
+    shop_name = identity.get('shopName')
+    if (not vender_id.isascii() or not vender_id.isdigit() or not isinstance(shop_name, str) or not shop_name
+            or str(entry.get('venderId') or '') != vender_id or entry.get('shopName') != shop_name
+            or str(entry.get('shopId') or '') != shop_id):
+        return {'status': 'unavailable', 'reason': 'shop-identity-unverified'}
+    try:
+        desktop = _merchant_desktop()
+        if desktop is None:
+            return {'status': 'unavailable', 'reason': 'desktop-platform-unsupported'}
+        directory = merchant_profile_directory(entry.get('browserProfileDir'))
+        if not directory:
+            return {'status': 'unavailable', 'reason': 'shop-browser-profile-unavailable'}
+        executable = _desktop_browser(entry.get('browserChannel'))
+        if not executable:
+            return {'status': 'unavailable', 'reason': 'shop-browser-unavailable'}
+        if not desktop.is_dir() or desktop.resolve().is_relative_to(merchant_home()):
+            return {'status': 'unavailable', 'reason': 'desktop-directory-unavailable'}
+        label = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', shop_name)[:70].strip(' .') or '店铺'
+        key = hashlib.sha256(f'{merchant_home()}\n{vender_id}\n{shop_id}'.encode()).hexdigest()[:16]
+        marker = f'Heideng shop {key}'
+        suffix = '.lnk' if os.name == 'nt' else '.command'
+        command = [str(executable), f'--user-data-dir={directory}', '--profile-directory=Default',
+                   '--no-first-run', '--new-window', WORKSPACE_URL]
+        with FileLock(linker_home() / 'desktop-shortcuts.lock'):
+            for name in (f'黑灯-{label}', f'黑灯-{label}-{key[:8]}'):
+                path = desktop / (name + suffix)
+                try:
+                    status = _write_browser_shortcut(path, command, marker)
+                except FileExistsError:
+                    continue
+                return {'status': status, 'path': str(path)}
+        return {'status': 'unavailable', 'reason': 'desktop-shortcut-name-in-use'}
+    except (OSError, RuntimeError, ValueError, ImportError, SafetyError, subprocess.TimeoutExpired):
+        return {'status': 'unavailable', 'reason': 'desktop-shortcut-write-failed'}
+
+
+def create_verified_desktop_shortcut(profile, shop_name):
+    if profile == 'default' or not PROFILE_RE.fullmatch(profile):
+        return {'ok': False, 'error': '需要已授权的店铺 Profile。'}
+    entry = load_registry()['profiles'].get(profile, {})
+    try:
+        require_auth_slot(profile)
+        identity = verify_profile(profile)
+        assert_profile_proof(profile, identity)
+    except VerifyError as exc:
+        return {'ok': False, 'errorKind': exc.kind, 'error': exc.message}
+    if shop_name != identity.get('shopName') and shop_name not in (entry.get('aliases') or []):
+        return {'ok': False, 'error': '已授权店铺与请求店铺不一致。'}
+    shortcut = ensure_desktop_shortcut(profile, identity)
+    if shortcut.get('path'):
+        return {'ok': True, **shortcut}
+    return {'ok': False, **shortcut, 'error': '没有创建桌面快捷方式，请查看具体状态。'}
 
 
 def shortcut_dirs():

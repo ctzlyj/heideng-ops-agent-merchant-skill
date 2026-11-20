@@ -5,6 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from heideng_merchant.safety import clean_environment
 MODULES=['test_safety','test_distribution','test_mature_runtime','test_mature_connection','test_mature_materials','test_mature_eol','test_mature_release_refs','test_mature_refresh','test_mature_diagnosis','test_mature_diagnosis_full','test_mature_image','test_runtime_dependencies','test_mature_leases','test_mature_review_regressions','test_mature_listing','test_mature_publish_reuse','test_mature_listing_extra','test_mature_collection','test_mature_collection_transport','test_mature_comparison']
+MODULES += ['test_connection_single_flow', 'test_field_9mv_connection', 'test_audit_connection_contracts', 'test_update_loop']
 
 def main():
     with tempfile.TemporaryDirectory(prefix='merchant-mature-offline-') as home:

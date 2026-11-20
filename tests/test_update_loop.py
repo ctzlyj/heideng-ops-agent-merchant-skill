@@ -46,6 +46,15 @@ class Updates(unittest.TestCase):
         client.configure(self.state,self.target,self.trust)
         client.record_failure(self.state,"source-unreachable",now=100)
         s=client.status(self.state);self.assertTrue(s["enabled"]);self.assertGreater(s["nextCheckAt"],100)
+    def test_explicit_current_version_can_create_its_first_snapshot(self):
+        archive = package(self.r, "1.0.0")
+        install_archive(archive, self.target, self.state, expected_sha=catalog.digest(archive))
+        client.configure(self.state, self.target, self.trust)
+        with self.assertRaisesRegex(SafetyError, 'requested-loaded-version-snapshot-unavailable'):
+            client.usage(self.state, "begin", "wrong-version", loaded_version="0.9.0")
+        lease = client.usage(self.state, "begin", "first-task", loaded_version="1.0.0")
+        self.assertEqual(lease["loadedVersion"], "1.0.0")
+        self.assertTrue((Path(lease["packageRoot"]) / "SKILL.md").is_file())
     def test_compatibility_rejects_future_python(self):
         with self.assertRaises(SafetyError):client.compatible({"compatibility":{"pythonMinimum":"99.0","platforms":[]}})
 

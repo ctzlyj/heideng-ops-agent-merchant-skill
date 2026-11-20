@@ -1,10 +1,34 @@
 import io, json, os, re, tempfile, unittest
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 from contextlib import redirect_stdout
 from heideng_merchant.safety import SafetyError
 
 class MerchantKeyTests(unittest.TestCase):
+    def test_native_prompt_saves_submitted_key_by_default_without_web_fallback(self):
+        from heideng_merchant import merchant_key_ui as ui
+        root = Path('fixture-state')
+        fake_tk = SimpleNamespace(TclError=type('FixtureTclError', (Exception,), {}))
+        with patch.dict(sys.modules, {'tkinter': fake_tk}), patch.object(
+                ui, '_prompt_native_window', return_value=('native-fixture', True)) as native, patch.object(
+                ui, '_prompt_local_page') as page, patch.object(ui, 'store_key') as store:
+            self.assertEqual(ui.prompt_key(root), 'native-fixture')
+        native.assert_called_once()
+        page.assert_not_called()
+        store.assert_called_once_with(root, 'native-fixture')
+
+    def test_native_cancel_does_not_open_browser_or_store_any_key(self):
+        from heideng_merchant import merchant_key_ui as ui
+        fake_tk = SimpleNamespace(TclError=type('FixtureTclError', (Exception,), {}))
+        with patch.dict(sys.modules, {'tkinter': fake_tk}), patch.object(
+                ui, '_prompt_native_window', return_value=(None, False)), patch.object(
+                ui, '_prompt_local_page') as page, patch.object(ui, 'store_key') as store:
+            self.assertIsNone(ui.prompt_key(Path('fixture-state')))
+        page.assert_not_called()
+        store.assert_not_called()
+
     def test_preflight_failure_never_opens_key_input_or_runs_business(self):
         from heideng_merchant import merchant_key_ui as ui
         action=Mock();preflight=Mock(side_effect=SafetyError('runtime-unavailable'))
@@ -55,7 +79,8 @@ class MerchantKeyTests(unittest.TestCase):
                     page=urllib.request.urlopen(url).read()
                     csrf=re.search(rb"name=csrf value='([^']+)'",page).group(1).decode()
                     self.assertIn(b'type=password',page);self.assertNotIn(b'fixture-key',page)
-                    form=urllib.parse.urlencode({'csrf':csrf,'key':'fixture-key','remember':'yes'}).encode()
+                    self.assertNotIn(b'type=checkbox',page)
+                    form=urllib.parse.urlencode({'csrf':csrf,'key':'fixture-key'}).encode()
                     req=urllib.request.Request(f'http://{base.netloc}/key',data=form,headers={'Origin':f'http://{base.netloc}','Content-Type':'application/x-www-form-urlencoded'})
                     body=urllib.request.urlopen(req).read();self.assertNotIn(b'fixture-key',body)
                 except Exception as error:errors.append(error)

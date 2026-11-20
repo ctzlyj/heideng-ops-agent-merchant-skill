@@ -1617,6 +1617,9 @@ class ModelClient:
             if event is not None and event.is_set():raise JdoWriteUncertainError('原结果待核对，未发起新的图片请求。')
             if self.max_model_requests is not None and sum(self.pool_attempts.values())>=self.max_model_requests:
                 raise ModelRequestLimitError('model-request-budget-exhausted；本次图片请求上限已达到，未再调用模型。')
+            reserve = getattr(self, 'reserve_persistent_request', None)
+            if reserve is not None:
+                reserve()
             self.pool_attempts[model]=self.pool_attempts.get(model,0)+1
 
     def _edit_once(self, prompt: str, source_path: Path, image_model: str, *, pool: bool=False) -> bytes:
@@ -2197,8 +2200,7 @@ def load_pop_auto_maintain_plan(output_dir: str | Path, seller: dict[str, Any], 
         prepared, references, existing = _scope_pop_discovery(prepared, references, existing, target_spu_id)
     return (prepared, references, existing, source_path)
 
-def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None:
-    mode = _business_mode(prepared)
+def _bound_task_scope(prepared: PreparedSource, state_path: Path):
     signature = _task_signature(prepared)
     allowed_signatures={signature,_task_signature(route_jingmai_batch_images(prepared,model_cutout_images=False)[0])}
     allowed_jobs={job.spu_id for job in prepared.jobs}
@@ -2217,6 +2219,12 @@ def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None
                     allowed_jobs={job.spu_id for job in batch_prepared.jobs}
                     allowed_signatures={signature,_task_signature(route_jingmai_batch_images(batch_prepared,model_cutout_images=False)[0])}
             except (OSError,ValueError,KeyError,json.JSONDecodeError):pass
+    return signature, allowed_signatures, allowed_jobs
+
+
+def _bind_state(state: dict, prepared: PreparedSource, state_path: Path) -> None:
+    mode = _business_mode(prepared)
+    signature, allowed_signatures, allowed_jobs = _bound_task_scope(prepared, state_path)
     existing_jobs = set((state.get('jobs') or {}).keys())
     current_jobs = {job.spu_id for job in prepared.jobs}
     existing_variant = state.get('variant')
@@ -3259,7 +3267,11 @@ def host_task_handoff(prepared, output, seller, profile=None):
             needs_titles.extend(sku for sku in job.short_title_sku_ids if not valid_short_title((item.get('short_titles') or {}).get(sku)))
             facts.append({'spuId':job.spu_id,'title':job.title,'skus':[{'skuId':sku,'title':title} for sku,title in job.skus]})
     entry=str(Path(os.environ.get('HEIDENG_MERCHANT_PACKAGE') or Path(__file__).resolve().parents[3])/'scripts/merchant.py')
-    base=['python',entry,'run','materials','--']
+    state_root = os.environ.get('HEIDENG_MERCHANT_HOME')
+    base=[sys.executable,'-I','-B',entry]
+    if state_root:
+        base+=['--state',str(Path(state_root).resolve())]
+    base+=['run','materials','--']
     scope_args=['--output-dir',str(output)] + (['--profile',profile] if profile else [])
     expected=['--expected-shop-name',_shop_identity(seller)['shopName']]
     execute=base+['auto-maintain',*scope_args,*expected,'--agent-text-file',str(output/'host-text.json'),'--confirm','AUTO_MAINTAIN','--no-paid-repairs']
@@ -3285,13 +3297,26 @@ def host_task_handoff(prepared, output, seller, profile=None):
               'inventoryArgv':base+['plan-missing-attrs',*scope_args,*expected,*[v for j in prepared.jobs for v in ('--product-id',j.spu_id)]],
               'rule':'按原attr-plan中的类型和合法选项产出agent-attrs-file；不猜地区ID或调用员工视觉模型'},
             'executeArgv':execute,'recoverArgv':base+['reconcile-receipts',*scope_args],
+            'workItems':[
+                {'id':'titles','dependsOn':['host-text'], 'paid':False, 'exclusiveResource':'shop-browser',
+                 'receiptDirectory':str(output/'短标题独立交付'/(next(iter(selected)) if selected!=allowed else '全店')),
+                 'argv':base+['maintain-short-titles',*scope_args,*expected,
+                              '--agent-text-file',str(output/'host-text.json'),'--confirm','AUTO_MAINTAIN']
+                        + (['--target-spu-id', next(iter(selected))] if selected!=allowed else [])},
+                {'id':'attributes','dependsOn':['attribute-inventory'], 'paid':False, 'exclusiveResource':'same-sku-fields',
+                 'receiptDirectory':str(output)},
+                {'id':'images','dependsOn':['image-plan','paid-approval-if-required'], 'exclusiveResource':'same-sku-material',
+                 'receiptDirectory':str(output)},
+            ],
             'executionAuthorized':False,'nextAction':'宿主按事实补文案/属性，沿用已确认范围；新写入/费用确认后执行，未知先对账'}
 
 
 def _save_host_handoff(prepared, output, seller, profile=None):
     from pop_safety import atomic_json
+    from heideng_merchant.merchant_tasks import register_material_task
     payload=host_task_handoff(prepared,output,seller,profile)
     path=Path(output)/'.state/host-handoff.json';atomic_json(path,payload)
+    register_material_task(payload)
     return {'file':str(path.resolve()),'missingSellingPointCount':len(payload['textInput']['neededSellingPointSpuIds']),
             'missingShortTitleCount':len(payload['textInput']['neededShortTitleSkuIds']),'nextAction':payload['nextAction']}
 
@@ -3303,7 +3328,8 @@ def run_plan_auto_maintain(args) -> dict[str, Any]:
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
     refresh = bool(getattr(args, 'refresh', False))
-    if refresh and any(output.glob('批次*/.state/task.json')):
+    if refresh and (any(output.glob('批次*/.state/task.json'))
+                    or (output / '.state/title-work-item-guard/owner.json').exists()):
         raise ValueError('该输出目录已有执行状态；刷新全店请使用新输出目录')
     target_spu_id = cell_text(getattr(args, 'target_spu_id', None))
     include_full_score = bool(getattr(args, 'include_full_score', False))
@@ -3544,9 +3570,21 @@ def run_auto_maintain(args) -> dict[str, Any]:
         try: repair_result = run_rejected_repairs(repair_args, sys.modules[__name__])
         except JdoWriteUncertainError: raise
         except Exception as error: repair_result = {'status': 'repair-incomplete', 'failureClass': type(error).__name__, 'reason': 'Repair scope/dependency not ready; preserve frozen audit and receipts'}
-    delivery = export_short_title_delivery([(prepared, output)], output, shop_name=_shop_identity(seller)['shopName'])
-    from pop_workflow import complete_short_title_import
-    delivery = complete_short_title_import(args, delivery, _shop_identity(seller), client, sys.modules[__name__])
+    title_guard = output / '.state' / 'title-work-item-guard'
+    with pop_execution_lock(title_guard):
+        from heideng_merchant.safety import read_json
+        title_owner = title_guard / 'owner.json'
+        owner = read_json(title_owner, {})
+        if owner.get('mode') == 'independent':
+            original_title = read_json(output / '.state/merchant-result-maintain-short-titles.json', {})
+            delivery = (original_title.get('shortTitleDelivery') if owner.get('target') == target_spu_id else None)
+            if not delivery:
+                delivery = {'status':'independent-title-work-item','shortTitleFiles':[]}
+        else:
+            _save_state(title_owner, {'mode':'combined'})
+            delivery = export_short_title_delivery([(prepared, output)], output, shop_name=_shop_identity(seller)['shopName'])
+            from pop_workflow import complete_short_title_import
+            delivery = complete_short_title_import(args, delivery, _shop_identity(seller), client, sys.modules[__name__])
     attributes = {'status': 'not-requested'}
     if getattr(args, 'complete_attrs', False) is True:
         # Important attributes are part of the information score; same atomic chain as complete-product-attrs.
@@ -3578,6 +3616,56 @@ def run_auto_maintain(args) -> dict[str, Any]:
     if external_images['blocked'] or repair_result['status'] == 'repair-incomplete':
         status = 'maintenance-incomplete'
     return {'status': status, 'coverage': coverage, 'externalImages': external_images, 'rejectedRepairs': repair_result, 'batchImageHandoff': batch_image_handoff, 'source': str(source_path), 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs), 'batches': batch_payloads, 'browserRequired': browser_required, 'bindingConfirmation': binding_confirmation, 'planReused': plan_reused, 'verificationMode': verification_mode, 'manualVerificationRequired': verification_mode == 'submit-only' or bool(batch_image_handoff), 'manualVerificationMessage': MANUAL_VERIFICATION_MESSAGE if verification_mode == 'submit-only' else ('Jingmai batch white/transparent images require submission and per-SKU audit readback' if batch_image_handoff else None), 'shortTitleFiles': delivery['shortTitleFiles'], 'shortTitleDelivery': delivery, 'productAttributes': attributes}
+
+
+def run_title_work_item(args):
+    from pop_workflow import complete_short_title_import
+
+    if args.confirm != 'AUTO_MAINTAIN':
+        raise ValueError('短标题提交需要原任务授权')
+    output = Path(args.output_dir).resolve()
+    target = cell_text(args.target_spu_id)
+    if target and not target.isdecimal():
+        raise ValueError('短标题 SPU 必须是数字标识')
+    lane = output / '短标题独立交付' / (target or '全店')
+    title_guard = output / '.state' / 'title-work-item-guard'
+    with pop_execution_lock(title_guard):
+        client = JdoClient(args.profile, lane / '.state' / 'jdo-runtime')
+        seller = _shop_identity(client.seller_info())
+        if seller['shopName'] != args.expected_shop_name:
+            raise ValueError('短标题任务与当前店铺不一致')
+        prepared, _, _, _ = load_pop_auto_maintain_plan(output, seller, target)
+        prepared, _, _ = _scope_pop_discovery(prepared, {}, {}, target)
+        titles = load_scoped_agent_text(args.agent_text_file, prepared, output, seller)['short_titles']
+        needed = [sku for job in prepared.jobs for sku in job.short_title_sku_ids]
+        if not needed:
+            return {'status':'no-titles','rowCount':0}
+        if any(not valid_short_title(titles.get(sku)) for sku in needed):
+            raise ValueError('请先补齐并核验冻结计划中的短标题')
+        owner_path = title_guard / 'owner.json'
+        owner = {'mode':'independent','target':target}
+        if owner_path.exists():
+            saved = json.loads(owner_path.read_text(encoding='utf-8'))
+            if saved != owner:
+                raise JdoWriteUncertainError('短标题已由另一工作项接手，先核对原回执。')
+        elif (any(output.glob('.state/title-import-*.json')) or any(output.glob('批次*/.state/title-import-*.json'))
+              or any(output.glob('.state/short-title-delivery-*.json'))):
+            raise JdoWriteUncertainError('检测到旧短标题交付，请继续使用原任务入口恢复。')
+        from pop_safety import atomic_json
+        atomic_json(owner_path, owner)
+        workbook = lane / '短标题导入.xlsx'
+        content = _short_title_workbook_bytes([(sku, titles[sku]) for sku in needed])
+        if workbook.exists() and workbook.read_bytes() != content:
+            raise JdoWriteUncertainError('短标题输入已变，先恢复原导入回执。')
+        if not workbook.exists():
+            lane.mkdir(parents=True, exist_ok=True)
+            with workbook.open('xb') as stream:
+                stream.write(content)
+        args.output_dir = lane
+        args._maintenance_product_ids = [job.spu_id for job in prepared.jobs]
+        args._maintenance_sku_ids = needed
+        return complete_short_title_import(
+            args, {'shortTitleFiles':[str(workbook)], 'rowCount':len(needed)}, seller, client, sys.modules[__name__])
 
 @exclusive_pop_run
 def run_bind_external_cutouts(args) -> dict[str, Any]:
@@ -3853,15 +3941,16 @@ def export_short_title_delivery(runs, output_dir, *, shop_name):
         directory = Path(directory).resolve()
         signatures.append(_task_signature(prepared))
         expected.extend(sku for job in prepared.jobs for sku in job.short_title_sku_ids)
-        for index, rows in frozen_scope_batches(prepared, output):
+        for index, rows in frozen_scope_batches(prepared, directory):
             batch = _subset_prepared(prepared, rows)
             batch_dir = directory / f'批次{index:03d}'
             state_path = batch_dir / '.state/task.json'
             if not state_path.is_file():
                 continue
             state = _load_state(state_path)
-            allowed_signatures = {_task_signature(batch), _task_signature(route_jingmai_batch_images(batch)[0])}
-            if state.get('task_signature') not in allowed_signatures or state.get('business_mode') != 'pop':
+            _, allowed_signatures, allowed_jobs = _bound_task_scope(batch, state_path)
+            if (state.get('task_signature') not in allowed_signatures or state.get('business_mode') != 'pop'
+                    or not set(state.get('jobs', {})).issubset(allowed_jobs)):
                 raise ValueError('short-title source task signature or business mode mismatch')
             state_rows = []
             for job in batch.jobs:
@@ -4059,6 +4148,7 @@ def build_parser() -> argparse.ArgumentParser:
     repair.add_argument('--reference-override', action='append', default=[], help='SKUID=trusted-local-product-image')
     repair.add_argument('--max-model-requests',type=int,help='本次已批准的模型请求上限；包含失败响应/质量重试，不是最终扣费。')
     repair.add_argument('--repair-kind',action='append',choices=tuple(IMAGE_SUFFIXES),help='仅修这些类型的已驳回槽位，可重复；付费修复必须显式指定。')
+    repair.add_argument('--reference-granularity',choices=('spu','sku'),help='新修复默认按 SPU 共图，逐 SKU 须显式选择。')
     repair.add_argument('--paid-generation',action=argparse.BooleanOptionalAction,default=False,help='默认只走免费路径/申诉；另获本次费用批准后显式开启模型修复。')
     repair.add_argument('--profile-dir', help='Own shop Chrome profile; enables Jingmai batch cutout first for rejected white/transparent')
     repair.add_argument('--jingmai-first', action=argparse.BooleanOptionalAction, default=True)
@@ -4076,6 +4166,14 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument('--upload-mode', choices=('auto', 'cli', 'browser'), default='auto')
     auto.add_argument('--profile-dir', type=Path, help='Own verified shop Chrome user-data directory; required for automatic title import/batch fallback')
     auto.add_argument('--title-poll-seconds', type=int, default=60)
+    title = sub.add_parser('maintain-short-titles')
+    title.add_argument('--output-dir', type=Path, required=True)
+    title.add_argument('--profile', required=True)
+    title.add_argument('--expected-shop-name', required=True)
+    title.add_argument('--agent-text-file', type=Path, required=True)
+    title.add_argument('--confirm', required=True)
+    title.add_argument('--target-spu-id')
+    title.add_argument('--title-poll-seconds', type=int, default=60)
     auto.add_argument('--joyagent-adapter', type=Path)
     auto.add_argument('--complete-attrs', action=argparse.BooleanOptionalAction, default=True, help='Inventory and complete missing category attributes after materials/titles')
     auto.add_argument('--agent-attrs-file', type=Path, help='Host-evidenced legal attribute choices, no external model call')
@@ -4134,15 +4232,20 @@ def audit_cli_summary(payload,estimate,report,delivery):
 
 def merchant_result_summary(payload, output_dir, command):
     from pop_safety import atomic_json
-    from heideng_merchant.safety import redact
+    from heideng_merchant.safety import read_json, redact
     path = Path(output_dir).resolve()/'.state'/('merchant-result-'+command+'.json')
+    handoff = read_json(path.parent / 'host-handoff.json', {})
+    plan = read_json(path.parent.parent / AUTO_MAINTAIN_PLAN_NAME, {})
+    if handoff and handoff.get('planHash') == plan.get('planHash') and handoff.get('shopIdentity') == plan.get('shopIdentity'):
+        payload = {**payload, 'taskEvidence':{'shopIdentity':handoff['shopIdentity'], 'planHash':handoff['planHash']}}
     atomic_json(path, redact(payload))
     keys = ('status','skuCount','spuCount','noPaidGeneration','remainingImageSlotCount','manualAppealRequired','browserRequired','planReused','verificationMode','manualVerificationRequired','manualVerificationMessage')
     summary = {key: payload[key] for key in keys if key in payload}
     from heideng_merchant.merchant_experience import task_summary
     summary.update(task_summary(payload))
     summary['resultFile'] = str(path)
-    for key in ('assetGroupCount','failedAssetGroupCount','submittedSkuSlotCount','liveReusedSkuSlotCount'):
+    for key in ('assetGroupCount','failedAssetGroupCount','submittedSkuSlotCount','liveReusedSkuSlotCount',
+                'estimatedPaidImageCount','referenceGranularity','requestBudget'):
         if key in payload:summary[key]=payload[key]
     stats=payload.get('modelStats') or {}
     if isinstance(stats,dict) and isinstance(stats.get('attempts'),dict):summary['modelRequestAttemptCount']=sum(stats['attempts'].values())
@@ -4200,6 +4303,11 @@ def main(argv: list[str] | None=None) -> int:
         payload = run_plan_auto_maintain(args)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
+    if args.command == 'maintain-short-titles':
+        output = args.output_dir
+        payload = run_title_work_item(args)
+        print(json.dumps(merchant_result_summary({'status':payload['status'],'shortTitleDelivery':payload},output,args.command),ensure_ascii=False))
+        return 0 if payload['status'] in {'no-titles','verified','import-completed-awaiting-review'} else 2
     if args.command == 'generate-auto-maintain':
         try:
             payload = run_generate_auto_maintain(args)

@@ -88,6 +88,21 @@ def child_environment(state, inherited=None):
         result['SHOP_CDP']=endpoint
     return result
 
+
+def windows_known_folder(folder_id):
+    """Read a folder for the signed-in desktop user before HOME is isolated."""
+    if os.name != 'nt':
+        return None
+    import ctypes
+    buffer = ctypes.create_unicode_buffer(260)
+    try:
+        result = ctypes.windll.shell32.SHGetFolderPathW(None, folder_id, None, 0, buffer)
+    except (OSError, AttributeError):
+        return None
+    if result == 0 and buffer.value:
+        return Path(buffer.value)
+    return None
+
 def merchant_profile_directory(value):
     """Optional browser metadata, never cookies: only this merchant's owned directory."""
     home=os.environ.get('HEIDENG_MERCHANT_HOME')
@@ -238,6 +253,11 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
     path, _ = source_path(capability, entry, root)
     state = Path(state).resolve()
     environment = child_environment(state)
+    if capability == 'connection' and os.name == 'nt':
+        for name, folder_id in (('HEIDENG_HOST_DESKTOP', 0x0010), ('HEIDENG_HOST_LOCAL_APPDATA', 0x001C)):
+            folder = windows_known_folder(folder_id)
+            if folder is not None:
+                environment[name] = str(folder)
     environment["HEIDENG_MERCHANT_PACKAGE"] = str(root)
     from .official import OfficialClient
     official = OfficialClient(state)

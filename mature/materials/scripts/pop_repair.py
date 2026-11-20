@@ -12,6 +12,53 @@ def _save(path, value):
     from pop_safety import atomic_json
     atomic_json(path, value)
 
+
+def repair_references(rows, sources, overrides, granularity='spu'):
+    """Use one evidenced representative per SPU unless SKU scope was requested."""
+    def source(sku):
+        return str(overrides.get(sku) or sources.get(sku, {}).get('logo') or '')
+
+    result = {}
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(str(row['productId']), []).append(str(row['skuId']))
+    for skus in grouped.values():
+        explicit = {str(overrides[sku]) for sku in skus if sku in overrides}
+        if granularity == 'spu' and len(explicit) > 1:
+            raise ValueError('同一 SPU 的指定参考图存在冲突，请明确一张代表图或选择逐 SKU。')
+        representative = next((sku for sku in skus if sku in overrides),
+                              next((sku for sku in skus if source(sku)), skus[0]))
+        for sku in skus:
+            chosen = representative if granularity == 'spu' else sku
+            reference = source(chosen) or chosen
+            result[sku] = (chosen, f'sku:{sku}|{reference}' if granularity == 'sku' else reference)
+    return result
+
+
+def repair_request_budget(output, limit, error_type):
+    """Persist dispatch reservations; the repair run and model already hold their write locks."""
+    path = output / 'image-request-budget.json'
+    if path.exists():
+        budget = json.loads(path.read_text(encoding='utf-8'))
+    else:
+        attempted = sum(json.loads(receipt.read_text(encoding='utf-8')).get('status') in
+                        {'received', 'intent', 'unknown', 'rejected'}
+                        for receipt in (output / 'shared').glob('*/*.request.json'))
+        budget = {'reserved': attempted, 'limit': limit}
+
+    if limit is not None:
+        budget['limit'] = limit
+    _save(path, budget)
+
+    def reserve():
+        maximum = budget['limit']
+        if maximum is not None and budget['reserved'] >= maximum:
+            raise error_type('model-request-budget-exhausted；同一任务的累计请求额度已用完。')
+        budget['reserved'] += 1
+        _save(path, budget)
+
+    return reserve, budget
+
 def adapter_argv(template, reference, output, prompt):
     if not isinstance(template,list) or not template or any(not isinstance(x,str) for x in template):
         raise ValueError('JoyAgent adapter must be a JSON argv array, never a shell string')
@@ -342,7 +389,11 @@ def run_rejected_repairs(args,agent=None):
                 for found in reader.map(client.skus,groups):sku_rows.extend(found)
             originals=agent._query_binding_materials(client,[r['skuId'] for r in rows])
             scope={'shopIdentity':identity,'rows':rows,'skuSources':{str(r['skuId']):{'logo':r.get('skuImage') or r.get('logo'),'skuName':r.get('skuName')} for r in sku_rows},'originals':originals}
+            scope['referenceGranularity'] = getattr(args, 'reference_granularity', None) or 'spu'
             _save(freeze,scope)
+        granularity = scope.get('referenceGranularity', 'legacy')
+        if getattr(args, 'reference_granularity', None) not in (None, granularity):
+            raise ValueError('续跑须使用原修复粒度，保留已有请求和回执。')
         authorized=getattr(args,'authorized_sku_ids',None)
         excluded=getattr(args,'excluded_bindings',[])
         skip_spus=sorted(map(str,getattr(args,'excluded_spu_ids',None) or []))
@@ -384,7 +435,16 @@ def run_rejected_repairs(args,agent=None):
             handled,jingmai=run_jingmai_first(args,scope,scoped,out,identity,agent)
             scoped=[{**row,'repairKinds':[k for k in row['repairKinds'] if (str(row['skuId']),k) not in handled]} for row in scoped]
         targets=[row for row in scoped if row['repairKinds']]
-        source_group_count=len({(str(row['productId']),kind,str(scope['skuSources'].get(str(row['skuId']),{}).get('logo') or row['skuId'])) for row in targets for kind in row['repairKinds']})
+        overrides={}
+        for value in getattr(args,'reference_override',[]) or []:
+            sku,separator,path=value.partition('=')
+            if not separator or sku not in scope['skuSources'] or not Path(path).is_file():raise ValueError('Reference override must name a frozen SKU and readable local image')
+            overrides[sku]=Path(path)
+        references = repair_references(targets, scope['skuSources'], overrides, granularity)
+        source_group_count=len({(str(row['productId']),kind,references[str(row['skuId'])][1]) for row in targets for kind in row['repairKinds']})
+        paid_groups = {(str(row['productId']), kind, references[str(row['skuId'])][1])
+                       for row in targets for kind in row['repairKinds']
+                       if kind != 'transparent' or ('white' not in row['repairKinds'] and transparent_route(row) != 'reuse-white')}
         if not targets:
             status='needs-image-review' if image_review else 'jingmai-submitted-awaiting-review' if jingmai.get('submittedSlots') else 'appeal-only' if appeal_delivery else 'no-rejections'
             result={'status':status,'rows':[],'shopName':identity['shopName'],'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai,
@@ -400,7 +460,8 @@ def run_rejected_repairs(args,agent=None):
                     'remainingImageSlotCount':sum(len(row['kinds']) for row in remaining),
                     'pendingReviewCount':int(jingmai.get('submittedSlots') or 0),'noPaidGeneration':True,
                     **review_fields,
-                    'paidRequestCount':None,'sourceGroupCount':source_group_count,'nextAction':'免费路径已执行并保留回执；Agent先核实文字来源。核对剩余SKU/槽位，在已有费用范围内重设本任务提示词继续；仅新增费用才另行确认。'}
+                    'paidRequestCount':None,'estimatedPaidImageCount':len(paid_groups),'referenceGranularity':granularity,
+                    'sourceGroupCount':source_group_count,'nextAction':'免费路径已执行并保留回执；Agent先核实文字来源。核对剩余SKU/槽位，在已有费用范围内重设本任务提示词继续；仅新增费用才另行确认。'}
             _save(out/'repair-result.json',result)
             return result
         if not selected_kinds:
@@ -415,17 +476,13 @@ def run_rejected_repairs(args,agent=None):
         if adapter is not None:
             adapter_argv(adapter, Path('reference.png'), Path('output.png'), 'prompt')
             if 'JoyAgent-image(JoyAgent)' not in ' '.join(adapter): raise ValueError('Explicit JoyAgent-image model required')
-        overrides={}
-        for value in getattr(args,'reference_override',[]) or []:
-            sku,separator,path=value.partition('=')
-            if not separator or sku not in scope['skuSources'] or not Path(path).is_file():raise ValueError('Reference override must name a frozen SKU and readable local image')
-            overrides[sku]=Path(path)
         prior_image_receipts=[]
         for path in (out/'shared').glob('*/*.request.json'):
             receipt=json.loads(path.read_text(encoding='utf-8'))
             if receipt.get('status') in ('intent','unknown'):prior_image_receipts.append(receipt)
         category=client.resolve_category();write_lock=Lock();model=agent.ModelClient(key,image_concurrency=min(20,getattr(args,'image_concurrency',20)),timeout=getattr(args,'timeout',180))
         model.max_model_requests=limit
+        model.reserve_persistent_request, budget = repair_request_budget(out, limit, agent.ModelRequestLimitError)
         model.cancel_event=Event()
         text_checker=None
         try:
@@ -439,13 +496,24 @@ def run_rejected_repairs(args,agent=None):
             repair_scope={'spuId':str(spu),'kind':kind,'skuIds':[str(r['skuId']) for r in members]}
             assert_no_unresolved_images(prior_image_receipts,spu,kind,repair_scope['skuIds'],agent)
             group=out/'shared'/hashlib.sha256(json.dumps([spu,ref_id],ensure_ascii=False).encode()).hexdigest()[:20]
-            group.mkdir(parents=True,exist_ok=True);reference=overrides.get(lead['skuId']) or group/'reference.jpg'
+            reference_sku = references[str(lead['skuId'])][0]
+            group.mkdir(parents=True,exist_ok=True);reference=overrides.get(reference_sku) or group/'reference.jpg'
             if not reference.is_file():
-                url=agent._jd_image_url(scope['skuSources'][lead['skuId']].get('logo'))
+                url=agent._jd_image_url(scope['skuSources'].get(reference_sku, {}).get('logo'))
                 if not url:raise ValueError('Reliable SKU reference missing')
                 agent._download_reference(url,reference,getattr(args,'timeout',180))
             image=group/(kind+('.png' if kind=='transparent' else '.jpg'))
             generated=group/('white.jpg' if kind=='transparent' else image.name)
+            linked_white = kind == 'transparent' and all('white' in member['repairKinds'] for member in members)
+            if linked_white:
+                white_ref = references[str(lead['skuId'])][1]
+                revision = agent.image_prompt_revision(image_prompts.get(str(spu),{}).get('white'),request_only=True)
+                if revision:
+                    white_ref += '|prompt:' + revision
+                white_group = hashlib.sha256(json.dumps([spu,white_ref],ensure_ascii=False).encode()).hexdigest()[:20]
+                generated = out / 'shared' / white_group / 'white.jpg'
+                if not agent.valid_material_image(generated,'white'):
+                    raise ValueError('先完成同款白底图，再本地衍生透明图')
             route=transparent_route(lead) if kind=='transparent' else None
             # Escalation ladder per slot (shop ledger): jingmai -> neural -> magenta key.
             if kind=='transparent' and cutout_ledger.get('attempts',{}).get(lead['skuId']+':transparent-neural'):route='magenta'
@@ -456,6 +524,8 @@ def run_rejected_repairs(args,agent=None):
                     if approved:
                         try:agent._download_reference(agent._material_value(approved[0]),generated,getattr(args,'timeout',180))
                         except Exception:generated.unlink(missing_ok=True)
+                    if not generated.is_file():
+                        raise ValueError('无法读取已通过的白底来源，未为透明图新增付费请求')
                 if not generated.is_file():
                     entry=image_prompts.get(str(spu),{}).get(kind)
                     if entry:prompt=entry['prompt']
@@ -486,12 +556,14 @@ def run_rejected_repairs(args,agent=None):
                                 generated.unlink(missing_ok=True);raise ValueError('Regenerated white failed local completeness/sharpness gate; not uploaded; checks='+','.join(remaining_quality_issues))
                 if kind=='transparent' and not image.is_file():
                     try:
-                        if route=='magenta':raise ValueError('neural cutout already rejected for this slot')
+                        if route=='magenta' and not linked_white:raise ValueError('neural cutout already rejected for this slot')
                         agent.make_transparent(generated,image,quality='fast' if route=='regen-fast' else 'neural')
                         if not agent.valid_material_image(image,'transparent'):raise ValueError('cutout structurally invalid')
                     except Exception:
                         # Neural failed/unprepared (or fast cut broke): generate on magenta and colour-key it.
                         image.unlink(missing_ok=True);magenta=group/'magenta.jpg'
+                        if linked_white or route == 'reuse-white':
+                            raise ValueError('本地透明图未通过质检，保留原素材等待核对') from None
                         if not magenta.is_file():
                             entry=image_prompts.get(str(spu),{}).get(kind)
                             prompt=(entry['prompt'] if entry else agent.image_prompt('white',scope['skuSources'][lead['skuId']].get('skuName'))).replace('#FFFFFF','#FF00FF').replace('纯白','纯洋红')+' 背景必须是纯洋红色#FF00FF，均匀无渐变无阴影，商品本身不得含洋红色描边。'+('' if entry else WHITE_REPAIR_HINT)
@@ -594,7 +666,7 @@ def run_rejected_repairs(args,agent=None):
         cutout_ledger=json.loads(cutout_ledger_path.read_text(encoding='utf-8')) if cutout_ledger_path.exists() else {'shopIdentity':identity,'attempts':{},'tasks':[]}
         generation_locks={};work={}
         for row in targets:
-            ref_id=str(overrides.get(row['skuId']) or scope['skuSources'][row['skuId']].get('logo') or row['skuId'])
+            ref_id=references[str(row['skuId'])][1]
             for kind in row['repairKinds']:
                 lane=ref_id+('|'+transparent_route(row) if kind=='transparent' else '')
                 revision=agent.image_prompt_revision(image_prompts.get(str(row['productId']),{}).get(kind),request_only=True)
@@ -605,15 +677,19 @@ def run_rejected_repairs(args,agent=None):
         records=[];errors=[]
         try:
             with ThreadPoolExecutor(max_workers=min(20,len(work))) as pool:
-                futures={pool.submit(process,item):item[2][0]['skuId'] for item in work}
-                for future in as_completed(futures):
-                    try:records.extend(future.result())
-                    except agent.JdoWriteUncertainError:
-                        model.cancel_event=__import__('threading').Event();model.cancel_event.set()
-                        errors.append({'skuId':futures[future],'status':'unknown','reason':'Preserve receipt and reconcile exact request before retrying'})
-                    except Exception as error:errors.append({'skuId':futures[future],'status':'blocked','failureClass':type(error).__name__,'reason':str(error)[:200] or 'Repair did not complete; inspect reference, adapter and owned receipts'})
+                independent = [item for item in work if not (item[1]=='transparent' and all('white' in row['repairKinds'] for row in item[2]))]
+                dependent = [item for item in work if item not in independent]
+                for phase in (independent, dependent):
+                    futures={pool.submit(process,item):item[2][0]['skuId'] for item in phase}
+                    for future in as_completed(futures):
+                        try:records.extend(future.result())
+                        except agent.JdoWriteUncertainError:
+                            model.cancel_event.set()
+                            errors.append({'skuId':futures[future],'status':'unknown','reason':'Preserve receipt and reconcile exact request before retrying'})
+                        except Exception as error:errors.append({'skuId':futures[future],'status':'blocked','failureClass':type(error).__name__,'reason':str(error)[:200] or 'Repair did not complete; inspect reference, adapter and owned receipts'})
         finally:model.close()
         result={**review_fields,'imagePromptRevisions':[{'spuId':spu,'kind':kind,'sha256':agent.image_prompt_revision(entry)} for spu,kinds in image_prompts.items() for kind,entry in kinds.items()], 'requestLimit':limit,'assetGroupCount':len(work),'failedAssetGroupCount':len(errors),'liveReusedSkuSlotCount':sum(1 for r in records if r.get('liveReuse')),'submittedSkuSlotCount':sum(1 for r in records if not r.get('liveReuse') and r.get('status') in ('submitted','pending','approved')),'status':'repair-incomplete' if image_review or errors or any(r['status'] in ('rejected','skipped-changed','unknown') for r in records) else 'repairs-submitted-awaiting-review','shopName':identity['shopName'],'rows':records,'errors':errors,'modelStats':model.image_model_stats(),'allApproved':bool(records) and not errors and not appeal_delivery and not image_review and all(r['status']=='approved' for r in records),'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai}
+        result['requestBudget'] = budget
         _save(out/'repair-result.json',result);return result
 
 

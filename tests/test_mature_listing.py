@@ -219,10 +219,10 @@ class MatureListingTests(unittest.TestCase):
     def test_legacy_video_producer_is_blocked_not_searched_or_called(self):
         v = module("video_handoff")
         with patch.object(v.subprocess, "run", side_effect=AssertionError("no producer")):
-            self.assertIsNone(v.find_video_skill(env={"JD_MAIN_VIDEO_BATCH_SKILL": "private"}))
+            self.assertEqual(v.find_video_skill(env={v.ENV_OVERRIDE: "private"}), ROOT/'mature'/'video')
             with tempfile.TemporaryDirectory() as t:
                 p = Path(t) / "manifest.json"; p.write_text(json.dumps({"video": {"localPath": "video.mp4"}}))
-                with self.assertRaisesRegex(v.HandoffError, "external.video.*protocol"): v.check_handoff(p)
+                with self.assertRaisesRegex(v.HandoffError, "视频交接字段缺失"): v.check_handoff(p)
         pipe = module("jd_product_pipeline")
         with self.assertRaisesRegex(pipe.PipelineError, "external.video.*protocol"):
             pipe.automate_main_video(state_path=Path("unused"), state={}, folder=Path("unused"), source={"video": {"localPath": "video.mp4"}}, product_id=1, transcode_attempts=1, review_attempts=1, interval=0)

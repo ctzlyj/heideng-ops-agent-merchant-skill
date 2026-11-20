@@ -1,5 +1,5 @@
 """Frozen task handoff tests exercise real plan validation, never shop calls."""
-import json,tempfile,unittest
+import json,os,tempfile,unittest
 from argparse import Namespace
 from unittest.mock import Mock,patch
 from pathlib import Path
@@ -74,12 +74,35 @@ class AuditHandoffTests(unittest.TestCase):
             root=Path(d);full,seller=self.fixture(a,root)
             client=Mock();client.seller_info.return_value=seller
             args=Namespace(output_dir=root,business_mode='pop',profile='fixture-profile',expected_shop_name='fixture-shop',target_spu_id='11',refresh=False,include_full_score=False)
-            with patch.object(a,'JdoClient',return_value=client):result=a.run_plan_auto_maintain(args)
+            state=root/'isolated merchant'
+            with patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':str(state)}),patch.object(a,'JdoClient',return_value=client):result=a.run_plan_auto_maintain(args)
             handoff=json.loads(Path(result['hostHandoff']['file']).read_text(encoding='utf-8'))
             self.assertEqual(handoff['scope']['spuIds'],['11']);self.assertFalse(handoff['executionAuthorized'])
-            self.assertEqual(a.build_parser().parse_args(handoff['executeArgv'][5:]).target_spu_id,'11')
+            argv=handoff['executeArgv']
+            self.assertEqual(argv[argv.index('--state')+1],str(state))
+            self.assertEqual(a.build_parser().parse_args(argv[argv.index('--')+1:]).target_spu_id,'11')
             for key in ('inventoryArgv','replanArgv','applyArgv'):
-                parsed=a.build_parser().parse_args(handoff['attributes'][key][5:])
+                argv=handoff['attributes'][key]
+                parsed=a.build_parser().parse_args(argv[argv.index('--')+1:])
                 self.assertEqual(parsed.product_id,['11'])
+            from heideng_merchant.merchant_tasks import task_context
+            self.assertEqual(len(task_context(state,'123','123')['tasks']),1)
+            self.assertEqual(task_context(state,'123','999')['tasks'],[])
+
+    def test_free_title_work_item_uses_own_receipt_directory(self):
+        a=self.agent()
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);_,seller=self.fixture(a,root)
+            path=root/'host-text.json'
+            path.write_text(json.dumps({'shortTitles':{'1':'保暖纯棉圆领长袖上衣','2':'舒适宽松圆领长袖上衣'}}),encoding='utf-8')
+            client=Mock();client.seller_info.return_value=seller
+            args=Namespace(output_dir=root,profile='fixture',expected_shop_name=seller['shopName'],
+                           agent_text_file=path,target_spu_id=None,confirm='AUTO_MAINTAIN')
+            with patch.object(a,'JdoClient',return_value=client),patch(
+                'pop_workflow.complete_short_title_import',return_value={'status':'verified'}) as submit,patch.object(a,'ModelClient') as paid:
+                self.assertEqual(a.run_title_work_item(args)['status'],'verified')
+            self.assertEqual(submit.call_args.args[1]['rowCount'],2)
+            paid.assert_not_called()
+            self.assertTrue((root/'短标题独立交付'/'全店'/'短标题导入.xlsx').exists())
 
 if __name__=='__main__':unittest.main()

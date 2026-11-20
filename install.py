@@ -6,7 +6,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from heideng_merchant import VERSION,SKILL_NAME
 from heideng_merchant.distribution import build_bundle,install_archive,rollback
 from heideng_merchant.safety import SafetyError,file_sha,redact
-from heideng_merchant.state import merchant_home
+from heideng_merchant.state import install_state
 from heideng_merchant.official import OfficialClient
 
 HOSTS={'workbuddy':('.workbuddy','skills'),'codex':('.codex','skills'),'claude':('.claude','skills'),'joycode':('.joycode','skills'),'universal':('.agents','skills')}
@@ -22,10 +22,11 @@ def main(argv=None):
   if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8',errors='backslashreplace')
  p=argparse.ArgumentParser(description='黑灯运营智能体商家版单仓库安装；由Agent执行')
  p.add_argument('--host',choices=HOSTS,default='codex');p.add_argument('--home');p.add_argument('--skills-dir');p.add_argument('--archive');p.add_argument('--sha256');p.add_argument('--offline',action='store_true');p.add_argument('--with-official',action='store_true');p.add_argument('--with-runtime',action='store_true');p.add_argument('--with-cutout-runtime',action='store_true',help='兼容保留；标准在线安装已包含神经抠图依赖与Lite权重准备');p.add_argument('--rollback',action='store_true');p.add_argument('--no-auto-update',action='store_true')
+ p.add_argument('--state',type=Path,help='商家隔离状态目录')
  args=p.parse_args(argv)
  try:
   if sys.version_info<(3,11):raise SafetyError('python-3.11-or-newer-required-agent-install-official-runtime')
-  target=target_directory(args.host,args.home,args.skills_dir);state=merchant_home(args.home)
+  target=target_directory(args.host,args.home,args.skills_dir);state=install_state(target,args.home,args.state)
   from heideng_merchant.safety import read_json
   existing_updates=read_json(state/'updates/settings.json',{})
   if existing_updates and existing_updates.get('target')!=str(target.resolve()):raise SafetyError('update-target-changed-use-explicit-isolated-state-or-maintenance-migration')
@@ -69,7 +70,7 @@ def main(argv=None):
    if args.no_auto_update:set_enabled(state,False)
    result['automaticUpdates']=update_status(state)
   else:result['automaticUpdates']={'enabled':False,'reason':'publisher-trust-not-configured'}
-  result.update(skill=SKILL_NAME,requiresManualCommands=False,employeeDependencies=False,next='由Agent运行已安装scripts/merchant.py status，按实际成熟源码入口执行；缺源码许可或宿主适配时明确报告阻塞，不回落旧业务运行时。')
+  result.update(skill=SKILL_NAME,stateRoot=str(state),statusArgv=[sys.executable,str(target/'scripts/merchant.py'),'--state',str(state),'status'],requiresManualCommands=False,employeeDependencies=False,next='可以告诉我店名了。')
   from heideng_merchant.mature_runtime import status as mature_status
   result['matureCapabilities']=mature_status()
   print(json.dumps(redact(result),ensure_ascii=False));return 0
