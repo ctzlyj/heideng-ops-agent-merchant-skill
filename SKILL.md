@@ -45,7 +45,7 @@ version: 0.4.10
 
 ## 模型与当前适用限制
 
-图片保留已选 LTS4AI `https://api.lts4ai.com/v1` / `gpt-image-2.5`，复用 sufy-image2 client；只使用商家自己的 Key，不读公司/个人 Skill 凭据，不回退公司模型/额度。安全 Key 入口按已批准图片任务使用 `python scripts/with_image_key.py run ...`：先预检再密码输入。Tk 不可用回退本机密码页面；用户明确选择记住时仅写 Windows DPAPI/macOS Keychain，没有明文回退。之后实际已批准模型分支自动复用同一商家状态的安全Key，纯绑定/标题/免费修复不读Key；Key存在不等于费用获批，驳回修复默认免费。初次缺Key仍用安全输入，不读取公司/个人Skill凭据。用户要求忘记时由宿主执行 `python scripts/merchant.py key forget`。只读或纯标题任务不用此入口、不弹Key页面。
+图片保留已选 LTS4AI `https://api.lts4ai.com/v1` / `gpt-image-2.5`，复用 sufy-image2 client；只使用商家自己的 Key，不读公司/个人 Skill 凭据，不回退公司模型/额度。已批准的图片任务使用 `python scripts/with_image_key.py run ...`，先预检，再打开前台密码弹窗。宿主无法显示原生窗口时使用本机安全输入页。提交后默认保存到 Windows DPAPI 或 macOS Keychain，后续已获批准的生图任务可自动复用。安全存储失败时仅在本进程使用。纯绑定、短标题、只读任务和免费修复不读取 Key；付费修复仍需本次费用授权。用户要求忘记时由宿主执行 `python scripts/merchant.py key forget`。
 
 独立文本/视觉 API 未配置时，已有成熟宿主生成文件路径可用；宿主无相应能力才报告该缺项，不能假造文本/分析。外部 AI 视频生成未配置与已有视频交接/上传是不同能力：不能冒称已能 AI 出片，也不能据此封锁已有合格视频的交接。
 

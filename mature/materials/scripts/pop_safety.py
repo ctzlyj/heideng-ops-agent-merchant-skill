@@ -22,7 +22,22 @@ def missing_only_requests(requests, snapshot):
             if any(int(m.get('status') or 0) not in (3,4,5) for m in old):raise ValueError('Unknown remote status; reconcile before writing')
             targets=[m for m in row['materials'] if int(m['order']) not in orders]
             if not targets:continue
-            if kind==1002 and len(targets) not in (2,3):raise ValueError('Selling points must be a complete 2-3 point group')
+            if kind == 1002:
+                # This endpoint replaces and reindexes the SKU's entire selling-point group.
+                # Carry forward the exact approved values whenever a missing point is added.
+                if any(int(item.get('status') or 0) != 4 for item in old):
+                    continue
+                group = list(targets)
+                for item in old:
+                    contents = (item.get('textMaterial') or {}).get('contents') or []
+                    if len(contents) != 1 or not isinstance(contents[0], str) or not contents[0]:
+                        raise ValueError('Approved selling point contents cannot be preserved')
+                    group.append({'skuId': row['skuId'], 'materialType': kind, 'order': int(item['order']),
+                                  'textMaterial': {'contents': [contents[0]]}})
+                targets = sorted(group, key=lambda item: int(item['order']))
+                if not 2 <= len(targets) <= 3 or [int(item['order']) for item in targets] != list(range(1, len(targets) + 1)):
+                    raise ValueError('Selling points must be a complete ordered 2-3 point group')
+                old = []
             entries.append({**row,'materials':targets});preserved[sku]=old
         if not entries:continue
         request['fullSiblingSkuIds']=list(source['skuIds'])

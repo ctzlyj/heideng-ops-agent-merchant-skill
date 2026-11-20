@@ -37,7 +37,7 @@ def _prompt_local_page(timeout=300):
 <h2>输入商家自己的 LTS4AI Key</h2><p>仅用于已确认范围和费用的生图任务。不读公司凭据，不粘贴到聊天。</p>
 <form method=post action=/key><input type=hidden name=csrf value='{session.csrf}'>
 <input type=password name=key autocomplete=off maxlength=8192 required autofocus>
-<p><label><input type=checkbox name=remember value=yes>在本机系统安全存储中记住（非明文）</label></p>
+<p>提交后，Key 将保存到本机系统安全存储。</p>
 <button type=submit>用于本次任务</button></form><p>关闭此页面或等待超时可取消。</p>""")
         def do_POST(self):
             try:
@@ -46,7 +46,7 @@ def _prompt_local_page(timeout=300):
                 if not 0<length<=16384:raise SafetyError('merchant-key-input-request-refused')
                 data=parse_qs(self.rfile.read(length).decode('utf-8'),keep_blank_values=True)
                 if any(len(v)!=1 for v in data.values()):raise SafetyError('merchant-key-input-request-refused')
-                session.accept(self.headers.get('Host'),self.headers.get('Origin'),data.get('csrf',[''])[0],data.get('key',[''])[0],data.get('remember')==['yes'])
+                session.accept(self.headers.get('Host'),self.headers.get('Origin'),data.get('csrf',[''])[0],data.get('key',[''])[0],True)
                 self.respond(200,'已接收。本页不显示或保存Key，可关闭页面。')
             except (SafetyError,ValueError,UnicodeError):self.respond(403,'请求无效')
     server=HTTPServer(('127.0.0.1',0),Handler);server.timeout=0.25
@@ -61,19 +61,88 @@ def _prompt_local_page(timeout=300):
     finally:server.server_close()
 
 
+def _prompt_native_window(timeout=300, on_visible=None):
+    import tkinter as tk
+    from tkinter import font, ttk
+
+    root = tk.Tk()
+    try:
+        root.withdraw()
+        root.title('黑灯生图 · 安全输入')
+        root.resizable(False, False)
+        background = '#f6f8fc'
+        root.configure(background=background)
+        body_font = font.nametofont('TkDefaultFont', root=root)
+        title_font = body_font.copy()
+        title_font.configure(size=17, weight='bold')
+        frame = tk.Frame(root, background=background, padx=26, pady=23)
+        frame.pack(fill='both', expand=True)
+        tk.Label(frame, text='输入生图密钥', font=title_font, background=background,
+                 foreground='#18243a').pack(anchor='w')
+        tk.Label(frame, text='用你的 LTS4AI Key 继续已确认的商品生图。',
+                 background=background, foreground='#44516a').pack(anchor='w', pady=(8, 18))
+        tk.Label(frame, text='LTS4AI API Key', background=background, foreground='#18243a').pack(anchor='w')
+        entry = ttk.Entry(frame, width=44, show='●')
+        entry.pack(fill='x', ipady=5, pady=(6, 2))
+        error = tk.StringVar(root)
+        tk.Label(frame, textvariable=error, background=background, foreground='#a22929').pack(anchor='w')
+        tk.Label(frame, text='提交后，Key 将保存到本机系统安全存储。',
+                 background=background, foreground='#44516a').pack(anchor='w', pady=(4, 16))
+        result = (None, False)
+
+        def cancel(_event=None):
+            entry.delete(0, tk.END)
+            root.quit()
+
+        def submit(_event=None):
+            nonlocal result
+            candidate = entry.get().strip()
+            if not candidate or len(candidate.encode('utf-8')) > 8192:
+                error.set('请输入有效的 LTS4AI Key。')
+                entry.focus_set()
+                return
+            result = (candidate, True)
+            cancel()
+
+        buttons = tk.Frame(frame, background=background)
+        buttons.pack(fill='x')
+        ttk.Button(buttons, text='继续生图', command=submit).pack(side='right')
+        ttk.Button(buttons, text='取消', command=cancel).pack(side='right', padx=(0, 8))
+        root.bind('<Return>', submit)
+        root.bind('<Escape>', cancel)
+        root.protocol('WM_DELETE_WINDOW', cancel)
+        root.update_idletasks()
+        x = max(0, (root.winfo_screenwidth() - root.winfo_reqwidth()) // 2)
+        y = max(0, (root.winfo_screenheight() - root.winfo_reqheight()) // 2)
+        root.geometry(f'+{x}+{y}')
+        root.attributes('-topmost', True)
+        root.deiconify()
+        root.lift()
+        root.after_idle(entry.focus_force)
+        root.after(1800, lambda: root.attributes('-topmost', False))
+        root.after(int(timeout * 1000), cancel)
+        root.update_idletasks()
+        if on_visible:
+            on_visible()
+        root.mainloop()
+        return result
+    finally:
+        root.destroy()
+
+
 def prompt_key(state=None):
-    state=Path(state or merchant_home())
+    state = Path(state or merchant_home())
     try:
         import tkinter as tk
-        from tkinter import simpledialog, messagebox
-        root=tk.Tk();root.withdraw()
-    except Exception:
-        value,remember=_prompt_local_page()
+    except ImportError:
+        value, remember = _prompt_local_page()
     else:
         try:
-            value=simpledialog.askstring('商家 LTS4AI Key','输入商家自己的Key。本次费用与范围应已确认；取消不执行任务。',show='*',parent=root)
-            remember=bool(value) and messagebox.askyesno('系统安全存储','是否在本机系统安全存储中记住Key，避免每次重复输入？不会写明文Key文件。',parent=root)
-        finally:root.destroy()
+            value, remember = _prompt_native_window(on_visible=lambda: print(json.dumps(
+                {'status': 'awaiting_key_input', 'inputSurface': 'native-window', 'businessExecuted': False}),
+                flush=True))
+        except tk.TclError:
+            value, remember = _prompt_local_page()
     if value and remember:
         try:store_key(state,value.strip())
         except SafetyError:
