@@ -148,7 +148,7 @@
     "scripts/owned_cdp_transport.mjs": {
       "upstreamSha256": null,
       "sha256": "420efaeca047e4046e5e728f80c31e73bac52c17e249fb37f15343ff7f3ccbb3",
-      "adapted": true,
+      "adapted": false,
       "reason": "thin Page-compatible transport using already vendored mature diagnosis Cdp; no signatures or collection business implementation"
     },
     "scripts/batch_driver/batch_driver.py": {

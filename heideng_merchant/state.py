@@ -53,6 +53,45 @@ def merchant_home(home=None):
  return Path(os.environ.get('HEIDENG_MERCHANT_HOME',Path.home()/'.heideng-merchant')).resolve()
 
 
+def installed_state(package, default=None):
+    from .safety import read_json
+
+    if os.environ.get('HEIDENG_MERCHANT_HOME') and default is None:
+        return merchant_home()
+    recorded = read_json(Path(package) / '.merchant-install.json', {}).get('stateRoot')
+    if recorded and Path(recorded).is_absolute():
+        return Path(recorded).resolve()
+    return default or merchant_home()
+
+
+def install_state(target, home=None, explicit=None):
+    from hashlib import sha256
+    from .safety import atomic_json, read_json
+
+    specified = explicit or (not home and os.environ.get('HEIDENG_MERCHANT_HOME'))
+    root = Path(specified).resolve() if specified else installed_state(target, merchant_home(home))
+    target = str(Path(target).resolve())
+
+    def owner(path):
+        return (read_json(path / 'updates/settings.json', {}).get('target')
+                or read_json(path / 'installation-target.json', {}).get('target'))
+
+    with FileLock(root / 'installation-target.lock'):
+        bound = owner(root)
+        if bound and bound != target:
+            if specified:
+                raise SafetyError('update-target-changed-use-explicit-isolated-state-or-maintenance-migration')
+            suffix = sha256(os.path.normcase(target).encode()).hexdigest()[:16]
+            alternate = root.with_name(f'{root.name}-{suffix}')
+            with FileLock(alternate / 'installation-target.lock'):
+                if owner(alternate) not in (None, target):
+                    raise SafetyError('isolated-state-target-mismatch')
+                atomic_json(alternate / 'installation-target.json', {'target': target})
+            return alternate
+        atomic_json(root / 'installation-target.json', {'target': target})
+    return root
+
+
 def process_alive(pid):
  """Conservative process liveness; never signals/terminates another process."""
  if type(pid) is not int or pid <= 0:return None

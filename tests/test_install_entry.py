@@ -4,6 +4,19 @@ from pathlib import Path
 from heideng_merchant import VERSION
 
 class InstallEntryTests(unittest.TestCase):
+ def test_two_hosts_under_one_home_reuse_their_own_install_state(self):
+  with tempfile.TemporaryDirectory(prefix='商家 夹具 ') as directory:
+   def install(host):
+    result=subprocess.run([sys.executable,'install.py','--home',directory,'--host',host,'--offline','--no-auto-update'],capture_output=True,check=True)
+    return json.loads(result.stdout)
+   first=install('workbuddy')
+   second=install('codex')
+   self.assertNotEqual(first['stateRoot'],second['stateRoot'])
+   self.assertEqual(install('codex')['stateRoot'],second['stateRoot'])
+   self.assertEqual(install('workbuddy')['stateRoot'],first['stateRoot'])
+   for item in (first,second):
+    self.assertEqual(json.loads(subprocess.check_output(item['statusArgv']))['version'],VERSION)
+
  def test_single_repository_installs_and_onboards_in_clean_home(self):
   with tempfile.TemporaryDirectory() as d:
    p=subprocess.run([sys.executable,'install.py','--home',d,'--host','codex','--offline','--no-auto-update'],capture_output=True)

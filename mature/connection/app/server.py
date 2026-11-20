@@ -433,6 +433,12 @@ class LoginJob:
         """Normalize CLI status only when it identifies this exact Profile and home."""
         code, output = sl.run_jdo(['status'], timeout=15)
         status = sl.extract_json(output) if code == 0 else None
+        if (isinstance(status, dict) and isinstance(status.get('profile'), dict)
+                and status.get('defaultProfile') != self.profile):
+            # Some CLI versions expose an explicitly selected profile. Older versions
+            # may reject this option; the other account's status is never evidence.
+            code, output = sl.run_jdo(['status', '--profile', self.profile], timeout=15)
+            status = sl.extract_json(output) if code == 0 else None
         if isinstance(status, dict) and isinstance(status.get('profile'), dict):
             record = status['profile']
             inputs = status.get('credentialInputs') or {}

@@ -6,7 +6,7 @@ from heideng_merchant.cli import main,build_parser
 from heideng_merchant.mature_runtime import preflight
 from heideng_merchant.merchant_key_ui import with_key
 from heideng_merchant.safety import SafetyError
-from heideng_merchant.state import merchant_home,FileLock
+from heideng_merchant.state import installed_state,FileLock
 
 def entry(argv=None):
     argv=sys.argv[1:] if argv is None else argv
@@ -14,9 +14,11 @@ def entry(argv=None):
     if args.command!='run' or any(x in ('--help','-h','help') for x in args.arguments):return main(argv)
     arguments=list(args.arguments)
     if arguments[:1]==['--']:arguments=arguments[1:]
+    if args.capability=='materials' and arguments[:1]==['maintain-short-titles']:
+        return main(argv)
     if args.capability=='materials' and arguments[:1]==['repair-rejected'] and ('--paid-generation' not in arguments or '--no-paid-generation' in arguments):
         return main(argv)  # Free repair must not read/prompt a Key merely because this wrapper was selected.
-    state=args.state or merchant_home()
+    state=args.state or installed_state(Path(__file__).resolve().parents[1])
     from heideng_merchant.runtime_dependencies import ensure_core
     ensure_core(state,Path(__file__).resolve().parents[1])
     # Prevent disk replacement while input/preflight uses this version. No host restart.

@@ -9,7 +9,7 @@
   "files": {
     "scripts/jd_material_agent.py": {
       "upstreamSha256": "80cb83c2865958934423eac3479b709c263f718171df45f3b4a7c242378ce4de",
-      "sha256": "d8b924a93b3369c370863328405b14e9bc1860472635ad3ec3c824a045a85ba9",
+      "sha256": "b50a1c671084116da7381e5220a6add39f60823d21b68d381b4f3359c2221518",
       "adapted": true
     },
     "scripts/jdo_bridge_probe.py": {
@@ -29,7 +29,7 @@
     },
     "scripts/pop_browser.py": {
       "upstreamSha256": "62dea491ea45732c77cde919a296ddb98cbb3e3735135543079d9f3e30b4e719",
-      "sha256": "1d0094a84d8ab0787b5a8b421a5a4f0d2d2fb8a91141127aff8c2bb19f2d583a",
+      "sha256": "63769b7476ba471d18fa3e33c2dcaea5736a65e5a7a34d979ab23981f2be2614",
       "adapted": true
     },
     "scripts/pop_cutout.py": {
@@ -39,13 +39,13 @@
     },
     "scripts/pop_repair.py": {
       "upstreamSha256": "6788aa2756e818c62e8d785f782c66106a60414aab661bdea6babb3a7e63fda5",
-      "sha256": "d3c4d2eeb91d70e1bb72df5b8b377433d9cb9b0d6561fb4900f58a9a79f8525f",
+      "sha256": "f08690a552af89ee676fb101c662e6ebfb610ee77f42808630e3ca17797e0946",
       "adapted": true
     },
     "scripts/pop_safety.py": {
       "upstreamSha256": "509a7b3dd91707d137c7dc9ad3bccd5185160411d1eab216b04c6f46d880efa5",
       "sha256": "0a03578b7888917406a7c506777bad966b70455e75888f446d49e3583f37b683",
-      "adapted": false
+      "adapted": true
     },
     "scripts/pop_text.py": {
       "upstreamSha256": "d40740c9f9cffe9805572ff940ea425c5014bd125d342f6d0af03e0e6c865531",

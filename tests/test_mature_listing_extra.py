@@ -17,7 +17,7 @@ class ExtraListingTests(unittest.TestCase):
 
     def test_unconfigured_vision_refuses_before_image_read_or_paid_call(self):
         module=load('hot_replica_preflight')
-        with self.assertRaisesRegex(RuntimeError,'external-vision-provider-not-configured'):
+        with self.assertRaisesRegex(RuntimeError,'--analysis-file.*no model request submitted'):
             module.ask(Path('does-not-exist.png'),'synthetic product','unspecified')
 
     def test_all_new_entries_help_without_model_or_store(self):

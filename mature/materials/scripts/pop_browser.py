@@ -28,6 +28,13 @@ def _playwright():
     return sync_playwright
 
 
+def browser_profile_lock(profile_dir):
+    from heideng_merchant.state import FileLock, merchant_home
+
+    identity = hashlib.sha256(str(Path(profile_dir).resolve()).encode('utf-8')).hexdigest()
+    return FileLock(merchant_home() / 'browser-locks' / f'{identity}.lock', timeout=45)
+
+
 def _open(playwright, profile_dir: str, viewport=(1600, 950)):
     from heideng_merchant.mature_runtime import browser_profile_channel
     channel = browser_profile_channel(profile_dir)
@@ -187,7 +194,7 @@ def import_short_titles(profile_dir: str, workbook: str, *, wait_ms: int=12000, 
     if saved and (saved.get('sha256') != digest or saved.get('shopName') != expected_shop_name or str(saved.get('shopId')) != str(expected_shop_id)):
         raise ValueError('Import receipt identity/fingerprint mismatch; no replay')
     sync_playwright = _playwright()
-    with sync_playwright() as playwright:
+    with browser_profile_lock(profile_dir), sync_playwright() as playwright:
         context = _open(playwright, profile_dir)
         try:
             page = context.pages[0] if context.pages else context.new_page()
@@ -334,7 +341,7 @@ def submit_batch_cutout(profile_dir: str, *, mode: str='sku-white', max_pages: i
         raise ValueError('mode 只支持 sku-white 或 main-image')
     sync_playwright = _playwright()
     receipts = []
-    with sync_playwright() as playwright:
+    with browser_profile_lock(profile_dir), sync_playwright() as playwright:
         context = _open(playwright, profile_dir)
         try:
             page = context.pages[0] if context.pages else context.new_page()
@@ -471,7 +478,7 @@ def submit_jingmai_repair_batch(profile_dir, spu_skus, mode, *, expected_shop_na
     all_skus = {str(k) for v in spu_skus.values() for k in v}
     exclude = set(map(str, exclude_skus))
     sync_playwright = _playwright()
-    with sync_playwright() as playwright:
+    with browser_profile_lock(profile_dir), sync_playwright() as playwright:
         context = _open(playwright, profile_dir)
         try:
             page = context.pages[0] if context.pages else context.new_page()

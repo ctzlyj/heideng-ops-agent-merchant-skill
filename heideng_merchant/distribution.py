@@ -215,7 +215,7 @@ def install_archive(archive,target,state,*,expected_sha):
   stage.mkdir()
   for name,data in raw.items():p=safe_join(stage,name);p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
   hashes={name:hashlib.sha256(data).hexdigest() for name,data in raw.items()}
-  atomic_json(stage/RECEIPT,{'skill':SKILL_NAME,'version':manifest['version'],'archiveSha256':expected_sha,'files':hashes})
+  atomic_json(stage/RECEIPT,{'skill':SKILL_NAME,'version':manifest['version'],'archiveSha256':expected_sha,'files':hashes,'stateRoot':str(Path(state).resolve())})
   atomic_json(state/'install-journal.json',{'target':str(target),'stage':str(stage),'backup':str(backup)})
   had_previous=target.exists()
   try:

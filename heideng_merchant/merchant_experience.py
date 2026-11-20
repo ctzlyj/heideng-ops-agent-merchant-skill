@@ -42,10 +42,16 @@ def _receipt_facts(value):
 def task_summary(payload):
     value=payload if isinstance(payload,dict) else {}
     merchant_action=value.get('needsMerchantAction') is True or any(isinstance(value.get(k),dict) and value[k].get('needsMerchantAction') is True for k in _COMPONENTS)
+    receipt_counts = {}
     if any(key in value for key in ('reconciledUploads','reconciledBindings','unresolvedUploads','unresolvedBindings')):
         uploads=value.get('reconciledUploads') or [];bindings=value.get('reconciledBindings') or []
         unresolved=_count(value.get('unresolvedUploads'))+_count(value.get('unresolvedBindings'))
         pending=sum(1 for item in bindings if item.get('status')=='pending')
+        receipt_counts = {'uploadsChecked':len(uploads), 'bindingGroupsChecked':len(bindings),
+                          'bindingGroupsWaitingReview':pending,
+                          'bindingGroupsApproved':sum(item.get('status')=='approved' for item in bindings),
+                          'uploadsUnknown':_count(value.get('unresolvedUploads')),
+                          'bindingGroupsUnknown':_count(value.get('unresolvedBindings'))}
         phase='needs-reconciliation' if unresolved else 'waiting-review' if pending else 'completed'
         completed=len(uploads)+len(bindings);total=completed+unresolved;failed=unresolved;components={}
         message=f'原任务已对账，仍有{unresolved}项结果需要核对。' if unresolved else f'原任务已对账，{pending}条绑定等待平台审核。' if pending else '原任务回执已对账，没有未确认的上传或绑定。'
@@ -94,7 +100,9 @@ def task_summary(payload):
     return {'phase':phase,'message':message,'nextAction':action,'completed':phase=='completed','canLeave':True,
             'completedCount':completed,'totalCount':total,'pendingReviewCount':pending,'failedCount':failed,
             'needsUserAction':merchant_action,'needsAgentAction':needs,'needsMerchantAction':merchant_action,
-            'retryAllowed':False,'components':components,'resultFile':value.get('resultFile')}
+            'retryAllowed':False,'components':components,'resultFile':value.get('resultFile'),
+            'receiptCounts':receipt_counts,
+            'countUnit':'receipt' if receipt_counts else 'spu-or-reported-scope'}
 
 
 def merchant_status(version):

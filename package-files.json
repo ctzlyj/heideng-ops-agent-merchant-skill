@@ -3,6 +3,7 @@
   "files": [
     "heideng_merchant/__init__.py",
     "heideng_merchant/cli.py",
+    "heideng_merchant/merchant_tasks.py",
     "heideng_merchant/distribution.py",
     "heideng_merchant/safety.py",
     "heideng_merchant/state.py",
@@ -33,6 +34,7 @@
     "references/experience-listing.md",
     "references/experience-materials.md",
     "references/experience-navigation.md",
+    "references/experience-service.md",
     "references/experience-video.md",
     "references/execution-policy.md",
     "references/merchant-cli-environment.md",

@@ -38,6 +38,8 @@ class ExperienceTests(unittest.TestCase):
   from heideng_merchant.merchant_experience import task_summary
   result=task_summary({'reconciledUploads':[{'status':'accepted'}],'reconciledBindings':[{'status':'pending'}],'unresolvedUploads':[],'unresolvedBindings':[]})
   self.assertEqual(result['phase'],'waiting-review');self.assertTrue(result['canLeave']);self.assertNotIn('0/0',result['message'])
+  self.assertEqual(result['receiptCounts']['bindingGroupsWaitingReview'],1)
+  self.assertEqual(result['receiptCounts']['bindingGroupsApproved'],0)
   unresolved=task_summary({'reconciledUploads':[],'reconciledBindings':[],'unresolvedUploads':[],'unresolvedBindings':[{'reason':'fixture'}]})
   self.assertEqual(unresolved['phase'],'needs-reconciliation');self.assertFalse(unresolved['retryAllowed'])
 

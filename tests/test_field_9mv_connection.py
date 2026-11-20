@@ -151,6 +151,21 @@ class LateProofTests(unittest.TestCase):
                     f'jdo-cli:token:{job.profile}:{scope}:123', delete_old=False)
             server.sl.require_auth_slot(job.profile, required=True)
 
+    def test_nondefault_profile_requires_explicit_scoped_status(self):
+        import server
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {'JDO_HOME': d}, clear=True):
+            job = server.LoginJob('target-profile','target-shop',defer_registry=True)
+            account = 'token:target-profile:0123456789abcdef:default'
+            login = {'ok':True,'profile':job.profile,'tokenCredentialAccount':account}
+            other = {'ok':True,'defaultProfile':'other-profile','profile':{'exists':True}}
+            scoped = {'ok':True,'profile':job.profile,'home':d,'tokenCredentialAccount':account,
+                      'oauthTokenStored':True,'oauthTokenMocked':False}
+            with patch.object(server.sl,'run_jdo',side_effect=[(0,json.dumps(other)),(0,json.dumps(scoped))]) as run:
+                self.assertTrue(job._owned_login_receipt(login))
+                self.assertEqual(run.call_args.args[0],['status','--profile',job.profile])
+            with patch.object(server.sl,'run_jdo',side_effect=[(0,json.dumps(other)),(2,'unsupported option')]):
+                self.assertFalse(job._owned_login_receipt(login))
+
     def test_completed_native_default_slot_recovers_after_first_identity_read_was_offline(self):
         import server
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'JDO_HOME':d,'JINGMAI_LINKER_HOME':str(Path(d)/'linker')},clear=True):

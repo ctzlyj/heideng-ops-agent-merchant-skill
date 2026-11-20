@@ -95,7 +95,8 @@ def reexec_update_runtime(state, argv=None):
     except ImportError:
         interpreter=runtime_python(state)
         if interpreter.resolve()==Path(sys.executable).resolve():raise SafetyError('merchant-update-runtime-cryptography-required')
-        env=clean_environment(Path(state)/'runtime-home',os.environ);env['HEIDENG_MERCHANT_UPDATE_RUNTIME']='1'
+        env=clean_environment(Path(state)/'runtime-home',os.environ)
+        env.update(HEIDENG_MERCHANT_UPDATE_RUNTIME='1',HEIDENG_MERCHANT_HOME=str(Path(state).resolve()))
         return subprocess.call([str(interpreter),'-I','-B',str(Path(__file__).resolve().parents[1]/'scripts/merchant.py'),*(sys.argv[1:] if argv is None else argv)],env=env)
 
 

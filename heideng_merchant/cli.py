@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse, json, sys
 from pathlib import Path
 from . import VERSION, SKILL_NAME
-from .state import merchant_home
+from .state import installed_state
 from .safety import SafetyError, redact
 from .mature_runtime import ROUTES, MatureSourceUnavailable, run, status
 
@@ -22,6 +22,10 @@ def build_parser():
     p.add_argument('--entry', help='registered source entry only')
     p.add_argument('capability', choices=sorted(ROUTES))
     p.add_argument('arguments', nargs=argparse.REMAINDER)
+    task = sub.add_parser('task-context', help='按已核验店铺查询原任务和回执')
+    task.add_argument('--shop-id', required=True)
+    task.add_argument('--vender-id', required=True)
+    task.add_argument('--task-id')
     return parser
 
 
@@ -32,7 +36,13 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        state = args.state or merchant_home()
+        state = args.state or installed_state(Path(__file__).resolve().parents[1])
+        if args.command == 'task-context':
+            from .merchant_tasks import task_context
+            if not args.shop_id.isdecimal() or not args.vender_id.isdecimal():
+                raise SafetyError('invalid-shop-identity')
+            print(json.dumps(redact(task_context(state,args.shop_id,args.vender_id,args.task_id)),ensure_ascii=False))
+            return 0
         if args.command == 'key':
             from .merchant_key_store import forget_key
             forget_key(state)
@@ -64,7 +74,7 @@ def main(argv=None):
             if args.detail:result['detail']=status()
             print(json.dumps(result,ensure_ascii=False))
             return 0
-        return run(args.capability, args.arguments, state=args.state or merchant_home(), entry=args.entry)
+        return run(args.capability, args.arguments, state=state, entry=args.entry)
     except MatureSourceUnavailable as error:
         from .merchant_experience import error_summary
         print(json.dumps({'status': 'blocked', 'error': redact(str(error)), 'capability': error.capability, 'builtinFallback': False, **error_summary(error)}, ensure_ascii=False))
@@ -78,7 +88,7 @@ def main(argv=None):
         if args.command != 'update':
             try:
                 from .update_client import maybe_schedule
-                maybe_schedule(args.state or merchant_home())
+                maybe_schedule(state)
             except Exception: pass
 
 if __name__ == '__main__':
