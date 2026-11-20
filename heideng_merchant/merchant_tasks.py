@@ -1,6 +1,8 @@
 """Shop-scoped references to existing frozen material plans and business receipts."""
 from hashlib import sha256
 import json
+import sys
+import os
 from pathlib import Path
 import time
 
@@ -32,10 +34,75 @@ def register_material_task(handoff):
         atomic_json(path,record)
 
 
+def register_repair_task(directory, identity, profile):
+    """Keep a reference as soon as the authenticated repair scope is frozen."""
+    directory = Path(directory).resolve()
+    index = merchant_home() / 'merchant-tasks'
+    task_id = sha256(('repair:' + str(directory)).encode('utf-8')).hexdigest()
+    path = index / (task_id + '.json')
+    with FileLock(index / 'index.lock'):
+        previous = read_json(path, {})
+        if previous and _shop(previous.get('shopIdentity', {})) != _shop(identity):
+            raise ValueError('维修目录已绑定其他店铺')
+        atomic_json(path, {'kind':'repair', 'taskId':task_id, 'taskDirectory':str(directory),
+                           'shopIdentity':identity, 'profile':profile})
+
+
+def _repair_context(state, directory, identity_key, record=None):
+    freeze = directory / 'repair-scope.json'
+    receipt = directory / '.state' / 'merchant-result-repair-rejected.json'
+    if any(is_linked(p) for p in (directory, freeze, receipt.parent, receipt)):
+        return None
+    frozen = read_json(freeze, {})
+    identity = frozen.get('shopIdentity', {})
+    if _shop(identity) != identity_key:
+        return None
+    record = record or {}
+    task_id = sha256(('repair:' + str(directory)).encode('utf-8')).hexdigest()
+    profile = record.get('profile')
+    base = [sys.executable, '-I', '-B', str(Path(os.environ.get('HEIDENG_MERCHANT_PACKAGE') or
+             Path(__file__).resolve().parents[1]) / 'scripts/merchant.py'), '--state', str(state),
+            'run', 'materials', '--', 'check-repair-status', '--output-dir', str(directory)]
+    result = {'taskId':task_id, 'goal':'修复驳回素材', 'shopIdentity':identity,
+              'taskDirectory':str(directory), 'originalScope':str(freeze), 'state':'recoverable',
+              'updatedAt':freeze.stat().st_mtime, 'recoverArgv':base+['--profile',profile] if profile else [],
+              'readbackCommand':base, 'nextAction':'使用本店已核验 Profile 只读回查原绑定；未知生成先对账。', 'results':{}}
+    for command, path in (('repair-rejected',receipt), ('check-repair-status',receipt.parent/'repair-readback.json')):
+        if is_linked(path):
+            continue
+        raw = read_json(path, {})
+        if not raw or raw.get('shopName') != identity.get('shopName'):
+            continue
+        known_skus = set(frozen.get('originals', {}))
+        if any(str(row['skuId']) not in known_skus for row in raw.get('rows', []) if 'skuId' in row):
+            continue
+        result['updatedAt'] = max(result['updatedAt'], path.stat().st_mtime)
+        result['results'][command] = {**task_summary(raw), 'receipt':str(path),
+                'checkedAt':int(path.stat().st_mtime), 'submittedSkuSlotCount':raw.get('submittedSkuSlotCount'),
+                'approvedSkuSlotCount':sum(r.get('status') == 'approved' for r in raw.get('rows', [])),
+                'modelAttempts':sum((raw.get('modelStats', {}).get('attempts') or {}).values()) if 'modelStats' in raw else None}
+    return result
+
+
+def _legacy_repair_directories(state):
+    # Older versions did not index standalone repairs. Limit discovery to the merchant's own materials tree.
+    base = Path(state) / 'work' / 'materials'
+    if is_linked(base) or is_linked(base.parent):
+        return
+    for folder, children, names in os.walk(base):
+        directory = Path(folder)
+        children[:] = [child for child in children if child not in {'.state','shared','browser-profiles'}
+                       and not is_linked(directory / child)]
+        if 'repair-scope.json' in names:
+            yield directory
+            children.clear()
+
+
 def task_context(state, shop_id, vender_id, task_id=None):
     """Return a scoped handoff; never infer that a local process is still running."""
     index = Path(state) / 'merchant-tasks'
     matches = []
+    indexed_repairs = set()
     commands = ('auto-maintain','maintain-short-titles','repair-rejected','reconcile-receipts')
     for path in sorted(index.glob('*.json')):
         if is_linked(path):
@@ -46,6 +113,12 @@ def task_context(state, shop_id, vender_id, task_id=None):
         if task_id and record.get('taskId') != task_id:
             continue
         directory = Path(record['taskDirectory'])
+        if record.get('kind') == 'repair':
+            indexed_repairs.add(directory)
+            entry = _repair_context(state, directory, (shop_id, vender_id), record)
+            if entry:
+                matches.append(entry)
+            continue
         handoff = directory / '.state/host-handoff.json'
         if any(is_linked(p) for p in (directory, handoff.parent, handoff)):
             continue
@@ -78,5 +151,11 @@ def task_context(state, shop_id, vender_id, task_id=None):
             **record, 'state':'recoverable', 'results':results, 'originalHandoff':str(handoff),
             'recoverArgv':current.get('recoverArgv',[]),
         })
+    for directory in _legacy_repair_directories(state):
+        if directory in indexed_repairs:
+            continue
+        entry = _repair_context(state, directory, (shop_id, vender_id))
+        if entry and (not task_id or task_id == entry['taskId']):
+            matches.append(entry)
     matches.sort(key=lambda item:item['updatedAt'],reverse=True)
     return {'shopId':shop_id,'venderId':vender_id,'tasks':matches}

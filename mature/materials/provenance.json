@@ -9,7 +9,7 @@
   "files": {
     "scripts/jd_material_agent.py": {
       "upstreamSha256": "80cb83c2865958934423eac3479b709c263f718171df45f3b4a7c242378ce4de",
-      "sha256": "b50a1c671084116da7381e5220a6add39f60823d21b68d381b4f3359c2221518",
+      "sha256": "75250c9fee220ba2044599fae08f5e76d421991024267272cec335141faec25f",
       "adapted": true
     },
     "scripts/jdo_bridge_probe.py": {
@@ -39,7 +39,7 @@
     },
     "scripts/pop_repair.py": {
       "upstreamSha256": "6788aa2756e818c62e8d785f782c66106a60414aab661bdea6babb3a7e63fda5",
-      "sha256": "f08690a552af89ee676fb101c662e6ebfb610ee77f42808630e3ca17797e0946",
+      "sha256": "cbdecb02140dee3144c2166c269991d7093f3ac493e242242459dc1ed976286b",
       "adapted": true
     },
     "scripts/pop_safety.py": {

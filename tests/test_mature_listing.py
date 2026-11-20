@@ -151,7 +151,7 @@ class MatureListingTests(unittest.TestCase):
                 with self.assertRaises(ValueError): paths.installed_skill_dir(bad, skill_root=listing)
         pl = module("photo_listing")
         with patch.object(pl, "installed_skill_dir", return_value=None):
-            with self.assertRaisesRegex(ValueError, "jingmai-cli-linker.*mature"): pl.ensure_shop("42")
+            with self.assertRaisesRegex(ValueError, "mature/connection/scripts/linker.py"): pl.ensure_shop("42")
 
     def test_existing_explicit_store_verification_does_not_require_linker(self):
         pl = module("photo_listing"); store = {"profile": "pop-test", "venderId": 42, "shopName": "测试"}
@@ -196,14 +196,88 @@ class MatureListingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t); src = root / "photo.jpg"; src.write_bytes(jpeg())
             tasks = [{"id": "main", "prompt": "x", "photos": [str(src)], "size": "1024x1024", "role": "main"}]
-            client = LocalClient(); self.assertEqual(pg.generate_tasks(tasks, root / "ok", client=client)["successCount"], 1)
-            pg.generate_tasks(tasks, root / "ok", client=client); self.assertEqual(client.calls, 1)
-            failed = LocalClient(True); result = pg.generate_tasks(tasks, root / "unknown", client=failed)
+            scope = {"task": "fixture", "shop": "42"}
+            approved = dict(approval={"scope":scope,"units":["main"],"maxRequests":1,"approvalRef":"reply-1","billing":"requests"},scope=scope)
+            client = LocalClient()
+            with self.assertRaises(ValueError):
+                pg.generate_tasks(tasks, root / "ok", client=client)
+            self.assertEqual(client.calls, 0)
+            self.assertEqual(pg.generate_tasks(tasks, root / "ok"/".generation", client=client, **approved)["successCount"], 1)
+            pg.generate_tasks(tasks, root / "ok"/".generation", client=client); self.assertEqual(client.calls, 1)
+            with self.assertRaisesRegex(ValueError,"上限"):
+                pg.generate_tasks(tasks, root / "ok"/".generation", client=client, redo=["main"], **approved)
+            self.assertEqual(client.calls,1)
+            revised=dict(approved,approval=dict(approved["approval"],approvalRef="reply-2"))
+            pg.generate_tasks(tasks, root / "ok"/".generation", client=client, redo=["main"], **revised)
+            self.assertEqual(client.calls,2)
+            failed = LocalClient(True); result = pg.generate_tasks(tasks, root / "unknown"/".generation", client=failed, **approved)
             self.assertEqual(result["unknownCount"], 1)
             for redo in (None, ["main"]):
-                with self.assertRaises(pg.GenerationUnknown): pg.generate_tasks(tasks, root / "unknown", client=failed, redo=redo)
+                with self.assertRaises(pg.GenerationUnknown): pg.generate_tasks(tasks, root / "unknown"/".generation", client=failed, redo=redo, **approved)
             self.assertEqual(failed.calls, 1)
-            self.assertNotIn("private provider", (root / "unknown" / "generation.json").read_text())
+            self.assertNotIn("private provider", (root / "unknown" / ".generation"/"generation.json").read_text())
+
+    def test_merchant_gallery_host_design_fee_and_reuse(self):
+        pl = module("photo_listing"); pg = module("photo_generation")
+        store = {"profile":"pop-test","venderId":42,"shopName":"测试店"}
+        img = lambda url, order: {"imgUrl":url, "orderSort":order}
+        data = {"productInfo":{"productId":"123"}, "material":{
+            "mainImages":[{"uuid":"0000000000","imageInfoList":[img("jfs/b", 2),img("jfs/a", 1)]}],
+            "whiteBackGroundImages":[{"imageUrl":"jfs/WrongSeo"}]}}
+        class Client:
+            def get_bytes(self, url, headers):
+                return jpeg((12,14))
+        with tempfile.TemporaryDirectory() as t, patch.object(pl,"verify_store") as verify, patch.object(pl.cli,"get",return_value={"data":data}):
+            root=Path(t)
+            m=pl.create_from_same_shop(root,store,123,"坐便椅",client=Client())
+            verify.assert_called_once_with(store)
+            ss=pg.load(root/".reference-cache/assets.json")
+            self.assertEqual([x["sourceUrl"].split("/")[-1] for x in ss["entries"]],["a","b"])
+            self.assertEqual(ss["mainCount"],2)
+            first,second=m["sourcePhotos"]
+            prompt="按实物的侧面轮廓突出可调结构，版式遵循原链接的短标签。"
+            design={"styleObservations":"轮播强调轮廓与短标签","images":[{"id":"a","role":"main","photos":[first],"prompt":prompt},
+                                                                   {"id":"b","role":"main","reusePhoto":second}]}
+            with self.assertRaises(ValueError):
+                pl.make_plan(root,preview=True)
+            with self.assertRaisesRegex(ValueError,"风格"):
+                pl.make_plan(root,preview=True,design={"images":design["images"]})
+            planned=pl.make_plan(root,preview=True,design=design)
+            quote=planned["quote"]
+            self.assertEqual(quote["units"],["a"])
+            self.assertEqual(quote["reusedImageCount"],1)
+            self.assertEqual(planned["tasks"][0]["prompt"],prompt)
+            provider=unittest.mock.Mock(capacity=1)
+            provider.edit.return_value=jpeg((12,14))
+            with patch.object(pg,"CompanyPhotoClient",return_value=provider),patch.object(pg,"key_from_environment",return_value="offline"):
+                with self.assertRaises(ValueError): pl.generate_plan(root)
+                provider.edit.assert_not_called()
+                pl.generate_plan(root,approval=dict(quote,billing="requests",approvalRef="merchant-approval"))
+                pl.generate_plan(root)
+                provider.edit.assert_called_once()
+                self.assertEqual(provider.edit.call_args.kwargs["prompt"],prompt)
+            self.assertEqual([x["source"] for x in pl.read_manifest(root)["mainImages"]],["generated","reuse"])
+
+    def test_consumer_urls_come_from_latest_matching_sku_rows(self):
+        pl=module("photo_listing")
+        skus=[{"skuId":300, "outerId":"a","saleAttrs":[{"attrValueAlias":"软款"}],"priceInfo":{"jdPrice":"33"}},
+              {"skuId":301, "outerId":"b","saleAttrs":[{"attrValueAlias":"硬款"}],"priceInfo":{"jdPrice":"36"}},
+              {"skuId":302, "outerId":"other"}]
+        links=pl.consumer_links(skus,{"a":{"id":"a"},"b":{"id":"b"}})
+        self.assertEqual([(x["url"], x["spec"]) for x in links],
+                         [("https://item.jd.com/300.html","软款"),("https://item.jd.com/301.html","硬款")])
+
+    def test_photo_preflight_and_reviewer_identity(self):
+        pl=module("photo_listing"); pc=module("photo_contract")
+        fields=pc.missing_information({"categoryId":53207,"title":"图"*31,"weightKg":"0","packageWidthMm":0,
+            "packageLengthMm":0,"packageHeightMm":0},{})
+        self.assertTrue({"title-exceeds-60-units","weightKg","packageWidthMm","packageLengthMm","packageHeightMm"}.issubset(fields))
+        with tempfile.TemporaryDirectory() as t, patch.object(pl,"check_review",return_value={}), patch.object(pl.dp,"check_detail_set",return_value={"ok":True}):
+            with self.assertRaisesRegex(ValueError,"明确答复"):
+                pl.accept_images(t,"proof",confirm="PHOTOS_REVIEWED",reviewer="merchant")
+            self.assertEqual(pl.accept_images(t,"proof",confirm="PHOTOS_REVIEWED")["by"],"HOST_REVIEWED")
+            self.assertEqual(pl.accept_images(t,"proof",confirm="PHOTOS_REVIEWED",reviewer="merchant",
+                evidence="merchant reply 3")["by"],"USER_CONFIRMED")
 
     def test_company_receipt_never_replays_attempted_generation(self):
         c = module("company_jpeg_edits")
@@ -211,10 +285,48 @@ class MatureListingTests(unittest.TestCase):
             def edit(self, **kwargs): raise c.SafeGenerationError("TimeoutError")
         with tempfile.TemporaryDirectory() as t:
             root = Path(t); src = root / "photo.jpg"; src.write_bytes(jpeg()); sha = hashlib.sha256(src.read_bytes()).hexdigest()
-            plan = {"prompt": "x", "sources": [{"source": str(src), "sha": sha, "model": "gpt-image-2.5"}]}
+            plan = {"shop": {"profile": "test", "venderId": 42}, "sourceProduct": "fixture",
+                    "sources": [{"prompt": "host creative", "source": str(src), "sha": sha, "model": "gpt-image-2.5"}]}
+            with self.assertRaisesRegex(ValueError, "批准"):
+                c.generate_plan(plan, root, client=Broken())
+            quote = json.loads((root / "image-quote.json").read_text(encoding="utf-8"))
+            (root / "fee-approval.json").write_text(json.dumps({**quote, "approvalRef": "fixture-reply",
+                                                               "maxRequests": 1, "billing": "requests"}))
             with self.assertRaises(RuntimeError): c.generate_plan(plan, root, client=Broken())
             with self.assertRaisesRegex(RuntimeError, "reconcile"): c.generate_plan(plan, root, client=Broken())
             self.assertEqual(json.loads((root / "generation.json").read_text())[sha]["attempts"], 1)
+
+    def test_host_replica_quote_and_provider_match_per_image_and_reuse(self):
+        company = module("company_jpeg_edits")
+        shop = {"profile": "pop-fixture", "venderId": 123}
+        with tempfile.TemporaryDirectory() as t:
+            run = Path(t)
+            path = run / "reference.jpg"
+            raw = jpeg()
+            path.write_bytes(raw)
+            source = {"sha": hashlib.sha256(raw).hexdigest(), "source": str(path), "model": company.MODELS[0]}
+            plan = {"shop": shop, "sourceProduct": "source-1", "sources": [
+                {**source, "imageKey": "main", "prompt": "focus on the fold hinge"},
+                {**source, "imageKey": "detail", "prompt": "show the adjustment screw"},
+                {**source, "imageKey": "spec", "reuse": True},
+            ]}
+            client = types.SimpleNamespace(edit=unittest.mock.Mock(return_value=(raw, {})))
+            company.generate_plan(plan, run, client=client, quote_only=True)
+            quote = json.loads((run / "image-quote.json").read_text(encoding="utf-8"))
+            self.assertEqual(quote["newImageCount"], 2)
+            self.assertEqual(quote["reusedSources"], {"spec": source["sha"]})
+            self.assertEqual(client.edit.call_count, 0)
+            approval = run / "fee-approval.json"
+            approval.write_text(json.dumps({**quote, "billing": "requests", "maxRequests": 2, "approvalRef": "message"}))
+            company.generate_plan(plan, run, client=client)
+            self.assertCountEqual([call.kwargs["prompt"] for call in client.edit.call_args_list],
+                                  ["focus on the fold hinge", "show the adjustment screw"])
+            approval.unlink()
+            with patch.object(company, "resolve_api_key", side_effect=AssertionError("cached run requested a key")):
+                company.generate_plan(plan, run)
+            plan["sources"][0]["prompt"] = "changed design"
+            with self.assertRaisesRegex(ValueError, "another prompt"):
+                company.generate_plan(plan, run)
 
     def test_legacy_video_producer_is_blocked_not_searched_or_called(self):
         v = module("video_handoff")
@@ -278,7 +390,11 @@ print('offline imports and merchant defaults OK')
                     {"key": "two", "spec": "black", "jdPrice": "20.75", "stock": 8, "skuAttributes": []}]}
             m["mainImages"] = [{"localPath": "main.jpg", "role": "white"}]
             m["variants"] = [{"key": "one", "skuImage": {"localPath": "sku-a.jpg"}}, {"key": "two", "skuImage": {"localPath": "sku-b.jpg"}}]
-            plan = dp.build_detail_plan(m, root, identity_rules="real product only", style="clean")
+            kinds = ["hero","selling_points","sku_options","scene","structure","aftercare"]
+            design = {"images":[{"id": "detail-" + kind, "role":"detail", "kind":kind, "skuKeys":["one","two"],
+                                  "photos":["photo.jpg"], "prompt":"Fixture design for " + kind} for kind in kinds]}
+            _, modules = pl.prepare_creative_plan(m,root,reference,design,only="detail")
+            plan = {"schema":"host-detail-plan/v1", "modules":modules}
             pg.atomic_json(root / "detail-plan.json", plan)
             m["detailImages"] = []
             for i, mod in enumerate(plan["modules"]):
@@ -305,10 +421,18 @@ print('offline imports and merchant defaults OK')
         with tempfile.TemporaryDirectory() as t:
             root = Path(t); (root / "source-main").mkdir(); (root / "source-main" / "photo.jpg").write_bytes(jpeg())
             (root / "source-apply.json").write_text(json.dumps({"productInfo": {"productName": "Test rack"}}))
-            (root / "variants.json").write_text(json.dumps({"variants": {"a": {"suffix": "clean"}}}))
-            (root / "source-main-manifest.json").write_text(json.dumps([{"stem": "photo", "file": "photo.jpg"}]))
-            args = types.SimpleNamespace(run=str(root), variants=None, variant="a", only=None, redo=False)
+            (root / "variants.json").write_text(json.dumps({"variants": {"a": {"prompts": {"photo": "host design"}}}}))
+            (root / "snapshot-scope.json").write_text(json.dumps({"shop": {"venderId": 42, "profile": "p"}, "productId": "123"}))
+            photo = {"stem": "photo", "file": "photo.jpg", "sha256": hashlib.sha256((root / "source-main/photo.jpg").read_bytes()).hexdigest(), "url": "jfs/original"}
+            (root / "source-main-manifest.json").write_text(json.dumps([photo]))
+            args = types.SimpleNamespace(run=str(root), variants=None, variant="a", only=None, redo=False, quote_only=True, fee_approval_file=None)
             with patch.object(mx, "resolve_api_key", return_value="offline-sentinel"), patch.object(company, "CompanyClient", Broken):
+                self.assertEqual(mx.command_generate(args), 0)
+                quote_dir = root / "generated/a"
+                quote = json.loads((quote_dir / "image-quote.json").read_text(encoding="utf-8"))
+                (quote_dir / "fee-approval.json").write_text(json.dumps({**quote, "approvalRef": "test-matrix",
+                                                                          "billing": "requests", "maxRequests": 1}))
+                args.quote_only = False
                 self.assertEqual(mx.command_generate(args), 2)
                 with self.assertRaisesRegex(mx.MatrixError, "unknown.*reconcile"): mx.command_generate(args)
                 args.only = ["photo"]; args.redo = True

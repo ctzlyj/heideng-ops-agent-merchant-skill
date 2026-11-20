@@ -151,6 +151,50 @@ def submit_repair_request(client,request,path,agent):
     if status=='unknown':raise agent.JdoWriteUncertainError('Unknown repair result; do not replay')
     return saved
 
+def read_repair_status(client, directory, agent):
+    """Read the original bound values by SKU without reconstructing or submitting a write."""
+    from heideng_merchant.safety import read_json
+    identity = agent._shop_identity(client.seller_info())
+    scope = read_json(directory / 'repair-scope.json', {})
+    if identity != scope.get('shopIdentity'):
+        raise ValueError('原任务与当前官方店铺身份不一致')
+    receipt_paths = sorted((directory / 'shared-bindings').glob('*.json'))
+    receipt_paths += sorted(directory.glob('*/*-binding.json'))
+    rows = []
+    for path in receipt_paths:
+        saved = read_json(path, {})
+        request = saved.get('request', {})
+        sku_ids = list(map(str, request['skuIds']))
+        if not set(sku_ids).issubset(scope['originals']):
+            raise ValueError('绑定回执超出原维修范围')
+        reads = agent._query_binding_materials(client, sku_ids)
+        for sku in sku_ids:
+            single = {**request, 'skuIds':[sku]}
+            if 'preservedMaterialsBySku' in request:
+                single['preservedMaterialsBySku'] = {sku:request['preservedMaterialsBySku'].get(sku, [])}
+            status, reason = agent._evaluate_binding_request(single, reads)
+            status = {'mismatch':'unknown','failed':'rejected'}.get(status, status)
+            rows.append({'skuId':sku,'materialType':request['materialType'],'status':status,
+                         'reason':reason,'receipt':str(path)})
+    unknown_images = [str(path) for path in (directory/'shared').glob('*/*.request.json')
+                      if read_json(path, {}).get('status') in ('intent','unknown')]
+    if unknown_images or any(row['status'] == 'unknown' for row in rows):
+        status = 'unknown'
+    elif not rows:
+        status = 'no-binding-receipts'
+    elif any(row['status'] == 'rejected' for row in rows):
+        status = 'repair-incomplete'
+    elif any(row['status'] == 'pending' for row in rows):
+        status = 'repairs-submitted-awaiting-review'
+    else:
+        status = 'verified' if all(row['status'] == 'approved' for row in rows) else 'submitted'
+    result = {'status':status,'shopName':identity['shopName'],'shopIdentity':identity,
+              'rows':rows,'unknownImageReceipts':unknown_images,'writesPerformed':False,
+              'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+    _save(directory/'.state/repair-readback.json', result)
+    return result
+
+
 PRODUCT_TEXT_REJECTION='禁止出现文字信息'
 
 def product_text_appeal(kind, slot, override=None, *, current_url=None):
@@ -391,6 +435,8 @@ def run_rejected_repairs(args,agent=None):
             scope={'shopIdentity':identity,'rows':rows,'skuSources':{str(r['skuId']):{'logo':r.get('skuImage') or r.get('logo'),'skuName':r.get('skuName')} for r in sku_rows},'originals':originals}
             scope['referenceGranularity'] = getattr(args, 'reference_granularity', None) or 'spu'
             _save(freeze,scope)
+        from heideng_merchant.merchant_tasks import register_repair_task
+        register_repair_task(out, identity, args.profile)
         granularity = scope.get('referenceGranularity', 'legacy')
         if getattr(args, 'reference_granularity', None) not in (None, granularity):
             raise ValueError('续跑须使用原修复粒度，保留已有请求和回执。')
@@ -445,6 +491,13 @@ def run_rejected_repairs(args,agent=None):
         paid_groups = {(str(row['productId']), kind, references[str(row['skuId'])][1])
                        for row in targets for kind in row['repairKinds']
                        if kind != 'transparent' or ('white' not in row['repairKinds'] and transparent_route(row) != 'reuse-white')}
+        units = sorted(f'{spu}/{kind}/{hashlib.sha256(ref.encode()).hexdigest()[:16]}' for spu,kind,ref in paid_groups)
+        fee_scope = {'task': 'repair-rejected', 'shopIdentity': identity,
+                     'directory': str(out.resolve()), 'referenceGranularity': granularity,
+                     'targets': {str(r['skuId']): sorted(r['repairKinds']) for r in targets}}
+        quote = {'scope': fee_scope, 'units': units, 'estimatedPaidImageCount': len(units),
+                 'amount': None, 'actualAmount': None, 'provider': 'LTS4AI',
+                 'nextAction': '按图型、覆盖范围和已知计价条件报价；金额未知时请商家决定是否按最大请求次数结算。'}
         if not targets:
             status='needs-image-review' if image_review else 'jingmai-submitted-awaiting-review' if jingmai.get('submittedSlots') else 'appeal-only' if appeal_delivery else 'no-rejections'
             result={'status':status,'rows':[],'shopName':identity['shopName'],'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai,
@@ -460,7 +513,7 @@ def run_rejected_repairs(args,agent=None):
                     'remainingImageSlotCount':sum(len(row['kinds']) for row in remaining),
                     'pendingReviewCount':int(jingmai.get('submittedSlots') or 0),'noPaidGeneration':True,
                     **review_fields,
-                    'paidRequestCount':None,'estimatedPaidImageCount':len(paid_groups),'referenceGranularity':granularity,
+                    'feeQuote':quote,'paidRequestCount':None,'estimatedPaidImageCount':len(paid_groups),'referenceGranularity':granularity,
                     'sourceGroupCount':source_group_count,'nextAction':'免费路径已执行并保留回执；Agent先核实文字来源。核对剩余SKU/槽位，在已有费用范围内重设本任务提示词继续；仅新增费用才另行确认。'}
             _save(out/'repair-result.json',result)
             return result
@@ -470,6 +523,19 @@ def run_rejected_repairs(args,agent=None):
                     'nextAction':'付费修复须由宿主按已批准目标传repair-kind；未读取Key、未调用模型。'}
             _save(out/'repair-result.json',result)
             return result
+        if units:
+            approval_file = getattr(args, 'fee_approval_file', None)
+            if not approval_file:
+                return {**review_fields, 'status':'fee-approval-required', 'needsMerchantAction':True,
+                        'feeQuote':quote, 'estimatedPaidImageCount':len(units), 'rows':[]}
+            from heideng_merchant.image_budget import validate_approval
+            approval = json.loads(Path(approval_file).read_text(encoding='utf-8-sig'))
+            validate_approval(approval, scope=fee_scope, units=units)
+            if limit is not None and limit > approval['maxRequests']:
+                raise ValueError('请求上限超出商家已批准范围')
+            limit = min(limit, approval['maxRequests']) if limit is not None else approval['maxRequests']
+        else:
+            limit = 0
         from heideng_merchant.mature_image import merchant_key
         key=os.environ.get(agent.PROVIDER.api_key_env) or merchant_key()
         adapter=json.loads(Path(args.joyagent_adapter).read_text(encoding='utf-8')) if getattr(args,'joyagent_adapter',None) else None

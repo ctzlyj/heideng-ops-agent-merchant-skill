@@ -5,6 +5,7 @@ from copy import deepcopy
 from decimal import Decimal,InvalidOperation
 from pathlib import Path
 from PIL import Image
+from jd_product_mover import jd_title_units
 from photo_generation import atomic_json,load,sha
 
 SCHEMA_VERSION='listing-package/v1'
@@ -41,6 +42,19 @@ def missing_information(facts,reference):
  for field in ('confirmed','title','categoryId','brandId','skus','packageLengthMm','packageWidthMm','packageHeightMm','weightKg','freightTemplateId','sevenDayReturnCode'):
   value=facts.get(field)
   if value is None or value=='' or (field in ('confirmed','skus') and not value):missing.append(field)
+ if jd_title_units(str(facts.get('title') or '')) > 60:
+  missing.append('title-exceeds-60-units')
+ for field in ('weightKg', 'packageWidthMm', 'packageLengthMm', 'packageHeightMm'):
+  try:
+   value=Decimal(str(facts.get(field)))
+   lower, upper=(Decimal('0.001'), Decimal('10000')) if field=='weightKg' else (0,100000)
+   if not value.is_finite() or value < 0:
+    missing.append(field)
+   # Live validation for the bedside commode category rejects zero logistics values.
+   # Other categories retain their own schema and existing optional-field behavior.
+   elif str(facts.get('categoryId')) == '53207' and not lower < value < upper:
+    missing.append(field)
+  except (InvalidOperation, ValueError):missing.append(field)
  if facts.get('confirmed') is not True and 'confirmed' not in missing:missing.append('confirmed')
  if int(facts.get('categoryId') or 0)!=int((reference.get('category') or {}).get('id') or 0):missing.append('category-template-mismatch')
  if facts.get('brandId') is not None:

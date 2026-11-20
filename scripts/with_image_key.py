@@ -14,7 +14,12 @@ def entry(argv=None):
     if args.command!='run' or any(x in ('--help','-h','help') for x in args.arguments):return main(argv)
     arguments=list(args.arguments)
     if arguments[:1]==['--']:arguments=arguments[1:]
-    if args.capability=='materials' and arguments[:1]==['maintain-short-titles']:
+    if '--quote-only' in arguments:
+        return main(argv)
+    if args.capability == 'materials' and arguments[:1] in (
+            ['maintain-short-titles'], ['audit-pop-coverage'], ['check-repair-status'], ['plan-auto-maintain']):
+        return main(argv)
+    if args.capability == 'photo-listing' and args.entry is None and arguments[:1] != ['generate']:
         return main(argv)
     if args.capability=='materials' and arguments[:1]==['repair-rejected'] and ('--paid-generation' not in arguments or '--no-paid-generation' in arguments):
         return main(argv)  # Free repair must not read/prompt a Key merely because this wrapper was selected.

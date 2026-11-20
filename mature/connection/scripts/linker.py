@@ -532,6 +532,11 @@ def main() -> int:
     p.add_argument("--shop", required=True)
     p.set_defaults(func=cmd_resolve)
 
+    p = sub.add_parser("remember-alias", help="保存商家已明确确认的店铺简称")
+    p.add_argument("--shop", required=True, help="官方店名或 venderId")
+    p.add_argument("--alias", required=True)
+    p.set_defaults(func=lambda args: sl.remember_confirmed_alias(args.shop, args.alias))
+
     p = sub.add_parser("ensure-shop", help="解析→可用即返回→否则授权→核验→登记")
     p.add_argument("--shop", required=True, help="店名、简称或明确 venderId；不把 shopId 当 venderId")
     p.add_argument("--profile", help="新店用的 Profile 名（默认自动生成）")

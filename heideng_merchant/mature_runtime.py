@@ -29,6 +29,27 @@ class MatureSourceUnavailable(SafetyError):
         self.capability = capability
         super().__init__('mature-source-unavailable')
 
+
+def node_for_merchant(environment):
+    """A host can prepend an older bundled Node while a supported installation is on PATH."""
+    seen = set()
+    for directory in environment.get('PATH', '').split(os.pathsep):
+        if not directory or not Path(directory).is_absolute():
+            continue
+        candidate = shutil.which('node', path=directory)
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            probe = subprocess.run([candidate, '--version'], env=environment, capture_output=True,
+                                   text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        match = re.fullmatch(r'v(\d+)\.\d+\.\d+\s*', probe.stdout)
+        if probe.returncode == 0 and match and int(match.group(1)) >= 24:
+            return candidate
+    raise SafetyError('node-24-or-newer-required-for-mature-diagnosis')
+
 def allowed_host(host):
     name = str(host or '').lower().rstrip('.')
     return not (name.endswith(('.local', '.internal')) or name in {'o2.jd.com', 'joyspace.jd.com', 'llm-gw.jd.com', 'oxygen.jd.com', 'joyagent.jd.com'})
@@ -281,12 +302,7 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
             command = [str(runtime_python(state)), '-I', '-B', str(root/'scripts/mature_entry.py'), str(path), *arguments]
         elif path.suffix == '.cjs' or (capability=='diagnosis' and path.suffix=='.js') or (capability=='collection' and path.suffix=='.mjs'):
             if capability=='collection':source_path('diagnosis',package_root=root)
-            node=shutil.which('node',path=environment.get('PATH'))
-            if not node:raise SafetyError('node-24-or-newer-required-for-mature-diagnosis')
-            probe=subprocess.run([node,'--version'],env=environment,capture_output=True,text=True,timeout=15)
-            match=re.fullmatch(r'v(\d+)\.\d+\.\d+\s*',probe.stdout)
-            if probe.returncode or not match or int(match.group(1))<24:
-                raise SafetyError('node-24-or-newer-required-for-mature-diagnosis')
+            node = node_for_merchant(environment)
             if path.suffix=='.cjs' and official.ready() and arguments[:1] not in (['--help'],['help']) and '--dry-run' not in arguments:
                 checked_command([str(official.executable())])
             command=[node,str(path),*arguments]

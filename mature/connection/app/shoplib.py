@@ -555,8 +555,44 @@ def build_view(reg=None) -> dict:
             e["shopName"] = local["shop_name"]
         if not e.get("venderId") and local.get("vender_id"):
             e["venderId"] = str(local["vender_id"])
-    for name,e in view.items():e['authRejected']=proofs.get(name,{}).get('status')=='rejected'
+    aliases = read_json(linker_home() / 'confirmed-shop-aliases.json', {}) or {}
+    for name, e in view.items():
+        e['authRejected'] = proofs.get(name, {}).get('status') == 'rejected'
+        key = (str(e.get('shopId') or ''), str(e.get('venderId') or ''))
+        confirmed = [alias for alias, identity in aliases.items()
+                     if key == (identity['shopId'], identity['venderId'])]
+        e['aliases'] = sorted(set(e.get('aliases') or []) | set(confirmed))
     return view
+
+
+def remember_confirmed_alias(shop, alias):
+    """Record the merchant's nickname after resolving the official target live."""
+    from heideng_merchant.safety import atomic_json, read_json as read_state
+    from heideng_merchant.state import FileLock
+
+    alias = alias.strip()
+    if not norm(alias) or alias.isdecimal() or len(alias) > 80 or any(ord(c) < 32 for c in alias):
+        raise ValueError('需要有效的店铺简称')
+    result = resolve(shop)
+    if result['status'] != 'ready':
+        return result
+    identity = {key: str(result.get(key) or '') for key in ('shopId', 'venderId')}
+    if not all(value.isdecimal() for value in identity.values()) or shop not in (result['shopName'], identity['venderId']):
+        raise ValueError('记录简称需要商家已确认的官方店名或 venderId')
+    path = linker_home() / 'confirmed-shop-aliases.json'
+    with FileLock(path.with_suffix('.lock')):
+        for entry in build_view().values():
+            if norm(alias) in {norm(name) for name in _entry_names(entry) if name} and (
+                    str(entry.get('venderId') or '') != identity['venderId'] or
+                    entry.get('shopId') and str(entry['shopId']) != identity['shopId']):
+                return _result('ambiguous', query=alias, message='此简称与另一家已登记店铺同名，请选能区分两店的叫法。')
+        aliases = read_state(path, {})
+        for known, target in aliases.items():
+            if norm(known) == norm(alias) and target != identity:
+                return _result('ambiguous', query=alias, message='此简称已绑定其他店，请选能区分两店的叫法。')
+        aliases[alias] = identity
+        atomic_json(path, aliases)
+    return {**result, 'merchantAlias': alias}
 
 
 def _group_key(name: str, e: dict) -> str:

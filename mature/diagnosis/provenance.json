@@ -15,8 +15,8 @@
     "scripts/inspection.cjs": {
       "upstreamPath": "scripts/inspection/inspection.cjs",
       "upstreamSha256": "f079fa12318bc9e4511d48dd7b8eb301d16ff54e57e670a9afccf38f19870aaf",
-      "sha256": "f079fa12318bc9e4511d48dd7b8eb301d16ff54e57e670a9afccf38f19870aaf",
-      "adapted": false
+      "sha256": "e53a84ea25f8f23474393cda3a5bf1a2561e361c04b21d2a92f259d98abcbbab",
+      "adapted": true
     },
     "scripts/transport.cjs": {
       "upstreamPath": "scripts/inspection/transport.cjs",

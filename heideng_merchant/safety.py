@@ -28,7 +28,7 @@ def safe_join(root: Path, relative: str) -> Path:
 
 def clean_environment(home:Path, inherited:dict|None=None) -> dict:
  source=os.environ if inherited is None else inherited
- allowed=('SystemRoot','WINDIR','ProgramFiles','ProgramFiles(x86)','PATH','PATHEXT','TEMP','TMP','LANG')
+ allowed=('SystemRoot','SystemDrive','WINDIR','ProgramFiles','ProgramFiles(x86)','PATH','PATHEXT','TEMP','TMP','LANG')
  # Windows host dictionaries commonly uppercase keys. Keep only the same safe OS allowlist.
  lookup={str(k).casefold():v for k,v in source.items()} if os.name=='nt' else source
  result={key:lookup[key.casefold() if os.name=='nt' else key] for key in allowed if (key.casefold() if os.name=='nt' else key) in lookup}

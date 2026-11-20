@@ -65,7 +65,14 @@ class TaskImagePromptTests(unittest.TestCase):
             root=Path(d);file=root/'prompts.json';file.write_text('{"11":{"white":"新的任务提示词"}}',encoding='utf-8')
             result=a.BatchResult(1,1,0,root,None,None,None)
             with patch.object(a,'_prepared_from_args',return_value=prepared),patch.object(a,'generate_batch',return_value=result) as batch,redirect_stdout(io.StringIO()):
-                code=a.main(['generate','--source','fixture.xlsx','--reference-dir',d,'--output-dir',d,'--image-prompts-file',str(file)])
+                source = root/'fixture.xlsx'; source.write_bytes(b'synthetic source')
+                argv = ['generate','--source',str(source),'--reference-dir',d,'--output-dir',d,'--image-prompts-file',str(file)]
+                self.assertEqual(a.main(argv),2)
+                batch.assert_not_called()
+                fee = json.loads((root/'.state/image-fee-quote.json').read_text(encoding='utf-8'))
+                approval = root/'fee.json'
+                approval.write_text(json.dumps({**fee,'approvalRef':'fixture-message','billing':'requests','maxRequests':4}))
+                code=a.main(argv+['--fee-approval-file',str(approval)])
             self.assertEqual(code,0);self.assertEqual(batch.call_args.kwargs['image_prompts']['11']['white']['prompt'],'新的任务提示词')
 
     def test_unknown_shared_binding_is_reconciled_not_replayed_when_prompt_changes(self):
@@ -84,7 +91,7 @@ class TaskImagePromptTests(unittest.TestCase):
         identity={'shopName':'fixture','venderId':'123','shopId':'123'};url='https://img14.360buyimg.com/imgzone/jfs/fixture.jpg'
         old={**a._binding_material(31,1,url,'1'),'status':5};row={'skuId':'1','productId':'11','skuName':'fixture','slots':{'white':{'state':'rejected','auditReasons':['禁止出现文字信息']}}}
         client=Mock();client.seller_info.return_value=identity
-        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{},clear=True):
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':d},clear=True):
             root=Path(d);(root/'repair-scope.json').write_text(json.dumps({'shopIdentity':identity,'rows':[row],'skuSources':{},'originals':{'1':[old]}}),encoding='utf-8')
             args=Namespace(output_dir=root,profile='fixture',expected_shop_name='fixture',confirm='AUTO_MAINTAIN',paid_generation=False,jingmai_first=False)
             with patch.object(a,'JdoClient',return_value=client),patch.object(a,'ModelClient') as model,patch('heideng_merchant.mature_image.merchant_key') as key,patch('heideng_merchant.mature_runtime.registered_browser_profile',return_value=None):result=pop_repair.run_rejected_repairs(args,a)
@@ -110,7 +117,7 @@ class TaskImagePromptTests(unittest.TestCase):
     def test_current_host_guide_treats_default_as_starting_point_not_a_prohibition(self):
         root=Path(__file__).resolve().parents[1]
         skill=(root/'SKILL.md').read_text(encoding='utf-8');guide=(root/'references/experience-materials.md').read_text(encoding='utf-8')
-        self.assertIn('默认提示词只是起点',skill)
+        self.assertIn('商品信息分维护可以沿用槽位默认模板',skill)
         self.assertIn('--image-prompts-file',guide)
         self.assertNotIn('原生图提示词不改',guide);self.assertNotIn('通用和实际生图提示词仍不改',guide)
 
@@ -135,7 +142,7 @@ class TaskImagePromptTests(unittest.TestCase):
             im=Image.new('RGB',(800,800),'white');ImageDraw.Draw(im).rectangle((200,200,600,600),fill=color);out=io.BytesIO();im.save(out,'JPEG');return out.getvalue()
         newbytes=jpeg('blue');oldbytes=jpeg('red')
         for scenario in ('received-old-response','rejected-old-binding','unknown-old-response','already-pending','reviewed-added-text','reviewed-product-text'):
-          with self.subTest(scenario=scenario),tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_LTS4AI_API_KEY':'synthetic'},clear=True):
+          with self.subTest(scenario=scenario),tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_LTS4AI_API_KEY':'synthetic','HEIDENG_MERCHANT_HOME':d},clear=True):
             old={**a._binding_material(31,1,oldurl,'1'),'status':5}
             row={'skuId':'1','productId':'11','skuName':'fixture','slots':{'white':{'state':'rejected','auditReasons':['裁切']}}}
             entry=custom
@@ -163,7 +170,8 @@ class TaskImagePromptTests(unittest.TestCase):
             args=Namespace(output_dir=root,profile='fixture',expected_shop_name='fixture',confirm='AUTO_MAINTAIN',repair_kind=['white'],paid_generation=True,jingmai_first=False,jingmai_ledger=root/'ledger.json',max_model_requests=1,image_prompts_file=promptfile)
             def download(_url,path,*_args):path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(oldbytes)
             with patch.object(a,'JdoClient',return_value=client),patch.object(a,'ModelClient',return_value=model),patch.object(a,'_query_binding_materials',return_value={'1':[current]}),patch.object(a,'_download_reference',side_effect=download),patch.object(a,'request_material_image',return_value=newbytes) as call,patch.object(pop_repair,'white_quality_issues',return_value=[]),patch('heideng_merchant.mature_runtime.registered_browser_profile',return_value=None):
-                result=pop_repair.run_rejected_repairs(args,a)
+                from tests.test_audit_handoff_contracts import run_approved_repair
+                result=run_approved_repair(args,a)
             self.assertEqual(oldresponse.read_bytes(),before)
             if legacy:self.assertEqual(legacy.read_bytes(),legacy_before)
             if scenario in ('unknown-old-response','already-pending','reviewed-product-text'):

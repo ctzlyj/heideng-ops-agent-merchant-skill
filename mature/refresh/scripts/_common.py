@@ -19,11 +19,6 @@ import time
 from pathlib import Path
 from typing import Any, Iterable
 
-# User-finalised generic prompt. Do not rewrite selling points per product.
-DEFAULT_PROMPT_TEMPLATE = (
-    "你是一个京东电商团队的专业美工，因为这是别的平台搬运过来的图片，不符合京东的人群画像。"
-    "优化重构这张【{title}】电商图， 要求视觉传达高级 卖点突出  构图和谐"
-)
 DEFAULT_IMAGE_BASE = "https://img10.360buyimg.com/image/"
 DEFAULT_MAX_POSITION = 9
 SCOPES = ("main", "detail")
@@ -204,7 +199,6 @@ def load_job(run: str | Path) -> dict[str, Any]:
     job = load_json(run / "job.json")
     if not job:
         raise SystemExit("missing job.json in %s (see scripts/new_job.py)" % run)
-    job.setdefault("promptTemplate", DEFAULT_PROMPT_TEMPLATE)
     job.setdefault("imageBase", DEFAULT_IMAGE_BASE)
     job.setdefault("size", "1024x1024")
     job.setdefault("maxPosition", DEFAULT_MAX_POSITION)
@@ -395,7 +389,6 @@ def build_detail_plan(
         detail = snapshots[pid]
         info = detail.get("productInfo") or {}
         title = str(info.get("productName") or "")
-        prompt = str(prompt_template).replace("{title}", title)
         htmls = detail_htmls(detail)
         planned: dict[str, dict[str, Any]] = {}
         field_urls: dict[str, list[str]] = {}
@@ -403,10 +396,7 @@ def build_detail_plan(
             field_urls[field] = [clean_url(url) for url in detail_unique_urls(html)]
             for url in field_urls[field]:
                 if url not in planned:
-                    # A fixed prompt (no title placeholder) makes the output for
-                    # one URL identical everywhere, so the key is URL-scoped.
-                    title_bound = "{title}" in str(prompt_template)
-                    key = image_key("%s|%s" % (pid, url)) if title_bound else image_key(url)
+                    key = image_key(f"{pid}|detail|{url}")
                     planned[url] = {
                         "key": key,
                         # Source file key is URL-scoped so the same physical
@@ -415,7 +405,6 @@ def build_detail_plan(
                         "sourceKey": image_key(url),
                         "currentUrl": url,
                         "absoluteUrl": absolute_url(url, image_base),
-                        "prompt": prompt,
                         "scope": "detail",
                         "scopes": ["detail"],
                         "productId": pid,
@@ -436,7 +425,7 @@ def build_detail_plan(
 # ------------------------------------------------------------------- planning
 def build_plan(
     snapshots: dict[int, dict[str, Any]],
-    prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
+    prompt_template: str | None = None,
     max_position: int = DEFAULT_MAX_POSITION,
     image_base: str | None = None,
     order: Iterable[int] | None = None,
@@ -462,7 +451,6 @@ def build_plan(
         material = detail.get("material") or {}
         info = detail.get("productInfo") or {}
         title = str(info.get("productName") or "")
-        prompt = str(prompt_template).replace("{title}", title)
         groups = material.get("mainImages") or []
         rect_count = sum(
             len(group.get("imageInfoList") or [])
@@ -487,16 +475,13 @@ def build_plan(
                 if url in seen:
                     continue
                 seen.add(url)
-                # With a title-bound prompt the same URL needs one generation per
-                # product; a fixed prompt allows a single URL-scoped generation.
-                key = image_key("%s|%s" % (pid, url)) if "{title}" in str(prompt_template) else image_key(url)
+                key = image_key(f"{pid}|main|{url}")
                 source_key = image_key(url)
                 tasks[key] = {
                     "key": key,
                     "sourceKey": source_key,
                     "currentUrl": url,
                     "absoluteUrl": absolute_url(url, image_base),
-                    "prompt": prompt,
                     "scope": "main",
                     "scopes": ["main"],
                     "group": uuid,

@@ -69,7 +69,7 @@ class FieldMaterialTests(unittest.TestCase):
               'originals':{'1':[],'2':[{'materialType':31,'order':1,'status':5,'url':'https://img14.360buyimg.com/imgzone/printed.jpg'}],'3':[]}}),encoding='utf-8')
             args=Namespace(profile='fixture',expected_shop_name='fixture',output_dir=root,confirm='AUTO_MAINTAIN',profile_dir=str(root/'browser'),no_paid_generation=True)
             client=Mock();client.seller_info.return_value=identity
-            with patch.object(a,'JdoClient',return_value=client),patch.object(pop_repair,'run_jingmai_first',return_value=({('1','transparent')},{'submittedSlots':1,'tasks':[{'status':'task-accepted'}]})),patch.object(a,'export_pop_image_appeals',return_value={'appealFiles':['fixture-appeal.xlsx'],'appealSubmitted':False}),patch.object(a,'ModelClient') as model,patch('heideng_merchant.merchant_key_store.read_key') as read,patch.dict(os.environ,{},clear=True):
+            with patch.object(a,'JdoClient',return_value=client),patch.object(pop_repair,'run_jingmai_first',return_value=({('1','transparent')},{'submittedSlots':1,'tasks':[{'status':'task-accepted'}]})),patch.object(a,'export_pop_image_appeals',return_value={'appealFiles':['fixture-appeal.xlsx'],'appealSubmitted':False}),patch.object(a,'ModelClient') as model,patch('heideng_merchant.merchant_key_store.read_key') as read,patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':d},clear=True):
                 try:result=pop_repair.run_rejected_repairs(args,a)
                 except Exception as error:self.fail(f'免费修复不能靠缺Key抛异常收尾：{error}')
             self.assertEqual(result['status'],'partial-free-repair');self.assertEqual(result['remainingImageSlotCount'],1)

@@ -2,10 +2,10 @@
 
 usage:
   python new_job.py <run_dir> --profile pop-xxx --vender-id 123 \
-      --shop-name 店铺名 --products 1001,1002 [--prompt-file prompt.txt] \
+      --shop-name 店铺名 --products 1001,1002 [--image-prompts-file designs.json] \
       [--lnk <店铺浏览器.lnk>] [--max-position 9] [--concurrency 8]
 
-The prompt template keeps one {title} placeholder; everything else is literal.
+Build the inventory before authoring a complete prompt for each image key.
 """
 
 import argparse
@@ -24,7 +24,7 @@ def parse_args(argv):
     parser.add_argument("--vender-id", required=True, type=int)
     parser.add_argument("--shop-name", required=True)
     parser.add_argument("--products", default="")
-    parser.add_argument("--prompt-file")
+    parser.add_argument("--image-prompts-file", "--prompt-file", help="宿主逐图设计 JSON，按 plan-batch.json 的图片 key 保存完整提示词")
     parser.add_argument("--lnk", default="")
     parser.add_argument("--max-position", type=int, default=common.DEFAULT_MAX_POSITION)
     parser.add_argument("--concurrency", type=int, default=8)
@@ -41,12 +41,6 @@ def main(argv):
     for folder in ("products", "sources", "generated", "patch-bodies"):
         (run / folder).mkdir(exist_ok=True)
 
-    template = common.DEFAULT_PROMPT_TEMPLATE
-    if args.prompt_file:
-        template = Path(args.prompt_file).read_text(encoding="utf-8-sig").strip()
-        if not template:
-            raise SystemExit("prompt file is empty")
-
     job = {
         "profile": args.profile,
         "venderId": args.vender_id,
@@ -56,7 +50,7 @@ def main(argv):
             for part in str(args.products).replace("，", ",").split(",")
             if part.strip()
         ],
-        "promptTemplate": template,
+        "imagePromptsFile": str(Path(args.image_prompts_file).resolve()) if args.image_prompts_file else "",
         "imageBase": common.DEFAULT_IMAGE_BASE,
         "size": "1024x1024",
         "maxPosition": args.max_position,

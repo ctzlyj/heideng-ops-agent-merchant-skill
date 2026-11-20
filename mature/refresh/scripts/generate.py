@@ -1,20 +1,11 @@
-"""Regenerate planned images with a model pool, quota preflight and self-waiting.
+"""Generate host-designed images from the scoped plan, retaining original paid receipts."""
 
-usage: python generate.py <run_dir> [--wait-quota MINUTES] [productId ...]
-
-Design points learned from a full-store run (614 products / 3397 images):
-  * a real preflight call decides quota walls in ~1s instead of hanging workers
-  * task-level moderation rejections are recorded, never treated as a wall
-  * source bytes are sent directly (MIME detected from content), so no duplicate
-    "references" copy of every image is written to disk
-  * --wait-quota keeps polling until the department token pool is topped up
-"""
-
-import base64
+import argparse
+import hashlib
+import json
 import sys
 import threading
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -24,22 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401
 import _common as common
 
-import requests  # noqa: E402
-
 from heideng_merchant.mature_image import MerchantImageClient
-from heideng_merchant.safety import SafetyError
-FLARE = SUNBURST = 'gpt-image-2.5'
+from heideng_merchant.creative_images import CreativeOrder, host_prompt
+from heideng_merchant.state import FileLock
 LOCK = threading.RLock()
 QUOTA_MARKERS = ("额度已用尽", "2006", "2007", "insufficient", "quota", "rate limit")
 CONTENT_MARKERS = ("moderation", "safety", "invalid_request", "rejected by the safety")
-MIME_BY_FORMAT = {
-    "JPEG": "image/jpeg",
-    "PNG": "image/png",
-    "WEBP": "image/webp",
-    "GIF": "image/gif",
-}
-
-
 def is_quota_error(text: str) -> bool:
     lowered = str(text).lower()
     return any(marker.lower() in lowered for marker in QUOTA_MARKERS)
@@ -48,22 +29,6 @@ def is_quota_error(text: str) -> bool:
 def is_content_rejection(text: str) -> bool:
     lowered = str(text).lower()
     return any(marker.lower() in lowered for marker in CONTENT_MARKERS)
-
-
-def mime_of(path: Path) -> str:
-    """MIME from real bytes; the store saves every image as *.img."""
-    try:
-        with Image.open(path) as image:
-            return MIME_BY_FORMAT.get((image.format or "").upper(), "image/jpeg")
-    except Exception:  # noqa: BLE001
-        return "image/jpeg"
-
-
-def data_url(path: Path) -> str:
-    return "data:%s;base64,%s" % (
-        mime_of(path),
-        base64.b64encode(path.read_bytes()).decode("ascii"),
-    )
 
 
 def source_path(task, sources: Path) -> Path:
@@ -92,7 +57,7 @@ def probe_task(models, task, sources, size, api_key):
         raise RuntimeError('merchant-image-model-not-configured')
     try:
         client=PinnedClient('gpt-image-2.5',api_key=api_key)
-        data=client.edit_image(prompt=task['prompt'],images=[source_path(task,sources)],size=size)
+        data=client.edit_image(prompt=task['prompt'],images=[source_path(task,sources)],size=task.get('size') or size)
         return 'ok','gpt-image-2.5',data,''
     except Exception as error:
         detail=str(error)
@@ -101,14 +66,15 @@ def probe_task(models, task, sources, size, api_key):
         return 'error','',b'',detail
 
 
-def preflight(models, tasks, sources, size, api_key, ledger=None, ledger_path=None):
+def preflight(models, tasks, sources, size, api_key, ledger, ledger_path, order):
     """Probe up to five pending tasks before spawning workers."""
     if not tasks:
         return "empty", "", b"", None, "", []
     skipped, detail = [], ""
     for task in list(tasks.values())[:5]:
+        order.reserve(task["key"])
         if ledger is not None:
-            ledger[task['key']]={'status':'failed','attempts':1,'error':'Original submission result not yet confirmed; no automatic replay'}
+            ledger[task['key']]={**order.quote['designs'][task['key']], 'status':'unknown','attempts':1,'error':'Original submission result not yet confirmed; no automatic replay'}
             common.save_json(ledger_path,ledger)
         status, model, image, detail = probe_task(models, task, sources, size, api_key)
         if status == "ok":
@@ -127,36 +93,33 @@ def work(key, item, client, paths):
     try:
         source=source_path(item,paths['sources'])
         with LOCK:
-            paths['ledger'][key]={'status':'failed','attempts':1,'error':'Original submission result not yet confirmed; no automatic replay'}
+            paths['order'].reserve(key)
+            paths['ledger'][key]={**paths['order'].quote['designs'][key], 'status':'unknown','attempts':1,'error':'Original submission result not yet confirmed; no automatic replay'}
             common.save_json(paths['ledger_path'],paths['ledger'])
-        data=client.edit_image(prompt=item['prompt'],images=[source],size=paths['size'])
+        data=client.edit_image(prompt=item['prompt'],images=[source],size=item.get('size') or paths['size'])
         out=paths['generated']/(key+'.png');out.write_bytes(data)
         with Image.open(out) as check:check.verify()
         return {'status':'succeeded','attempts':1,'model':client.last_image_model,'elapsed':round(time.time()-started,1),'bytes':len(data)}
     except Exception as error:
-        return {'status':'failed','attempts':1,'error':type(error).__name__+': '+str(error)[:200]}
-
-
-def parse_args(argv):
-    wait_minutes = 0.0
-    pids = []
-    index = 2
-    while index < len(argv):
-        item = argv[index]
-        if item == "--wait-quota":
-            wait_minutes = float(argv[index + 1]) if index + 1 < len(argv) else 60
-            index += 2
-            continue
-        pids.append(item)
-        index += 1
-    return wait_minutes, pids
+        return {'status':'unknown','attempts':1,'error':type(error).__name__}
 
 
 def main(argv):
-    if len(argv) < 2:
-        raise SystemExit("usage: generate.py <run_dir> [--wait-quota MINUTES] [productId ...]")
-    run = Path(argv[1]).resolve()
-    wait_minutes, pids = parse_args(argv)
+    parser = argparse.ArgumentParser(description="Generate the selected host-designed product images")
+    parser.add_argument("run_dir", type=Path)
+    parser.add_argument("product_ids", nargs="*")
+    parser.add_argument("--wait-quota", type=float, default=0, help="legacy option; unknown submissions are preserved")
+    parser.add_argument("--image-prompts-file", type=Path)
+    parser.add_argument("--fee-approval-file", type=Path)
+    parser.add_argument("--quote-only", action="store_true")
+    args = parser.parse_intermixed_args(argv[1:])
+    run = args.run_dir.resolve()
+    with FileLock(run / ".state" / "refresh-generation.lock"):
+        return generate(run, args)
+
+
+def generate(run, args):
+    pids = args.product_ids
     job = common.load_job(run)
     plan = common.load_json(run / "plan-batch.json")
     if not plan:
@@ -174,12 +137,6 @@ def main(argv):
     ledger_path = run / "internal-generation.json"
     ledger = common.load_json(ledger_path) or {}
 
-    api_key = common.resolve_api_key()
-    if not api_key:
-        raise SystemExit('merchant LTS4AI Key required; use the masked merchant Key launcher after task/cost approval')
-    models = list(dict.fromkeys(str(item) for item in (job.get('imageModels') or ['gpt-image-2.5'])))
-    if models != ['gpt-image-2.5']:raise SystemExit('merchant-image-model-not-configured')
-    paths.update(ledger=ledger,ledger_path=ledger_path)
     unresolved=[key for key in tasks if key in ledger and ledger[key].get('status') not in ('succeeded','rejected')]
     if unresolved:raise SystemExit('Original image submission unresolved; preserve original ledger/output and do not automatically regenerate')
 
@@ -188,15 +145,45 @@ def main(argv):
         if (ledger.get(key) or {}).get("status") not in ("succeeded", "rejected")
     ]
 
+    prompt_file = args.image_prompts_file or job.get("imagePromptsFile") or run / "host-prompts.json"
+    prompts = common.load_json(Path(prompt_file)) or {}
+    for key in tasks.keys() - set(pending):
+        record = ledger[key]
+        supplied = prompts.get(key) if isinstance(prompts, dict) else None
+        if record.get("prompt") and supplied and record["prompt"] != supplied.strip():
+            raise ValueError("图片已有原请求回执；修改设计须作为明确的重做任务")
+    if not pending and not args.quote_only:
+        print("All selected images already have terminal receipts")
+        return
+    designs = {}
+    for key, task in tasks.items():
+        prompt = host_prompt(prompts, key)
+        reference = source_path(task, paths['sources'])
+        designs[key] = {"prompt": prompt, "sourceSha256": hashlib.sha256(reference.read_bytes()).hexdigest(),
+                        "productId": task["productId"], "role": task.get("scope"), "url": task.get("currentUrl")}
+        task["prompt"] = prompt
+    context = {"kind": "image-refresh", "shop": {k: job[k] for k in ("profile", "venderId", "shopName")},
+               "products": sorted({str(v["productId"]) for v in tasks.values()})}
+    order = CreativeOrder(run, context, designs, pending, args.fee_approval_file)
+    if args.quote_only:
+        print(json.dumps(order.quote, ensure_ascii=False))
+        return
+    order.check()
+    paths["order"] = order
+    api_key = common.resolve_api_key()
+    if not api_key:
+        raise SystemExit('merchant LTS4AI Key required; use the masked merchant Key launcher after task/cost approval')
+    models = list(dict.fromkeys(str(item) for item in (job.get('imageModels') or ['gpt-image-2.5'])))
+    if models != ['gpt-image-2.5']:raise SystemExit('merchant-image-model-not-configured')
+    paths.update(ledger=ledger,ledger_path=ledger_path)
     if pending:
-        deadline = time.time() + wait_minutes * 60
         while True:
             probe_set = {key: tasks[key] for key in pending[:5]}
             status, model, image, task, detail, skipped = preflight(
-                models, probe_set, paths["sources"], paths["size"], api_key, ledger, ledger_path
+                models, probe_set, paths["sources"], paths["size"], api_key, ledger, ledger_path, order
             )
             for key in skipped:
-                ledger[key] = {"status": "rejected",
+                ledger[key] = {**designs[key], "status": "rejected",
                                "error": "内容审核拒绝（任务级，保留原图）"}
                 pending = [item for item in pending if item != key]
             if skipped:
@@ -214,7 +201,7 @@ def main(argv):
             if status == "ok" and task is not None:
                 key = task["key"]
                 (paths["generated"] / (key + ".png")).write_bytes(image)
-                ledger[key] = {"status": "succeeded", "attempts": 1, "model": model,
+                ledger[key] = {**designs[key], "status": "succeeded", "attempts": 1, "model": model,
                                "elapsed": 0, "bytes": len(image), "preflight": True}
                 common.save_json(ledger_path, ledger)
                 pending = [item for item in pending if item != key]
@@ -244,7 +231,7 @@ def main(argv):
             key = futures[future]
             record = future.result()
             with LOCK:
-                ledger[key] = record
+                ledger[key] = {**designs[key], **record}
                 try:
                     common.save_json(ledger_path, ledger)
                 except OSError as exc:  # noqa: PERF203 - keep generating

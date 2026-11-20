@@ -27,6 +27,8 @@
 
 ## 原工具与完成证据
 
+先看每个域的覆盖，再回答哪些问题值得老板先处理。违约单按已证实的 SKU→SPU 关联汇总，优先复核集中商品的违约明细；新品驳回逐单查原因。价格星级同时报已读 SKU、已知星级、低星和未知数量。断货 SKU 只引用所属 SPU 的 30 天销量。结合广告、成交、客服与退货时，取两期可比数据并沿用[客服与售后经验](experience-service.md)的来源与缺项核对。
+
 `run diagnosis -- <原L1参数>`；登记 `scripts/make_plans.py`、`scripts/sz-fetch.js`、`scripts/jzt-run.js`、`scripts/validate_report.py`。目录外官方取数见 [商家环境](merchant-cli-environment.md)。
 
 交付可追踪的日期/字段/数据源/覆盖范围、同源报告与表格、派生计算和实际报告校验；区分观察、解释与建议。原报告校验没有执行则如实写未校验；通过结构/静态校验不证明真实经营结论。

@@ -42,27 +42,27 @@
     },
     "scripts/hot_replica_mode.py": {
       "upstreamSha256": "6864794dad6785bfb9ffca0916b8c78d5b21d2d86a074046f7af9df7c90021bc",
-      "sha256": "6864794dad6785bfb9ffca0916b8c78d5b21d2d86a074046f7af9df7c90021bc",
-      "adapted": false
+      "sha256": "3ed94a9f4c154d6e4f62c56f7ce3ecc123c62d8166644d64b32e0a7bc75ef625",
+      "adapted": true
     },
     "scripts/photo_listing.py": {
       "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
-      "sha256": "51eff7b6dbcbcd193679cdd4ed6dd04f7806caf21d7868e150e1608881dde15f",
+      "sha256": "5913d025264603690910472b7b70d9351b6340310c470fdb33edcee444a246fa",
       "adapted": true
     },
     "scripts/photo_contract.py": {
       "upstreamSha256": "053d351a11a3045ba7958eb58d9bb32ad52ed96398c674078f9eba3a832943f1",
-      "sha256": "053d351a11a3045ba7958eb58d9bb32ad52ed96398c674078f9eba3a832943f1",
-      "adapted": false
+      "sha256": "46b78ac83b72d2119a6409b6883d13f046b0c4d45170df46ac429f1147e24ee7",
+      "adapted": true
     },
     "scripts/photo_generation.py": {
       "upstreamSha256": "892e17c68cd038e2c0d3bdb0d84e31da983e2e4a5c9f69698cc14ab6c1a2ce50",
-      "sha256": "ee7bd94a45e7d2354b56037b3b8fea6037c762ac97d4718c030d0974c4c1a9fb",
+      "sha256": "1f23b775dde61db1a46ebe48aee9eafb318cf1f0ec594369aee3598d3717b7db",
       "adapted": true
     },
     "scripts/company_jpeg_edits.py": {
       "upstreamSha256": "4e044efd666bea87b45976aa6fe39614eaacec4ef34a3c59a06f7d9f22f07b93",
-      "sha256": "9fa8e15a1f9903e162a837d5fdf8fbe2148c1d81dbead12c87e1e470d55b53b3",
+      "sha256": "a025f54f83c2390250445857e99923ec3358d3d6d3eceaeca9b817da5accc73c",
       "adapted": true
     },
     "scripts/image_patch_update.py": {
@@ -72,13 +72,13 @@
     },
     "scripts/detail_pages.py": {
       "upstreamSha256": "7919735fb715de051642399d2c92fa3c7eb61645ff3dca9842e5d6bd62d7ffa1",
-      "sha256": "7919735fb715de051642399d2c92fa3c7eb61645ff3dca9842e5d6bd62d7ffa1",
-      "adapted": false
+      "sha256": "5d5805901a5b7ed1e3115a44d8ff093f5b2dbf995257e8e0d686f3c2f7a41ca6",
+      "adapted": true
     },
     "scripts/detail_repair.py": {
       "upstreamSha256": "36839d65d4fd58729ff6aebde59ff317a70b31a437097d10ae2d410e9d865adc",
-      "sha256": "36839d65d4fd58729ff6aebde59ff317a70b31a437097d10ae2d410e9d865adc",
-      "adapted": false
+      "sha256": "c48a696f6025a331140f85fe204666ad96e9a2af9b33df46d0a8c846ae816383",
+      "adapted": true
     },
     "scripts/image_quality_gate.py": {
       "upstreamSha256": "c394ac37749360e4d8cbaeb86b97ac1b899c313d43e477e0c8ab8644747882fa",
@@ -97,7 +97,7 @@
     },
     "scripts/matrix_listing.py": {
       "upstreamSha256": "5f61e01259471244a4465fbf4be6f79bee573892c41a5d248cc3164d37917840",
-      "sha256": "f91375e3ce7b605be6c6babc34f1c8ec222474cd1aab46f47312257f03000e99",
+      "sha256": "2f852fcdf6073fcf956c780715d707767ed679e41e3d038f73f7c4d207d0b7e6",
       "adapted": true
     },
     "scripts/set_product_brand.py": {
@@ -167,7 +167,7 @@
     },
     "references/detail-pages.md": {
       "upstreamSha256": "4fb93c1caf358a0d31175435e0cdfcb47f8adb564ad031869639b88e9dcfa24e",
-      "sha256": "91ffdf874073e49941df395af1f6f2f5e76bb848a2799a68bb65d5ab546dc81a",
+      "sha256": "069a3c0a6bffc9f845489d651aa6ff2c754fd2dafb9a3d2aa47209b7207ad864",
       "adapted": true
     },
     "references/image-upload-names.md": {
@@ -197,7 +197,7 @@
     },
     "scripts/hot_replica_preflight.py": {
       "upstreamSha256": "ce4b2b80440ab3bda69d4a852677cf1b6cb0607da483217dbefc55b4f9a554ee",
-      "sha256": "8ccb3f4967c599e1009d4c2cd86ad2e9be087674242ff56ffa5ea5e049646fd0",
+      "sha256": "dcead19e499fb1191558463ae2e7b736215ef2c510357141d43d3a2a0ea38dc2",
       "adapted": true
     },
     "scripts/hot_replica_publish.py": {
@@ -207,13 +207,13 @@
     },
     "references/jd-hot-replica-handoff.md": {
       "upstreamSha256": "4d068fbc5080dd39f311070af1f91af1c1d62bc457b768feffa4021d4db45c75",
-      "sha256": "4d068fbc5080dd39f311070af1f91af1c1d62bc457b768feffa4021d4db45c75",
-      "adapted": false
+      "sha256": "fd999ba8b6a0aef2949f2b292c2792c5e99857d0fd1e727907694a4b678fd3ac",
+      "adapted": true
     },
     "references/jd-hot-replica-mode.md": {
       "upstreamSha256": "d27e25f00e9645de397430dc084262a44b8aa5cd44348b331e0707201c63854a",
-      "sha256": "d27e25f00e9645de397430dc084262a44b8aa5cd44348b331e0707201c63854a",
-      "adapted": false
+      "sha256": "16c5c74bfa6d52c2ad3e6c542e71d8993205b88037ad84b2515df48492362d4c",
+      "adapted": true
     }
   },
   "entrypoints": [

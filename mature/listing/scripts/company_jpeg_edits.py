@@ -13,7 +13,8 @@ MODELS = ("gpt-image-2.5",)
 
 
 def save(path, value):
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    from heideng_merchant.safety import atomic_json
+    atomic_json(path, value)
 
 
 class CompanyClient:
@@ -30,7 +31,7 @@ class CompanyClient:
         self.lock = threading.Lock()
         self.next_start = 0.0
 
-    def edit(self, *, model, prompt, source):
+    def edit(self, *, model, prompt, source, size='1024x1024'):
         if model not in MODELS:
             raise ValueError('Only merchant gpt-image-2.5 is supported; other providers are blocked')
         raw = Path(source).read_bytes()
@@ -45,10 +46,10 @@ class CompanyClient:
                     if delay > 0:
                         self.sleep(delay)
                     self.next_start = self.clock() + 1.0
-                result = self.client.edit(prompt=prompt, images=[Path(source)], size='1024x1024')
+                result = self.client.edit(prompt=prompt, images=[Path(source)], size=size)
             with Image.open(io.BytesIO(result)) as image:
                 image.load()
-                if image.format != 'JPEG' or image.size != (1024, 1024):
+                if image.format != 'JPEG' or (size == '1024x1024' and image.size != (1024, 1024)):
                     raise ValueError('Unexpected image format or dimensions')
             return result, {'provider': 'lts4ai', 'model': model}
         except (Exception, SystemExit) as exc:
@@ -75,6 +76,8 @@ def prepare_references(plan, run):
     result = []
     for source in plan["sources"]:
         raw = Path(source["source"]).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != source["sha"]:
+            raise ValueError("Source content changed since planning")
         with Image.open(io.BytesIO(raw)) as image:
             image.load()
             extension = {"PNG":"png", "JPEG":"jpg", "WEBP":"webp"}.get(image.format)
@@ -88,89 +91,135 @@ def prepare_references(plan, run):
     return result
 
 
-def generate_plan(plan, run, client=None):
-    ledger_path=run/"generation.json"
-    ledger=json.loads(ledger_path.read_text(encoding="utf-8")) if ledger_path.exists() else {}
-    sources=prepare_references(plan,run)
-    todo=[]
+def generate_plan(plan, run, client=None, *, approval_file=None, quote_only=False):
+    from heideng_merchant.state import FileLock
+    with FileLock(run / ".state" / "jpeg-generation.lock"):
+        return _generate_plan(plan, run, client, approval_file, quote_only)
+
+
+def _generate_plan(plan, run, client, approval_file, quote_only):
+    from heideng_merchant.creative_images import CreativeOrder, host_prompt
+    from heideng_merchant.safety import safe_join
+    ledger_path = run / "generation.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8")) if ledger_path.exists() else {}
+    sources = prepare_references(plan, run)
+    todo, designs, reused, seen = [], {}, {}, set()
     for source in sources:
-        sha=source["sha"]
-        record=ledger.get(sha)
+        key = source.get("imageKey", source["sha"])
+        if key in seen or Path(key).name != key:
+            raise ValueError("Invalid or duplicate image identity")
+        source["imageKey"] = key
+        local = safe_join(run, "generated/" + key + ".jpg")
+        seen.add(key)
+        if source.get("reuse") is True:
+            if key in ledger and ledger[key].get("status") != "succeeded":
+                raise RuntimeError("A previous request is unresolved; reconcile before changing source")
+            reused[key] = source["sha"]
+            continue
+        record = ledger.get(key)
+        if not source.get("prompt") and record and record.get("status") == "succeeded":
+            if hashlib.sha256(local.read_bytes()).hexdigest() != record["outputSha256"]:
+                raise RuntimeError("Successful cached artifact changed")
+            continue
+        prompt = host_prompt({key: source.get("prompt")}, key)
+        if source["model"] not in MODELS:
+            raise ValueError("Only merchant gpt-image-2.5 is supported")
+        designs[key] = {"prompt": prompt, "sourceSha256": source["sha"], "role": source.get("role"),
+                        "source": source["source"], "size": source.get("size") or "1024x1024"}
+        record = ledger.get(key)
         if record:
             if record.get("status") != "succeeded":
                 raise RuntimeError("A request was already attempted; reconcile before retry")
-            path=run/"generated"/(sha+".jpg")
-            if hashlib.sha256(path.read_bytes()).hexdigest() != record["outputSha256"]:
+            if hashlib.sha256(local.read_bytes()).hexdigest() != record["outputSha256"]:
                 raise RuntimeError("Successful cached artifact changed")
+            if record.get("prompt") and record["prompt"] != prompt:
+                raise ValueError("Cached output belongs to another prompt")
         else:
             todo.append(source)
-    if not todo:
-        print("GENERATION COMPLETE (cached)", len(sources), flush=True)
+    shop = plan.get("shop")
+    if not isinstance(shop, dict) or not shop.get("venderId") or not shop.get("profile"):
+        raise ValueError("Missing shop identity in the image plan")
+    order = CreativeOrder(run, {"kind": "commercial-replica", "shop": shop, "product": plan["sourceProduct"]},
+                          designs, [s["imageKey"] for s in todo], approval_file, reused=reused)
+    if quote_only:
+        print(json.dumps(order.quote, ensure_ascii=False))
         return
-    key=resolve_api_key() if client is None else None
-    if not key and client is None:
-        raise RuntimeError("Missing HEIDENG_MERCHANT_LTS4AI_API_KEY")
-    client=client or CompanyClient(key)
-    (run/"generated").mkdir(exist_ok=True)
-    for source in todo:
-        ledger[source["sha"]]={"status":"request-started", "model":source["model"],
-            "outputFormat":"jpeg", "externalAllowed":False, "attempts":1}
-    save(ledger_path,ledger)
-    def one(source):
-        began=time.monotonic()
-        raw,meta=client.edit(model=source["model"],prompt=plan["prompt"],source=source["reference"])
-        (run/"generated"/(source["sha"]+".jpg")).write_bytes(raw)
-        return {"status":"succeeded", "model":source["model"], "outputFormat":"jpeg",
-            "externalAllowed":False,"attempts":1,"bytes":len(raw),"size":[1024,1024],
-            "seconds":round(time.monotonic()-began,2),"outputSha256":hashlib.sha256(raw).hexdigest(),**meta}
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        jobs={pool.submit(one,s):s for s in todo}
-        for job in as_completed(jobs):
-            source=jobs[job]
+    if todo:
+        order.check()
+        client = client or CompanyClient(resolve_api_key())
+        (run / "generated").mkdir(exist_ok=True)
+        lock = threading.Lock()
+
+        def one(source):
+            key = source["imageKey"]
+            with lock:
+                order.reserve(key)
+                ledger[key] = {"status": "request-started", "attempts": 1, **designs[key]}
+                save(ledger_path, ledger)
             try:
-                record=job.result()
-            except SafeGenerationError as exc:
-                record={"status":"failed","model":source["model"],"category":exc.category,
-                    "httpStatus":exc.status,"outputFormat":"jpeg","externalAllowed":False,"attempts":1}
+                options = {"size": source["size"]} if source.get("size") else {}
+                raw, meta = client.edit(model=source["model"], prompt=source["prompt"],
+                                        source=source["reference"], **options)
+                (run / "generated" / (key + ".jpg")).write_bytes(raw)
+                record = {"status": "succeeded", "outputSha256": hashlib.sha256(raw).hexdigest(),
+                          "bytes": len(raw), **meta}
             except Exception as exc:
-                record={"status":"failed","model":source["model"],"category":type(exc).__name__,
-                    "outputFormat":"jpeg","externalAllowed":False,"attempts":1}
-            ledger[source["sha"]]=record
-            save(ledger_path,ledger)
-            print(source["sha"],json.dumps(record),flush=True)
-    if not all(ledger[s["sha"]]["status"]=="succeeded" for s in sources):
-        raise RuntimeError("Generation incomplete; nothing uploaded or changed")
-    print("GENERATION COMPLETE",len(sources),flush=True)
+                record = {"status": "unknown", "category": type(exc).__name__}
+            with lock:
+                ledger[key].update(record)
+                save(ledger_path, ledger)
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for future in as_completed([pool.submit(one, source) for source in todo]):
+                future.result()
+    if any(ledger[key]["status"] != "succeeded" for key in designs):
+        raise RuntimeError("Generation incomplete; reconcile original receipts")
+    print("GENERATION COMPLETE", len(sources), flush=True)
+
+
+def remake_sources(plan, draft):
+    from heideng_merchant.safety import safe_join
+    from heideng_merchant.lts4ai_client import resolve_size
+    entries = plan["images"] + plan.get("deannotate", [])
+    result = []
+    for row in entries:
+        path = safe_join(draft, row["source"])
+        result.append({**row, "source": str(path), "sha": hashlib.sha256(path.read_bytes()).hexdigest(),
+                       "model": MODELS[0], "size": resolve_size("Adaptive", "2K", path) if row.get("role") == "detail" else "1024x1024"})
+    return result
 
 
 def main():
     import argparse
-    from hot_replica_mode import build_dynamic_prompt
-    parser = argparse.ArgumentParser(description="Merchant JPEG remake, no publication or external fallback")
+    parser = argparse.ArgumentParser(description="Generate host-designed images from a scoped product plan")
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--draft", type=Path, help="original replication draft for a remake plan")
+    parser.add_argument("--store-config", type=Path)
+    parser.add_argument("--fee-approval-file", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    from heideng_merchant.safety import safe_join
     plan = json.loads(args.plan.read_text(encoding="utf-8-sig"))
-    if plan["prompt"].encode("utf-8") != build_dynamic_prompt(plan["title"]).encode("utf-8"):
-        parser.error("Prompt differs from the user-finalized dynamic template")
-    if not plan.get("sources") or len({s["sha"] for s in plan["sources"]}) != len(plan["sources"]):
-        parser.error("Missing or duplicate source identities")
-    for source in plan["sources"]:
-        if source.get("model") not in MODELS or not Path(source["source"]).is_file():
-            parser.error("Invalid merchant model or missing reference")
-    fingerprint = hashlib.sha256(json.dumps(plan, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
-    if args.dry_run:
-        print(json.dumps({"dryRun":True,"promptExact":True,"uniqueImages":len(plan["sources"]),
-            "models":MODELS,"outputFormat":"jpeg","externalAllowed":False,
-            "maxConcurrency":4,"maxStartsPerSecond":1},ensure_ascii=False))
-        return
+    if args.draft:
+        if not args.store_config:
+            parser.error("Use the verified shop configuration with --draft")
+        store = json.loads(args.store_config.read_text(encoding="utf-8-sig"))["store"]
+        shop = {k: store[k] for k in ("venderId", "profile", "shopName")}
+        plan = {"shop": shop, "sourceProduct": plan["sourceSku"], "sources": remake_sources(plan, args.draft)}
+    if not plan.get("sources"):
+        parser.error("Missing sources")
     args.output.mkdir(parents=True, exist_ok=True)
-    receipt = args.output/"generation-plan.sha256"
-    if receipt.exists() and receipt.read_text(encoding="utf-8") != fingerprint:
-        parser.error("Output belongs to a different plan; do not reuse receipts")
-    receipt.write_text(fingerprint,encoding="utf-8")
-    generate_plan(plan,args.output)
+    generate_plan(plan, args.output, approval_file=args.fee_approval_file, quote_only=args.dry_run)
+    if args.draft and not args.dry_run:
+        for source in plan["sources"]:
+            target = safe_join(args.draft, source["output"])
+            if not Path(source["output"]).parts or Path(source["output"]).parts[0] != "重制-固定":
+                raise ValueError("Unexpected remake output path")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            artifact = Path(source["source"]) if source.get("reuse") else args.output / "generated" / (source["imageKey"] + ".jpg")
+            with Image.open(artifact) as image:
+                image.save(target, format="PNG")
 
 
 if __name__ == "__main__":

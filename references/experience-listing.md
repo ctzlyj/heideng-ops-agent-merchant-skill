@@ -11,8 +11,20 @@
 - 链接只采素材不上架，先用 [采集](experience-collection.md)，不得因素材齐全自动发布。
 - 常见新商品：源资料/类目与品牌判断→真实SKU和图片→原本地包/预检→确认后的发布与回读。已有合格草稿可直接复用，不强制从采集重跑。
 - 实拍：锁定真实商品外观/规格与风格参考用途，沿用 photo_listing 的包契约；图片需要修复才组合 [图文](experience-images.md)，事实不能由风格参考反向改写。
-- 完整复刻：原 hot_replica_preflight→apply→hot_replica_publish，详情连续性、shared/series 判断与规格图落位复用成熟实现，不另造发布流程；默认动态提示词不是永久规则，宿主可按真实商品与审核原因进行任务级设计，使用原工具实际可接收的输入，不凭空发明参数或改安装包绕校验。当前预检的 `--analysis-file` 接收宿主对真实图像的 drops 与 continuity {spec,pages}；page索引对应剔除后保留页，不能填假判断绕预检。
+- 完整复刻：原 hot_replica_preflight→apply→hot_replica_publish，详情连续性、shared/series 判断与规格图落位复用成熟实现，不另造发布流程；宿主根据源链接画面、SKU 差异和本次目标提供完整逐图提示词。当前预检的 `--analysis-file` 接收宿主对真实图像的 drops 与 continuity {spec,pages}；page索引对应剔除后保留页，不能填假判断绕预检。
 - 矩阵沿用原 matrix_listing 的差异方案与发布回执。同一店/商品/覆盖与费用已有批准，不要求每进一个模块再确认一次。
+
+## 实拍与本店复刻的宿主操作
+
+商家给的是本店 SPU 时，使用 `photo-listing init --shop <已核实目标> --source-spu <SPU> --package <任务包> --title <标题>`。工具从本店编辑详情提取有序 SPU 轮播、规格首图和详情，记录每张图片的来源、顺序及内容哈希。用 `.reference-cache/assets.json` 中的 `role`、`group` 和 `productPhoto` 识别各图。外部参考使用 `--reference <京东SKU链接> --photos <商家实拍>` 并运行 `reference`。外部参考仅供分析风格。无需参考的商家上新使用 `--no-reference`。
+
+宿主查看实图、SKU 和已验证卖点，决定每张图的经营目的、版式、文案和商品事实。先做 `refresh`、`set-facts`、`questions`，核对标题 60 单位、包装三边、毛重和类目事实。缺实测包装数据时一次问清楚。复刻同一商品时先核对是否可以沿用已有 SKU 图和详情图。
+
+`make-plan --package <任务包> --image-prompts-file <设计.json>` 读取宿主设计。JSON 对象含 `styleObservations`（有参考时记录实际观察）和有序 `images`。每张有唯一 `id` 和 `role`（main、sku 或 detail）。要生成的图给 `prompt` 和 `photos`（包内 `sourcePhotos` 的子集），复用时给 `reusePhoto` 指向已有图片。SKU 图带 `skuKey`；详情图可带 `kind`、`skuKeys` 和 `exactVisibleText`。宿主对图片及可见文字的核对和设计由本次商品决定。工具按角色校验、保存来源与设计，将完整提示词原样交给模型。信息不全但商家只需独立主图打样时，可用 `--preview`。已上架仅修详情用 `--only detail`。
+
+将报价文件 `image-quote.json` 中的增量张数、用途、范围、请求上限及计价情况告诉商家。只有同范围费用已经批准才执行 `generate --approval-file <批准.json>`。批准文件引用报价的 `scope`、`units` 及商家认可的 `maxRequests`，写 `approvalRef`。按金额封顶还需 `billing=amount`、`unitPriceUpperBound`、`currency`、`priceEvidence`、`maxAmount`；金额无法核实时，须获准按请求数控制再写 `billing=requests`。明确重做已成功图片时，核算新请求并传 `--redo <图片id>`。保留旧版成功图片、未知请求和平台发布回执。
+
+`accept-images` 默认记录宿主质检。商家确实审过当前预览时才用 `--reviewer merchant --evidence <商家答复引用>`。以 `verify` 的 `consumerLinks` 交付各规格商品链接；商品后台状态、消费者页面能否打开及是否有报价分别报告。
 
 ## 平台限制与工具例外
 
