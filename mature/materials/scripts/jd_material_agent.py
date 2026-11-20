@@ -105,6 +105,7 @@ class SpuJob:
     needs_scenes: bool = True
     needs_selling_image: bool = True
     needs_transparent: bool = True
+    scene_orders: tuple[int, ...] = (1, 2)
 
     @property
     def sku_count(self) -> int:
@@ -120,6 +121,7 @@ class PreparedSource:
     original_rows: int
     filtered_rows: int
     duplicate_rows: int
+    coverage: dict | None = None
 
 @dataclass(frozen=True)
 class BatchResult:
@@ -696,7 +698,7 @@ def build_material_binding_requests(job: SpuJob, state_item: dict[str, Any]) -> 
     if job.needs_white:
         specifications.append((31, [(1, cell_text(uploaded.get('white')))]))
     if job.needs_scenes:
-        specifications.append((32, [(1, cell_text(uploaded.get('scene1'))), (2, cell_text(uploaded.get('scene2')))]))
+        specifications.append((32, [(i, cell_text(uploaded.get(f'scene{i}'))) for i in job.scene_orders]))
     if job.needs_selling_image:
         specifications.append((33, [(1, cell_text(uploaded.get('selling')))]))
     if job.needs_transparent:
@@ -729,6 +731,8 @@ def _query_binding_materials(client: Any, sku_ids: Iterable[str]) -> dict[str, l
         returned = [cell_text(item.get('skuId')) for item in rows]
         if len(returned) != len(group) or set(returned) != set(group):
             raise ValueError('SKU material verification returned an incomplete SKU set')
+        if any(not isinstance(item.get('materials'), list) for item in rows):
+            raise ValueError('SKU 素材回查字段缺失；结果待核对')
         return rows
     # Read-only and independent per 50-SKU chunk: bounded parallel reads (8,191-SKU shop took ~26 min serially).
     workers = 1 if len(jobs) <= 2 else READ_CONCURRENCY
@@ -829,7 +833,20 @@ def _evaluate_binding_request(request: dict[str, Any], materials_by_sku: dict[st
         return ('failed', '; '.join(rejected_reasons))
     return ('pending', 'waiting for audit') if pending else ('approved', 'approved')
 
-def inspect_unscored_materials(client: Any, sku_rows: list[dict[str, Any]]) -> tuple[dict[str, set[str]], dict[str, dict[str, Any]]]:
+def material_slot_state(matches):
+    statuses = {int(entry.get('status') or 0) for entry in matches}
+    approved = list(dict.fromkeys(_material_value(entry) for entry in matches
+                    if int(entry.get('status') or 0) == 4 and _material_value(entry)))
+    if 3 in statuses:
+        return 'pending', approved
+    if approved:
+        return 'approved', approved
+    if 5 in statuses:
+        return 'rejected', []
+    return ('unknown' if matches else 'missing'), []
+
+
+def inspect_unscored_materials(client: Any, sku_rows: list[dict[str, Any]], coverage=None) -> tuple[dict[str, set[str]], dict[str, dict[str, Any]]]:
     sku_ids = [cell_text(item.get('skuId')) for item in sku_rows]
     if any((not sku_id for sku_id in sku_ids)) or len(set(sku_ids)) != len(sku_ids):
         raise ValueError('unscored SKU list contains an empty or duplicate skuId')
@@ -844,28 +861,17 @@ def inspect_unscored_materials(client: Any, sku_rows: list[dict[str, Any]]) -> t
         approved_values: dict[str, set[str]] = {slot: set() for slot in JDO_MATERIAL_SLOTS}
         for slot, (material_type, order) in JDO_MATERIAL_SLOTS.items():
             slot_missing = False
-            slot_pending = False
             for item in items:
                 sku_id = cell_text(item.get('skuId'))
-                matches = [material for material in materials_by_sku[sku_id] if int(material.get('materialType') or 0) == material_type and int(material.get('order') or 0) == order]
-                active = [material for material in matches if int(material.get('status') or 0) in (3, 4)]
-                if not active and not any(int(material.get('status') or 0) == 5 for material in matches):
-                    # Rejected (5) slots are repaired by repair-rejected with fresh bytes; the material
-                    # stage binds only truly empty slots, so generating here would be wasted uploads.
+                matches = [m for m in materials_by_sku[sku_id] if int(m.get('materialType') or 0) == material_type and int(m.get('order') or 0) == order]
+                state, values = material_slot_state(matches)
+                approved_values[slot].update(values)
+                if state == 'missing':
                     slot_missing = True
-                for material in active:
-                    status = int(material.get('status') or 0)
-                    if status == 3:
-                        slot_pending = True
-                        continue
-                    if status != 4:
-                        continue
-                    value = _material_value(material)
-                    if value:
-                        approved_values[slot].add(value)
-                    else:
-                        slot_missing = True
-            if not slot_pending and (slot_missing or len(approved_values[slot]) > 1):
+                if coverage is not None:
+                    coverage[state].add(sku_id)
+                    coverage['slotCounts'][state] += 1
+            if slot_missing:
                 missing.add(slot)
         if not missing:
             continue
@@ -1064,9 +1070,8 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
         for slot, (kind, order) in JDO_MATERIAL_SLOTS.items():
             found = [entry for entry in materials[sku_id] if int(entry.get('materialType') or 0) == kind and int(entry.get('order') or 0) == order]
             statuses = [int(entry.get('status') or 0) for entry in found]
-            approved = any(int(entry.get('status') or 0) == 4 and _material_value(entry) for entry in found)
-            state = 'pending' if 3 in statuses else 'approved' if approved else 'rejected' if 5 in statuses else 'missing'
-            slots[slot] = {'state': state, 'statuses': statuses, 'approvedValues':list(dict.fromkeys(_material_value(entry) for entry in found if int(entry.get('status') or 0)==4 and _material_value(entry))), 'auditReasons': list(dict.fromkeys(cell_text(entry.get('auditDesc')) for entry in found if entry.get('auditDesc')))}
+            state, approved = material_slot_state(found)
+            slots[slot] = {'state': state, 'statuses': statuses, 'approvedValues':approved, 'auditReasons': list(dict.fromkeys(cell_text(entry.get('auditDesc')) for entry in found if entry.get('auditDesc')))}
         states = {value['state'] for value in slots.values()}
         if states & {'missing', 'rejected'}:
             deficits.append(sku_id)
@@ -1170,7 +1175,15 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
     low_spus = {online_spu_by_sku[sku_id] for sku_id in low_scores if sku_id in online_spu_by_sku}
     # Low scores select candidates, not imaginary deficits. Reuse the mature slot audit.
     inspect_rows = [item for item in online_rows if include_full_score or cell_text(item.get('productId')) in low_spus | included_spus or cell_text(item.get('skuId')) not in scores]
-    missing_by_spu, existing_by_spu = inspect_unscored_materials(client, inspect_rows)
+    states = ('approved', 'pending', 'rejected', 'missing', 'unknown')
+    observed = {state: set() for state in states}
+    observed['slotCounts'] = dict.fromkeys(states, 0)
+    missing_by_spu, existing_by_spu = inspect_unscored_materials(client, inspect_rows, observed)
+    coverage = {'scope': 'selected-products' if requested_scope is not None or off_shelf_ids else 'on-sale',
+                'inventorySpuCount': len({str(row['productId']) for row in online_rows}),
+                'inventorySkuCount': len(online_rows), 'slotsCheckedSkuCount': len(inspect_rows),
+                'skuCountsBySlotState': {state: len(observed[state]) for state in states},
+                'slotCounts': observed['slotCounts']}
     # SPUs whose images are complete but still carry hasShortTitle must be planned for titles only.
     title_only_spus = ({online_spu_by_sku[sku_id] for sku_id, item in scores.items() if sku_id in online_spu_by_sku and _short_title_issue(item)} - low_spus - set(missing_by_spu)) if include_full_score else set()
     for spu_id in title_only_spus:
@@ -1182,7 +1195,7 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
     selected_spus |= included_spus
     headers = ('SKUID', '商品名称', 'SPUID', '商品信息分', '发现来源', '短标题判断')
     if not selected_spus:
-        prepared = PreparedSource('jdo-pop', '实时待维护商品', headers, (), (), len(online_rows), len(online_rows), 0)
+        prepared = PreparedSource('jdo-pop', '实时待维护商品', headers, (), (), len(online_rows), len(online_rows), 0, coverage)
         return (prepared, {}, {})
     retained: list[SourceRow] = []
     rows_by_spu: dict[str, list[SourceRow]] = {}
@@ -1212,7 +1225,7 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
     for spu_id, items in rows_by_spu.items():
         missing = missing_by_spu.get(spu_id, set())
         short_title_sku_ids = tuple(item.sku_id for item in items if item.sku_id not in scores or _short_title_issue(scores[item.sku_id]))
-        jobs.append(SpuJob(spu_id=spu_id, representative_sku_id=items[0].sku_id, title=items[0].title, sku_ids=tuple((item.sku_id for item in items)), skus=tuple(((item.sku_id, item.title) for item in items)), short_title_sku_ids=short_title_sku_ids, needs_selling_points=any((slot.startswith('point') for slot in missing)), needs_white=bool({'white', 'transparent'} & missing), needs_scenes=bool({'scene1', 'scene2'} & missing), needs_selling_image='selling' in missing, needs_transparent='transparent' in missing))
+        jobs.append(SpuJob(spu_id=spu_id, representative_sku_id=items[0].sku_id, title=items[0].title, sku_ids=tuple((item.sku_id for item in items)), skus=tuple(((item.sku_id, item.title) for item in items)), short_title_sku_ids=short_title_sku_ids, needs_selling_points=any((slot.startswith('point') for slot in missing)), needs_white=bool({'white', 'transparent'} & missing), needs_scenes=bool({'scene1', 'scene2'} & missing), needs_selling_image='selling' in missing, needs_transparent='transparent' in missing, scene_orders=tuple(i for i in (1, 2) if f'scene{i}' in missing)))
     product_ids = list(dict.fromkeys((row.spu_id for row in retained)))
     product_map = {cell_text(item.get('productId')): item for item in products_100}
     references: dict[str, str] = {}
@@ -1225,7 +1238,7 @@ def discover_jdo_pop_source(client: Any, page_size: int=100, expected_shop_name:
             image = product_reference_url(detail, cell_text(sku.get('skuId')))
         if image:
             references[spu_id] = image
-    prepared = PreparedSource('jdo-pop', '实时待维护商品', headers, tuple(retained), tuple(jobs), len(online_rows), len(online_rows) - len(retained), 0)
+    prepared = PreparedSource('jdo-pop', '实时待维护商品', headers, tuple(retained), tuple(jobs), len(online_rows), len(online_rows) - len(retained), 0, coverage)
     return (prepared, references, existing_by_spu)
 
 def prepare_standard_source(path: str | Path, selected_sheet: str | None=None) -> PreparedSource:
@@ -2117,16 +2130,19 @@ def _business_mode(prepared: PreparedSource) -> str:
 
 def _task_signature(prepared: PreparedSource) -> str:
     payload = {'source_type': prepared.source_type, 'jobs': [{'spu_id': job.spu_id, 'skus': list(job.skus), 'short_title_sku_ids': list(job.short_title_sku_ids), 'needs_selling_points': job.needs_selling_points, 'needs_white': job.needs_white, 'needs_scenes': job.needs_scenes, 'needs_selling_image': job.needs_selling_image, 'needs_transparent': job.needs_transparent} for job in prepared.jobs]}
+    for job, fields in zip(prepared.jobs, payload['jobs']):
+        if job.needs_scenes and job.scene_orders != (1, 2):
+            fields['scene_orders'] = list(job.scene_orders)
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     return hashlib.sha256(encoded).hexdigest()
 
 def _prepared_payload(prepared: PreparedSource) -> dict[str, Any]:
-    return {'sourceType': prepared.source_type, 'sheetName': prepared.sheet_name, 'headers': list(prepared.headers), 'rows': [asdict(row) for row in prepared.rows], 'jobs': [asdict(job) for job in prepared.jobs], 'originalRows': prepared.original_rows, 'filteredRows': prepared.filtered_rows, 'duplicateRows': prepared.duplicate_rows}
+    return {'sourceType': prepared.source_type, 'sheetName': prepared.sheet_name, 'headers': list(prepared.headers), 'rows': [asdict(row) for row in prepared.rows], 'jobs': [asdict(job) for job in prepared.jobs], 'originalRows': prepared.original_rows, 'filteredRows': prepared.filtered_rows, 'duplicateRows': prepared.duplicate_rows, 'coverage': prepared.coverage}
 
 def _prepared_from_payload(payload: dict[str, Any]) -> PreparedSource:
     rows = tuple((SourceRow(sku_id=cell_text(item.get('sku_id')), title=cell_text(item.get('title')), spu_id=cell_text(item.get('spu_id')), score=cell_text(item.get('score')), raw=tuple(item.get('raw') or ()), source_path=cell_text(item.get('source_path')), sheet_name=cell_text(item.get('sheet_name')), row_number=int(item.get('row_number') or 0), header_row=int(item.get('header_row') or 1)) for item in payload.get('rows') or []))
-    jobs = tuple((SpuJob(spu_id=cell_text(item.get('spu_id')), representative_sku_id=cell_text(item.get('representative_sku_id')), title=cell_text(item.get('title')), sku_ids=tuple((cell_text(value) for value in item.get('sku_ids') or ())), skus=tuple(((cell_text(pair[0]), cell_text(pair[1])) for pair in item.get('skus') or ())), short_title_sku_ids=tuple((cell_text(value) for value in item.get('short_title_sku_ids') or ())), needs_selling_points=bool(item.get('needs_selling_points')), needs_white=bool(item.get('needs_white')), needs_scenes=bool(item.get('needs_scenes')), needs_selling_image=bool(item.get('needs_selling_image')), needs_transparent=bool(item.get('needs_transparent', True))) for item in payload.get('jobs') or []))
-    return PreparedSource(source_type=cell_text(payload.get('sourceType')), sheet_name=cell_text(payload.get('sheetName')), headers=tuple(payload.get('headers') or ()), rows=rows, jobs=jobs, original_rows=int(payload.get('originalRows') or 0), filtered_rows=int(payload.get('filteredRows') or 0), duplicate_rows=int(payload.get('duplicateRows') or 0))
+    jobs = tuple((SpuJob(spu_id=cell_text(item.get('spu_id')), representative_sku_id=cell_text(item.get('representative_sku_id')), title=cell_text(item.get('title')), sku_ids=tuple((cell_text(value) for value in item.get('sku_ids') or ())), skus=tuple(((cell_text(pair[0]), cell_text(pair[1])) for pair in item.get('skus') or ())), short_title_sku_ids=tuple((cell_text(value) for value in item.get('short_title_sku_ids') or ())), needs_selling_points=bool(item.get('needs_selling_points')), needs_white=bool(item.get('needs_white')), needs_scenes=bool(item.get('needs_scenes')), needs_selling_image=bool(item.get('needs_selling_image')), needs_transparent=bool(item.get('needs_transparent', True)), scene_orders=tuple(item.get('scene_orders', (1, 2)))) for item in payload.get('jobs') or []))
+    return PreparedSource(source_type=cell_text(payload.get('sourceType')), sheet_name=cell_text(payload.get('sheetName')), headers=tuple(payload.get('headers') or ()), rows=rows, jobs=jobs, original_rows=int(payload.get('originalRows') or 0), filtered_rows=int(payload.get('filteredRows') or 0), duplicate_rows=int(payload.get('duplicateRows') or 0), coverage=payload.get('coverage'))
 
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -2471,7 +2487,7 @@ def _model_kinds(job: SpuJob) -> list[str]:
     if job.needs_white:
         kinds.append('white')
     if job.needs_scenes:
-        kinds.extend(('scene1', 'scene2'))
+        kinds.extend(f'scene{i}' for i in job.scene_orders)
     if job.needs_selling_image:
         kinds.append('selling')
     return kinds
@@ -2657,7 +2673,7 @@ def _write_results(prepared: PreparedSource, output: Path, state: dict, failures
             item = state['jobs'].get(job.spu_id, {})
             points = item.get('selling_points') if job.needs_selling_points else ['', '', '']
             names = image_names(job.spu_id)
-            sheet.append([job.spu_id, job.representative_sku_id, job.sku_count, job.title, *points, names['white'] if job.needs_white else '', names['transparent'] if (job.needs_white and job.needs_transparent) else '', names['scene1'] if job.needs_scenes else '', names['scene2'] if job.needs_scenes else '', names['selling'] if job.needs_selling_image else '', int(job.needs_selling_points), int(job.needs_white), int(job.needs_scenes), int(job.needs_selling_image)])
+            sheet.append([job.spu_id, job.representative_sku_id, job.sku_count, job.title, *points, names['white'] if job.needs_white else '', names['transparent'] if (job.needs_white and job.needs_transparent) else '', names['scene1'] if job.needs_scenes and 1 in job.scene_orders else '', names['scene2'] if job.needs_scenes and 2 in job.scene_orders else '', names['selling'] if job.needs_selling_image else '', int(job.needs_selling_points), int(job.needs_white), int(job.needs_scenes), int(job.needs_selling_image)])
         detail = workbook.create_sheet('SKU明细')
         detail.append(['SPUID', 'SKUID', '商品名称'])
         for job in material_successes:
@@ -2706,8 +2722,40 @@ def _write_results(prepared: PreparedSource, output: Path, state: dict, failures
         (output / '失败SPU清单.xlsx').unlink(missing_ok=True)
     return BatchResult(len(prepared.jobs), len(completed), len(incomplete), output, manifest_path, short_title_path, failure_path)
 
+def material_image_approval(prepared, batches, output, existing, shop, approval_file, *, source_id=None):
+    """Quote the remaining paid SPU slots across batches after remote and local reuse."""
+    from heideng_merchant.image_budget import validate_approval
+    from heideng_merchant.safety import read_json, atomic_json
+    units = []
+    for batch, directory in batches:
+        state = _load_state(directory/'.state/task.json')
+        for job in batch.jobs:
+            uploaded = {**existing.get(job.spu_id, {}).get('uploaded_urls', {}),
+                        **state.get('jobs', {}).get(job.spu_id, {}).get('uploaded_urls', {})}
+            for kind in _model_kinds(job):
+                if not uploaded.get(kind) and not valid_material_image(directory/'全部图片'/image_names(job.spu_id)[kind], kind):
+                    units.append(f'{job.spu_id}/{kind}')
+    if not units:
+        return (output, None, None)
+    scope = {'task':'generate-material-images','shopIdentity':shop,'directory':str(output.resolve()),
+             'source':source_id, 'taskSignature':_task_signature(prepared)}
+    quote = {'scope':scope,'units':sorted(units),'estimatedPaidImageCount':len(units),
+             'amount':None,'actualAmount':None,'maxRequestsSuggested':len(units)}
+    path = output/'.state/image-fee-quote.json'
+    previous = read_json(path, {})
+    if approval_file:
+        approval = read_json(Path(approval_file))
+        # Completed units may disappear during a resumed run. Only the previously quoted scope may be reused.
+        if previous.get('scope') == scope and set(units).issubset(previous['units']) and approval.get('units') == previous['units']:
+            quote = previous
+        validate_approval(approval,scope=scope,units=quote['units'])
+        return (output, approval, quote)
+    atomic_json(path, quote)
+    return {'status':'fee-approval-required','needsMerchantAction':True,'feeQuote':quote,'feeQuoteFile':str(path)}
+
+
 @measured_stage('generation', 'output_dir')
-def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_dir: str | Path, *, spu_concurrency: int=5, image_concurrency: int | None=None, timeout: float=600.0, existing_url_exports: Iterable[str | Path]=(), existing_materials: dict[str, dict[str, Any]] | None=None, agent_text: dict[str, Any] | None=None, scene_image_model: str | None=None, image_model: str | None=None, text_model: str | None=None, model_client_factory=None, joyagent_adapter=None, image_prompts=None) -> BatchResult:
+def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_dir: str | Path, *, spu_concurrency: int=5, image_concurrency: int | None=None, timeout: float=600.0, existing_url_exports: Iterable[str | Path]=(), existing_materials: dict[str, dict[str, Any]] | None=None, agent_text: dict[str, Any] | None=None, scene_image_model: str | None=None, image_model: str | None=None, text_model: str | None=None, model_client_factory=None, joyagent_adapter=None, image_prompts=None, fee_context=None) -> BatchResult:
     if not 1 <= spu_concurrency <= MAX_SPU_CONCURRENCY:
         raise ValueError('SPU 并发必须为 1-50。')
     image_prompts=validate_image_prompts(image_prompts or {},[job.spu_id for job in prepared.jobs])
@@ -2841,12 +2889,27 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
         if pending:
             assert client is not None
             source = resolve_reference(reference_dir, job)
+            if fee_context:
+                from heideng_merchant.image_budget import reserve_request
+                fee_root, approval, quote = fee_context
+                if not approval:
+                    raise ValueError('实际出现了报价外的付费图片；重新盘点剩余范围')
+                def generate_approved(kind):
+                    unit = f'{job.spu_id}/{kind}'
+                    reserve_request(fee_root, approval, scope=quote['scope'], units=quote['units'], request_id=unit)
+                    prompt = job_prompts.get(kind) or image_prompt(kind, job.title)
+                    content = request_material_image(client, kind, prompt, source,
+                                                     model=_image_model_for_kind(kind, scene_image_model, image_model))
+                    normalize_jpeg(content, images / names[kind], pure_white=kind == 'white')
+                with ThreadPoolExecutor(max_workers=min(len(pending), PROVIDER.maximum_image_concurrency)) as pool:
+                    list(pool.map(generate_approved, pending))
+                pending = []
             recovery = {} if job_prompts else dict(item.get('moderation_recovery') or {})
             if job_prompts:
                 save_job(job.spu_id,'image_prompt_revisions',{kind:image_prompt_revision(entry) for kind,entry in entries.items()})
                 for kind,entry in entries.items():
                     _save_state(output/'.state/image-prompts'/f'{job.spu_id}-{kind}-{image_prompt_revision(entry)}.json',entry)
-            if recovery.get('normal_status') != 'blocked':
+            if pending and recovery.get('normal_status') != 'blocked':
                 results, errors = _request_image_set(client, pending, source, job.title, scene_model=scene_image_model, image_model=image_model,**({'prompts':job_prompts} if job_prompts else {}))
                 # Gateway disconnect waves (peer closed/timeouts across every pool model) used to fail the whole
                 # SPU and wait for a manual rerun; retry only the transiently failed kinds a few times in-run.
@@ -2869,7 +2932,7 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
                     recovery['normal_status'] = 'blocked'
                     save_job(job.spu_id, 'moderation_recovery', recovery)
             pending = [kind for kind in required_model_kinds if not valid_material_image(images / names[kind], kind)]
-            if pending and recovery.get('normal_status') == 'blocked':
+            if not fee_context and pending and recovery.get('normal_status') == 'blocked':
                 if recovery.get('titleless_status') not in {'failed', 'succeeded'}:
                     recovery['titleless_status'] = 'running'
                     save_job(job.spu_id, 'moderation_recovery', recovery)
@@ -3040,13 +3103,16 @@ def fill_material_template(manifest_path: str | Path, url_exports: Iterable[str 
             if required['white']:
                 required_kinds.extend(('transparent', 'white'))
             if required['scenes']:
-                required_kinds.extend(('scene1', 'scene2'))
+                for order in (1, 2):
+                    header = f'场景图{order}'
+                    if header not in columns or cell_text(values[columns[header]]) or not has_requirements:
+                        required_kinds.append(f'scene{order}')
             if required['selling']:
                 required_kinds.append('selling')
             missing = [stems[kind] for kind in required_kinds if stems[kind] not in urls]
             if missing:
                 raise ValueError(f"SPU {spu_id} 缺少图片链接：{','.join(missing)}")
-            rows.append([spu_id, '', *points, None, None, None, None, None, urls[stems['transparent']] if required['white'] else '', urls[stems['white']] if required['white'] else '', urls[stems['scene1']] if required['scenes'] else '', urls[stems['scene2']] if required['scenes'] else '', urls[stems['selling']] if required['selling'] else ''])
+            rows.append([spu_id, '', *points, None, None, None, None, None, urls[stems['transparent']] if required['white'] else '', urls[stems['white']] if required['white'] else '', urls[stems['scene1']] if 'scene1' in required_kinds else '', urls[stems['scene2']] if 'scene2' in required_kinds else '', urls[stems['selling']] if required['selling'] else ''])
     finally:
         manifest.close()
     template = Path(template_path) if template_path else Path(__file__).parents[1] / 'assets' / '商品素材导入模板-通用场景.xlsx'
@@ -3177,7 +3243,7 @@ def _subset_prepared(prepared: PreparedSource, rows: list[SourceRow]) -> Prepare
     missing = [spu_id for spu_id in selected_spus if spu_id not in jobs_by_spu]
     if missing:
         raise ValueError(f"prepared subset contains unknown SPUs: {','.join(missing)}")
-    return PreparedSource(prepared.source_type, prepared.sheet_name, prepared.headers, tuple(rows), tuple((jobs_by_spu[spu_id] for spu_id in selected_spus)), len(rows), 0, 0)
+    return PreparedSource(prepared.source_type, prepared.sheet_name, prepared.headers, tuple(rows), tuple((jobs_by_spu[spu_id] for spu_id in selected_spus)), len(rows), 0, 0, prepared.coverage)
 
 def _auto_resume_targets(output: Path, target_spu_id: str) -> tuple[str, ...]:
     if not target_spu_id:
@@ -3241,7 +3307,7 @@ def _scope_pop_discovery(prepared: PreparedSource, reference_urls: dict[str, str
     if excluded:
         # User-declared out-of-scope SPUs never enter the frozen plan, so nothing is generated/uploaded/bound for them.
         kept = [row for row in prepared.rows if row.spu_id not in excluded]
-        prepared = _subset_prepared(prepared, kept) if kept else PreparedSource(prepared.source_type, prepared.sheet_name, prepared.headers, (), (), 0, 0, 0)
+        prepared = _subset_prepared(prepared, kept)
         reference_urls = {k: v for k, v in reference_urls.items() if k not in excluded}
         existing_materials = {k: v for k, v in existing_materials.items() if k not in excluded}
     if not target_spu_id:
@@ -3250,6 +3316,48 @@ def _scope_pop_discovery(prepared: PreparedSource, reference_urls: dict[str, str
     if not target_rows:
         raise ValueError('--target-spu-id is not in the current maintenance set')
     return (_subset_prepared(prepared, target_rows), {target_spu_id: reference_urls.get(target_spu_id, '')}, {target_spu_id: existing_materials.get(target_spu_id, {})})
+
+def legacy_plan_recheck(prepared, output, client, seller):
+    """Re-read only legacy high-score candidates that were selected by the faulty slot reducer."""
+    if prepared.coverage is not None:
+        return None
+    suspects = {r.spu_id for r in prepared.rows if '信息分90+-素材直查缺失' in r.raw}
+    if not suspects:
+        return None
+    rows = [r for r in prepared.rows if r.spu_id in suspects]
+    snapshot = _query_binding_materials(client, [r.sku_id for r in rows])
+    changed = []
+    for job in prepared.jobs:
+        if job.spu_id not in suspects:
+            continue
+        kinds = _model_kinds(job)
+        if job.needs_transparent:
+            kinds.append('transparent')
+        if job.needs_selling_points:
+            kinds.extend(('point1','point2','point3'))
+        for kind in kinds:
+            typ, order = JDO_MATERIAL_SLOTS[kind]
+            states = [material_slot_state([m for m in snapshot[sku]
+                      if (int(m.get('materialType') or 0),int(m.get('order') or 0)) == (typ,order)])
+                      for sku in job.sku_ids]
+            if all(state == 'approved' for state,_ in states) and len({v for _,values in states for v in values}) > 1:
+                changed.append({'spuId':job.spu_id,'kind':kind})
+    if not changed:
+        return None
+    receipt = output / '.state/legacy-slot-recheck.json'
+    result = {'status':'plan-superseded','shopIdentity':_shop_identity(seller),'oldPlan':str(output/AUTO_MAINTAIN_PLAN_NAME),
+              'checkedSkuCount':len(rows),'confirmedDistinctApprovedGroups':changed,
+              'writesPerformed':False,'paidRequestCount':0,'resultFile':str(receipt),
+              'nextAction':'原目录保留已有回执并只读对账；在新目录重新全店盘点，沿用原授权边界，只对实际新增费用报价。'}
+    _save_state(receipt, result)
+    return result
+
+
+def material_plan_counts(prepared):
+    return {'inventory': prepared.coverage, 'candidateSpuCount': len(prepared.jobs),
+            'candidateSkuCount': len(prepared.rows),
+            'attributeInventoryScope': 'only-products-explicitly-in-attribute-receipt'}
+
 
 def host_task_handoff(prepared, output, seller, profile=None):
     """Expose exact host inputs and original commands; no planning or business dispatch."""
@@ -3282,7 +3390,7 @@ def host_task_handoff(prepared, output, seller, profile=None):
     return {'schemaVersion':1,'taskDirectory':str(output),'planHash':frozen['planHash'],'shopIdentity':_shop_identity(seller),
             'scope':{'spuIds':[j.spu_id for j in prepared.jobs],'skuIds':[r.sku_id for r in prepared.rows]},
             'imagePromptInput':{'file':str(output/'host-image-prompts.json'),'optional':True,'option':'--image-prompts-file','scope':'当前冻结SPU/实际图片类型；宿主依据参考图与审核原因设计完整提示词','format':'{SPUID:{white|transparent|scene1|scene2|selling:prompt_or_reviewed_entry}}'},
-            'facts':facts,'textInput':{'file':str(output/'host-text.json'),'neededSellingPointSpuIds':needs_points,
+            'coverage':material_plan_counts(prepared), 'facts':facts,'textInput':{'file':str(output/'host-text.json'),'neededSellingPointSpuIds':needs_points,
               'neededShortTitleSkuIds':needs_titles,'schema':{'type':'object','required':['sellingPoints','shortTitles'],
               'properties':{'sellingPoints':{'type':'object','additionalProperties':{'type':'array','minItems':3,'maxItems':3,'items':{'type':'string'}}},
                             'shortTitles':{'type':'object','additionalProperties':{'type':'string'}}},'additionalProperties':False},
@@ -3343,13 +3451,16 @@ def run_plan_auto_maintain(args) -> dict[str, Any]:
         if expected_shop_name and cell_text(seller.get('shopName')) != expected_shop_name:
             raise ValueError('current jdo-cli shop does not match --expected-shop-name')
         prepared, _, _, source_path = load_pop_auto_maintain_plan(output, seller, target_spu_id)
-        return {'status': 'planned-existing', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': True, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs), 'hostHandoff':_save_host_handoff(prepared,output,seller,getattr(args,'profile',None))}
+        superseded = legacy_plan_recheck(prepared, output, client, seller)
+        if superseded:
+            return superseded
+        return {'status': 'planned-existing', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': True, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs), 'coverage':material_plan_counts(prepared), 'hostHandoff':_save_host_handoff(prepared,output,seller,getattr(args,'profile',None))}
     prepared, reference_urls, existing_materials = discover_jdo_pop_source(client, expected_shop_name=getattr(args, 'expected_shop_name', None), include_spu_ids=_auto_resume_targets(output, target_spu_id), include_full_score=include_full_score, off_shelf_spu_ids=getattr(args, 'include_off_shelf_spu', ()), scope_spu_ids=[target_spu_id] if target_spu_id else None)
     prepared, reference_urls, existing_materials = _scope_pop_discovery(prepared, reference_urls, existing_materials, target_spu_id, exclude_spu_ids=getattr(args, 'exclude_spu_id', ()) or ())
     source_path = _write_jdo_source(prepared, output / '实时商品信息分0-89.xlsx')
     seller = client.seller_info()
     plan_path = write_pop_auto_maintain_plan(prepared, reference_urls, existing_materials, seller, output, source_path, target_spu_id=target_spu_id)
-    return {'status': 'planned', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': False, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs), 'hostHandoff':_save_host_handoff(prepared,output,seller,getattr(args,'profile',None))}
+    return {'status': 'planned', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'plan': str(plan_path), 'planReused': False, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs), 'coverage':material_plan_counts(prepared), 'hostHandoff':_save_host_handoff(prepared,output,seller,getattr(args,'profile',None))}
 
 def route_jingmai_batch_images(prepared: PreparedSource, *, model_cutout_images: bool=False) -> tuple[PreparedSource, list[dict[str, Any]]]:
     """Route missing cutout slots externally without changing the frozen plan."""
@@ -3402,9 +3513,17 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
     if expected_shop_name and cell_text(seller.get('shopName')) != expected_shop_name:
         raise ValueError('current jdo-cli shop does not match --expected-shop-name')
     prepared, reference_urls, existing_materials, source_path = load_pop_auto_maintain_plan(output, seller, target_spu_id)
+    superseded = legacy_plan_recheck(prepared, output, client, seller)
+    if superseded:
+        return superseded
     prepared, batch_image_handoff = route_jingmai_batch_images(prepared, model_cutout_images=getattr(args, "model_cutout_images", False))
     agent_text = load_scoped_agent_text(args.agent_text_file,prepared,output,seller) if getattr(args, 'agent_text_file', None) else None
     image_prompts=load_image_prompts(args.image_prompts_file,[job.spu_id for job in prepared.jobs]) if getattr(args,'image_prompts_file',None) else {}
+    batches = [(_subset_prepared(prepared,rows), output/f'批次{index:03d}') for index,rows in enumerate(split_rows_by_spu(prepared.rows),1)]
+    fee = material_image_approval(prepared,batches,output,existing_materials,_shop_identity(seller),
+                                  getattr(args,'fee_approval_file',None),source_id=_file_sha256(source_path))
+    if isinstance(fee, dict):
+        return fee
     batch_payloads = []
     for index, rows in enumerate(split_rows_by_spu(prepared.rows), 1):
         batch = _subset_prepared(prepared, rows)
@@ -3428,11 +3547,50 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
                 _download_reference(url, target_reference, args.timeout)
             except Exception as error:
                 reference_failures.append({'spuId': job.spu_id, 'error': str(error)})
-        generation = generate_batch(batch, references, batch_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_materials={job.spu_id: existing_materials.get(job.spu_id, {}) for job in batch.jobs}, agent_text=_batch_agent_text(agent_text, batch), scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), image_prompts={job.spu_id:image_prompts[job.spu_id] for job in batch.jobs if job.spu_id in image_prompts})
+        generation = generate_batch(batch, references, batch_dir, fee_context=fee, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_materials={job.spu_id: existing_materials.get(job.spu_id, {}) for job in batch.jobs}, agent_text=_batch_agent_text(agent_text, batch), scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), image_prompts={job.spu_id:image_prompts[job.spu_id] for job in batch.jobs if job.spu_id in image_prompts})
         batch_payloads.append({'batch': index, 'spuCount': len(batch.jobs), 'skuCount': len(batch.rows), 'completedSpus': generation.completed_spus, 'failedSpus': generation.failed_spus, 'referenceFailures': reference_failures, 'manifest': str(generation.manifest_path) if generation.manifest_path else None, 'shortTitles': str(generation.short_title_path) if generation.short_title_path else None, 'failureWorkbook': str(generation.failure_path) if generation.failure_path else None})
     has_failures = any((batch['failedSpus'] or batch['referenceFailures'] for batch in batch_payloads))
     delivery = export_short_title_delivery([(prepared, output)], output, shop_name=_shop_identity(seller)['shopName'])
     return {'status': 'generated-local-with-failures' if has_failures else 'generated-local', 'shopName': _shop_identity(seller)['shopName'], 'source': str(source_path), 'planReused': True, 'skuCount': len(prepared.rows), 'spuCount': len(prepared.jobs), 'batches': batch_payloads, 'uploadPerformed': False, 'bindingPerformed': False, 'batchImageHandoff': batch_image_handoff, 'shortTitleFiles': delivery['shortTitleFiles'], 'shortTitleDelivery': delivery}
+
+def run_maintenance_attributes(args, output, seller, client, prepared):
+    attributes = {'status': 'not-requested'}
+    if getattr(args, 'complete_attrs', False) is True:
+        # Important attributes are part of the information score; same atomic chain as complete-product-attrs.
+        try:
+            import pop_attrs
+            attr_dir = output / 'product-attrs';attr_dir.mkdir(parents=True, exist_ok=True)
+            pool = None  # Host supplies evidenced choices; no configured external vision provider.
+            try:attr_plan = pop_attrs.inventory(client, _shop_identity(seller), text_pool=pool, skip_attrs=pop_attrs.platform_broken_attrs(attr_dir), exclude_product_ids=getattr(args, 'exclude_spu_id', ()) or (), product_ids=[job.spu_id for job in prepared.jobs], agent_choices=pop_attrs.load_agent_choices(getattr(args, 'agent_attrs_file', None)))
+            finally:
+                if pool is not None:pool.close()
+            pop_attrs._save(attr_dir / 'attr-plan.json', attr_plan)
+            attributes = {'planned': len(attr_plan['plans']), 'leftNotImportant': len(attr_plan['needsConfirmation'])}
+            if attr_plan['plans']:attributes.update(pop_attrs.submit_and_verify(client, attr_dir / 'attr-plan.json'))
+            attributes.pop('results', None)
+        except JdoWriteUncertainError:raise
+        except Exception as error:attributes = {'status': 'attrs-incomplete', 'failureClass': type(error).__name__, 'reason': str(error)[:200]}
+    return attributes
+
+
+def free_work_while_awaiting_fee(args, prepared, seller, client, handoff, fee):
+    """Use the independent title lane, keeping shared browser writes in order."""
+    from pop_workflow import finish_external_images
+    output = Path(args.output_dir)
+    # Attribute work uses the shop's API; browser-based title and cutout submissions share one resource.
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        attrs = executor.submit(run_maintenance_attributes,args,output,seller,client,prepared)
+        result = {**fee, 'hostHandoff':_save_host_handoff(prepared,output,seller,args.profile)}
+        if any(job.short_title_sku_ids for job in prepared.jobs) and getattr(args,'agent_text_file',None):
+            title = run_title_work_item(args)
+            result['shortTitleDelivery'] = title
+            merchant_result_summary({'status':title['status'],'shortTitleDelivery':title}, output, 'maintain-short-titles')
+        if handoff:
+            result['batchImageHandoff'] = handoff
+            result['externalImages'] = finish_external_images(args,handoff,_shop_identity(seller),client,sys.modules[__name__])
+        result['productAttributes'] = attrs.result()
+    return result
+
 
 @exclusive_pop_run
 def run_auto_maintain(args) -> dict[str, Any]:
@@ -3451,6 +3609,9 @@ def run_auto_maintain(args) -> dict[str, Any]:
         if expected_shop_name and cell_text(seller.get('shopName')) != expected_shop_name:
             raise ValueError('current jdo-cli shop does not match --expected-shop-name')
         prepared, reference_urls, existing_materials, source_path = load_pop_auto_maintain_plan(output, seller, target_spu_id)
+        superseded = legacy_plan_recheck(prepared, output, client, seller)
+        if superseded:
+            return superseded
     else:
         prepared, reference_urls, existing_materials = discover_jdo_pop_source(client, expected_shop_name=args.expected_shop_name, include_spu_ids=_auto_resume_targets(output, target_spu_id), include_full_score=bool(getattr(args, 'include_full_score', False)), off_shelf_spu_ids=getattr(args, 'include_off_shelf_spu', ()), scope_spu_ids=[target_spu_id] if target_spu_id else None)
         prepared, reference_urls, existing_materials = _scope_pop_discovery(prepared, reference_urls, existing_materials, target_spu_id, exclude_spu_ids=getattr(args, 'exclude_spu_id', ()) or ())
@@ -3467,6 +3628,11 @@ def run_auto_maintain(args) -> dict[str, Any]:
     image_prompts=load_image_prompts(args.image_prompts_file,[job.spu_id for job in prepared.jobs]) if getattr(args,'image_prompts_file',None) else {}
     if not prepared.jobs:
         return {'status': 'no-work', 'batchImageHandoff': [], 'source': str(source_path), 'skuCount': 0, 'spuCount': 0, 'batches': [], 'browserRequired': False, 'planReused': plan_reused, 'verificationMode': getattr(args, 'verification_mode', 'submit-only'), 'manualVerificationRequired': False, 'manualVerificationMessage': None}
+    fee_batches = [(_subset_prepared(prepared, rows), output/f'批次{index:03d}') for index, rows in frozen_scope_batches(prepared, output)]
+    fee = material_image_approval(prepared, fee_batches, output, existing_materials, _shop_identity(seller),
+                                  getattr(args,'fee_approval_file',None), source_id=_file_sha256(source_path))
+    if isinstance(fee, dict):
+        return free_work_while_awaiting_fee(args, prepared, seller, client, batch_image_handoff, fee)
     if args.upload_mode != 'browser' and any(_has_material_work(job) for job in prepared.jobs):
         client.check_bridge()
     excluded_bindings = _parse_excluded_bindings(getattr(args, 'exclude_binding', None) or (), prepared)
@@ -3510,7 +3676,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
                 _download_reference(url, target_reference, args.timeout)
             except Exception as error:
                 reference_failures.append({'spuId': job.spu_id, 'error': str(error)})
-        generation = generate_batch(batch, references, batch_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_materials={job.spu_id: existing_materials.get(job.spu_id, {}) for job in batch.jobs}, agent_text=_batch_agent_text(agent_text, batch), scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), joyagent_adapter=getattr(args, 'joyagent_adapter', None), image_prompts={job.spu_id:image_prompts[job.spu_id] for job in batch.jobs if job.spu_id in image_prompts})
+        generation = generate_batch(batch, references, batch_dir, fee_context=fee, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_materials={job.spu_id: existing_materials.get(job.spu_id, {}) for job in batch.jobs}, agent_text=_batch_agent_text(agent_text, batch), scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), joyagent_adapter=getattr(args, 'joyagent_adapter', None), image_prompts={job.spu_id:image_prompts[job.spu_id] for job in batch.jobs if job.spu_id in image_prompts})
         upload = None
         finalization = None
         binding = None
@@ -3566,7 +3732,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
     repair_result = {'status': 'not-requested'}
     if getattr(args, 'repair_rejected', False):
         from pop_repair import run_rejected_repairs
-        repair_args = argparse.Namespace(image_prompts_file=getattr(args,'image_prompts_file',None),max_model_requests=getattr(args,'max_repair_model_requests',None),repair_kinds=getattr(args,'repair_kind',None),no_paid_generation=not bool(getattr(args,'paid_repairs',False)), excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
+        repair_args = argparse.Namespace(fee_approval_file=getattr(args,'repair_fee_approval_file',None),image_prompts_file=getattr(args,'image_prompts_file',None),max_model_requests=getattr(args,'max_repair_model_requests',None),repair_kinds=getattr(args,'repair_kind',None),no_paid_generation=not bool(getattr(args,'paid_repairs',False)), excluded_spu_ids=list(getattr(args, 'exclude_spu_id', ()) or ()), authorized_sku_ids=[sku for job in prepared.jobs for sku in job.sku_ids], authorized_product_ids=[job.spu_id for job in prepared.jobs], excluded_bindings=list(excluded_bindings), profile=args.profile, expected_shop_name=_shop_identity(seller)['shopName'], output_dir=output / 'rejected-repairs', confirm=args.confirm, image_concurrency=args.image_concurrency or 20, timeout=args.timeout, joyagent_adapter=getattr(args, 'joyagent_adapter', None), reference_override=[], profile_dir=getattr(args, 'profile_dir', None), jingmai_first=getattr(args, 'jingmai_first', True))
         try: repair_result = run_rejected_repairs(repair_args, sys.modules[__name__])
         except JdoWriteUncertainError: raise
         except Exception as error: repair_result = {'status': 'repair-incomplete', 'failureClass': type(error).__name__, 'reason': 'Repair scope/dependency not ready; preserve frozen audit and receipts'}
@@ -3585,22 +3751,7 @@ def run_auto_maintain(args) -> dict[str, Any]:
             delivery = export_short_title_delivery([(prepared, output)], output, shop_name=_shop_identity(seller)['shopName'])
             from pop_workflow import complete_short_title_import
             delivery = complete_short_title_import(args, delivery, _shop_identity(seller), client, sys.modules[__name__])
-    attributes = {'status': 'not-requested'}
-    if getattr(args, 'complete_attrs', False) is True:
-        # Important attributes are part of the information score; same atomic chain as complete-product-attrs.
-        try:
-            import pop_attrs
-            attr_dir = output / 'product-attrs';attr_dir.mkdir(parents=True, exist_ok=True)
-            pool = None  # Host supplies evidenced choices; no configured external vision provider.
-            try:attr_plan = pop_attrs.inventory(client, _shop_identity(seller), text_pool=pool, skip_attrs=pop_attrs.platform_broken_attrs(attr_dir), exclude_product_ids=getattr(args, 'exclude_spu_id', ()) or (), product_ids=[job.spu_id for job in prepared.jobs], agent_choices=pop_attrs.load_agent_choices(getattr(args, 'agent_attrs_file', None)))
-            finally:
-                if pool is not None:pool.close()
-            pop_attrs._save(attr_dir / 'attr-plan.json', attr_plan)
-            attributes = {'planned': len(attr_plan['plans']), 'leftNotImportant': len(attr_plan['needsConfirmation'])}
-            if attr_plan['plans']:attributes.update(pop_attrs.submit_and_verify(client, attr_dir / 'attr-plan.json'))
-            attributes.pop('results', None)
-        except JdoWriteUncertainError:raise
-        except Exception as error:attributes = {'status': 'attrs-incomplete', 'failureClass': type(error).__name__, 'reason': str(error)[:200]}
+    attributes = run_maintenance_attributes(args, output, seller, client, prepared)
     if delivery['status'] not in {'verified', 'no-titles'}:
         status = 'short-title-' + delivery['status']
     coverage = {'status': 'verification-unavailable', 'allApproved': False}
@@ -4056,6 +4207,9 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument('--expected-shop-name', required=True)
     audit.add_argument('--title-workbook', nargs='*', type=Path, default=[])
     audit.add_argument('--output-dir', required=True, type=Path)
+    readback = sub.add_parser('check-repair-status', help='按独立修图原回执只读核验，不触发生图或绑定')
+    readback.add_argument('--profile', required=True)
+    readback.add_argument('--output-dir', type=Path, required=True)
     reconcile = sub.add_parser('reconcile-receipts')
     reconcile.add_argument('--output-dir', required=True, type=Path)
     reconcile.add_argument('--profile')
@@ -4119,9 +4273,9 @@ def build_parser() -> argparse.ArgumentParser:
     generate_auto.add_argument('--scene-model', help='Scene-only override; default six eligible channels (five-model pool + Oxygen-Product-Pro). Product-Pro is scene/selling-only, forbidden for cutouts.')
     generate_auto.add_argument('--image-model', help='Non-scene override; default white=five-model pool, selling=six-channel pool. Product-Pro must never be selected for white/transparent.')
     generate_auto.add_argument('--text-model', help='网关文本模型显式 opt-in；默认不调用网关文本，文本由 agent 按 SKILL 规则自拟并通过 --agent-text-file 注入。')
-    generate_auto.add_argument('--model-cutout-images', action='store_true', default=True, help='生成白底图并本地衍生透明图（默认开启）；失败的槽位写入 batchImageHandoff 交京麦批量图兜底。')
+    generate_auto.add_argument('--model-cutout-images', action='store_true', help='京麦免费方案无法完成时，可对获准图组启用付费白底和本地透明派生。')
     generate_auto.add_argument('--reference-override', action='append', default=[], help='按 SPU 覆盖参考图，格式 SPUID=本地图片路径；用于主图含人物/道具时改用裁好的纯商品图。')
-    generate_auto.add_argument('--batch-image-handoff', action='store_true', help='跳过模型白底/透明，全部交京麦批量图（原默认行为）。')
+    generate_auto.add_argument('--batch-image-handoff', action='store_true', help='白底和透明图优先走京麦免费处理。')
     attrs = sub.add_parser('plan-missing-attrs', help='Inventory missing category attributes (product detail x category schema); read-only')
     attrs.add_argument('--profile', required=True)
     attrs.add_argument('--expected-shop-name', required=True)
@@ -4146,6 +4300,7 @@ def build_parser() -> argparse.ArgumentParser:
     repair.add_argument('--timeout', type=float, default=180)
     repair.add_argument('--joyagent-adapter', type=Path)
     repair.add_argument('--reference-override', action='append', default=[], help='SKUID=trusted-local-product-image')
+    repair.add_argument('--fee-approval-file',type=Path,help='对应免费试算 feeQuote 的商家费用批准记录。')
     repair.add_argument('--max-model-requests',type=int,help='本次已批准的模型请求上限；包含失败响应/质量重试，不是最终扣费。')
     repair.add_argument('--repair-kind',action='append',choices=tuple(IMAGE_SUFFIXES),help='仅修这些类型的已驳回槽位，可重复；付费修复必须显式指定。')
     repair.add_argument('--reference-granularity',choices=('spu','sku'),help='新修复默认按 SPU 共图，逐 SKU 须显式选择。')
@@ -4177,6 +4332,7 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument('--joyagent-adapter', type=Path)
     auto.add_argument('--complete-attrs', action=argparse.BooleanOptionalAction, default=True, help='Inventory and complete missing category attributes after materials/titles')
     auto.add_argument('--agent-attrs-file', type=Path, help='Host-evidenced legal attribute choices, no external model call')
+    auto.add_argument('--repair-fee-approval-file',type=Path)
     auto.add_argument('--max-repair-model-requests',type=int,help='本次已批准的驳回修复模型请求上限，不影响普通新图。')
     auto.add_argument('--repair-kind',action='append',choices=tuple(IMAGE_SUFFIXES),help='仅限制驳回修复类型，不扩大原冻结范围。')
     auto.add_argument('--paid-repairs',action=argparse.BooleanOptionalAction,default=False,help='默认驳回修复免费；本次额外修复范围/费用已批准才开启。普通新素材费用独立。')
@@ -4196,8 +4352,8 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument('--scene-model', help='Scene-only override; default six eligible channels (five-model pool + Oxygen-Product-Pro). Product-Pro is scene/selling-only, forbidden for cutouts.')
     auto.add_argument('--image-model', help='Non-scene override; default white=five-model pool, selling=six-channel pool. Product-Pro must never be selected for white/transparent.')
     auto.add_argument('--text-model', default='agent', help='auto: discover/probe current-key text models and generate in a shared20 request pool; agent: agent-text-file only; explicit model: legacy opt-in single route')
-    auto.add_argument('--model-cutout-images', action='store_true', default=True, help='生成白底图并本地衍生透明图（默认开启）；失败的槽位写入 batchImageHandoff 交京麦批量图兜底。')
-    auto.add_argument('--batch-image-handoff', action='store_true', help='跳过模型白底/透明，全部交京麦批量图（原默认行为）。')
+    auto.add_argument('--model-cutout-images', action='store_true', help='京麦免费方案无法完成时，可对获准图组启用付费白底和本地透明派生。')
+    auto.add_argument('--batch-image-handoff', action='store_true', help='白底和透明图优先走京麦免费处理。')
     cutouts = sub.add_parser('bind-external-cutouts')
     cutouts.add_argument('--business-mode', choices=('pop',), default='pop')
     cutouts.add_argument('--output-dir', required=True, type=Path)
@@ -4205,6 +4361,8 @@ def build_parser() -> argparse.ArgumentParser:
     cutouts.add_argument('--expected-shop-name')
     cutouts.add_argument('--target-spu-id')
     cutouts.add_argument('--confirm', required=True)
+    for command in (generate, generate_auto, auto):
+        command.add_argument('--fee-approval-file', type=Path, help='本次新增信息分素材的商家费用批准回执')
     sub.add_parser('provider-info')
     return parser
 
@@ -4244,8 +4402,10 @@ def merchant_result_summary(payload, output_dir, command):
     from heideng_merchant.merchant_experience import task_summary
     summary.update(task_summary(payload))
     summary['resultFile'] = str(path)
-    for key in ('assetGroupCount','failedAssetGroupCount','submittedSkuSlotCount','liveReusedSkuSlotCount',
-                'estimatedPaidImageCount','referenceGranularity','requestBudget'):
+    if payload.get('status') == 'plan-superseded':
+        summary.update(nextAction=payload['nextAction'], evidenceFile=payload['resultFile'])
+    for key in ('oldPlan','confirmedDistinctApprovedGroups','checkedSkuCount','assetGroupCount','failedAssetGroupCount','submittedSkuSlotCount','liveReusedSkuSlotCount',
+                'estimatedPaidImageCount','referenceGranularity','requestBudget','feeQuote'):
         if key in payload:summary[key]=payload[key]
     stats=payload.get('modelStats') or {}
     if isinstance(stats,dict) and isinstance(stats.get('attempts'),dict):summary['modelRequestAttemptCount']=sum(stats['attempts'].values())
@@ -4290,6 +4450,14 @@ def main(argv: list[str] | None=None) -> int:
         result={**payload,'appealFiles':delivery['appealFiles'],'generationEstimate':estimate,'report':str(report)} if args.detail else audit_cli_summary(payload,estimate,report,delivery)
         print(json.dumps(result,ensure_ascii=False,indent=2))
         return 0
+    if args.command == 'check-repair-status':
+        from pop_repair import read_repair_status
+        client = JdoClient(args.profile, args.output_dir / '.state/jdo-runtime')
+        result = read_repair_status(client, args.output_dir, sys.modules[__name__])
+        from heideng_merchant.merchant_experience import task_summary
+        print(json.dumps({**task_summary(result),'checkedAt':result['checkedAt'],
+                          'resultFile':str(args.output_dir/'.state/repair-readback.json')},ensure_ascii=False))
+        return 0 if result['status'] in ('verified','repairs-submitted-awaiting-review','submitted') else 2
     if args.command == 'reconcile-receipts':
         client = JdoClient(args.profile, args.output_dir / '.state' / 'jdo-runtime')
         payload = reconcile_run_receipts(client, args.output_dir)
@@ -4368,7 +4536,16 @@ def main(argv: list[str] | None=None) -> int:
         for path in write_split_sources(prepared, args.output_dir):
             print(path.resolve())
         return 0
-    result = generate_batch(prepared, args.reference_dir, args.output_dir, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_url_exports=args.existing_url_export, agent_text=load_agent_text(args.agent_text_file) if getattr(args, 'agent_text_file', None) else None, scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), image_prompts=load_image_prompts(args.image_prompts_file,[job.spu_id for job in prepared.jobs]) if getattr(args,'image_prompts_file',None) else None)
+    existing_urls = load_url_exports(args.existing_url_export) if args.existing_url_export else {}
+    existing = {job.spu_id:{'uploaded_urls':{kind:existing_urls[normalize_material_stem(name)]
+                for kind,name in image_names(job.spu_id).items() if normalize_material_stem(name) in existing_urls}}
+                for job in prepared.jobs}
+    fee = material_image_approval(prepared, [(prepared,args.output_dir)], args.output_dir, existing, None,
+                                  args.fee_approval_file, source_id=[_file_sha256(path) for path in args.source])
+    if isinstance(fee, dict):
+        print(json.dumps(fee,ensure_ascii=False))
+        return 2
+    result = generate_batch(prepared, args.reference_dir, args.output_dir, fee_context=fee, spu_concurrency=args.spu_concurrency, image_concurrency=args.image_concurrency, timeout=args.timeout, existing_url_exports=args.existing_url_export, agent_text=load_agent_text(args.agent_text_file) if getattr(args, 'agent_text_file', None) else None, scene_image_model=getattr(args, 'scene_model', None), image_model=getattr(args, 'image_model', None), text_model=getattr(args, 'text_model', None), image_prompts=load_image_prompts(args.image_prompts_file,[job.spu_id for job in prepared.jobs]) if getattr(args,'image_prompts_file',None) else None)
     payload = asdict(result)
     for key in ('output_dir', 'manifest_path', 'short_title_path', 'failure_path'):
         payload[key] = str(payload[key]) if payload[key] else None

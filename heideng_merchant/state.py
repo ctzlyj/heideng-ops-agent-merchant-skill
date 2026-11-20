@@ -50,7 +50,7 @@ class FileLock:
 
 def merchant_home(home=None):
  if home:return Path(home).resolve()/'.heideng-merchant'
- return Path(os.environ.get('HEIDENG_MERCHANT_HOME',Path.home()/'.heideng-merchant')).resolve()
+ return Path(os.environ.get('HEIDENG_MERCHANT_HOME') or Path.home()/'.heideng-merchant').resolve()
 
 
 def installed_state(package, default=None):

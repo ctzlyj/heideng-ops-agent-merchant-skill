@@ -33,7 +33,6 @@ from typing import Any, Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import win_no_window  # noqa: F401,E402  (hide jdo-cli consoles)
-import hot_replica_mode as hrm  # noqa: E402
 import jdo_listing_mvp as cli  # noqa: E402
 
 MODELS = ("gpt-image-2.5",)
@@ -43,22 +42,6 @@ VARIANT_PATTERN = re.compile(r"^[a-z0-9]{1,8}$")
 PUBLISH_CONFIRM = "PUBLISH_TO_JD"
 VIDEO_CONFIRM = "BIND_SOURCE_VIDEO"
 PATCH_CONFIRM = "PATCH_PRODUCT_IMAGES"
-
-# Shared hard requirements proven on the 2026-11-03 matrix batch. Appended after
-# the user-finalized dynamic prompt and the per-link style suffix; never edit the
-# dynamic prompt itself.
-COMMON_HARD_RULES = (
-    "通用硬性要求：商品本身的外形结构、颜色、材质、配件、数量和比例必须与原图完全一致，不得增删零件或改变款式；"
-    "如果原图只拍摄了商品的局部特写，必须保持同样的局部视角与裁切范围，严禁补画或延伸出原图画面之外的任何商品部件；"
-    "原图文字卖点的内容要逐字保留、准确无错别字，只改变字体、颜色和位置；"
-    "不要新增原图没有的功效、材质、数据、服务或承诺类文字。"
-)
-TEXT_LOCK_TEMPLATE = (
-    "【本张文字锁定】画面中只允许出现以下文字，逐字准确：{lock}；"
-    "删除原图中的外文小字，不要出现任何其他文字、编号或卖点标签。"
-)
-IMAGE_NOTE_TEMPLATE = "【本张特别要求】{note}"
-
 
 class MatrixError(RuntimeError):
     pass
@@ -134,23 +117,7 @@ def load_variants(path: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
     for name, variant in variants.items():
         if not VARIANT_PATTERN.fullmatch(name):
             raise MatrixError(f"风格编号只能是 1-8 位小写字母或数字：{name}")
-        if not str(variant.get("suffix") or "").strip():
-            raise MatrixError(f"风格 {name} 缺少 suffix")
     return variants, keep
-
-
-def build_variant_prompt(title: str, variant: dict[str, Any], stem: str) -> str:
-    suffix = str(variant.get("suffix") or "")
-    prompt = hrm.build_dynamic_prompt(title) + suffix
-    if "通用硬性要求" not in suffix:  # verified suffixes may carry their own wording
-        prompt += COMMON_HARD_RULES
-    note = (variant.get("imageNotes") or {}).get(stem)
-    if note:
-        prompt += IMAGE_NOTE_TEMPLATE.format(note=note)
-    lock = (variant.get("textLocks") or {}).get(stem)
-    if lock:
-        prompt += TEXT_LOCK_TEMPLATE.format(lock=lock)
-    return prompt
 
 
 def model_order(index: int) -> tuple[str, ...]:
@@ -167,7 +134,7 @@ def rebuild_ledger(ledger: dict[str, Any], out_dir: Path, stems: list[str]) -> t
         if (ledger.get(stem) or {}).get("status") == "ok":
             continue
         path = Path(out_dir) / f"{stem}.jpg"
-        if not path.exists():
+        if not path.exists() or (ledger.get(stem) or {}).get("status") in {"STARTED", "UNKNOWN"}:
             continue
         try:
             with Image.open(path) as image:
@@ -480,7 +447,7 @@ def command_snapshot(args: argparse.Namespace) -> int:
     from PIL import Image
 
     run = run_dir(args)
-    verify_store(args)
+    store = verify_store(args)
     apply = read_apply(args.source_product_id)
     if not apply.get("skuList"):
         raise MatrixError("原链接 product-apply 未返回 SKU")
@@ -506,6 +473,7 @@ def command_snapshot(args: argparse.Namespace) -> int:
         manifest.append({"url": url, "stem": url_stem(url), "file": name, "size": size,
                          "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
     save_json_atomic(run / "source-main-manifest.json", manifest)
+    save_json_atomic(run / "snapshot-scope.json", {"shop": store, "productId": str(args.source_product_id)})
     print(json.dumps({"skus": len(apply["skuList"]), "groups": len(group_image_urls(apply)),
                       "images": len(manifest), "whiteBackground": len(white_background_by_sku(apply))},
                      ensure_ascii=False))
@@ -513,10 +481,17 @@ def command_snapshot(args: argparse.Namespace) -> int:
 
 
 def command_generate(args: argparse.Namespace) -> int:
-    import company_jpeg_edits as company
-
+    from heideng_merchant.state import FileLock
     run = run_dir(args)
-    apply = source_apply_data(run)
+    with FileLock(run / ".state" / "matrix-generation.lock"):
+        return generate_variant(args, run)
+
+
+def generate_variant(args, run):
+    import company_jpeg_edits as company
+    from heideng_merchant.creative_images import CreativeOrder, host_prompt
+
+    source_apply_data(run)
     variants, keep = load_variants(Path(args.variants or run / "variants.json"))
     variant = variants.get(args.variant)
     if not variant:
@@ -529,35 +504,57 @@ def command_generate(args: argparse.Namespace) -> int:
     ledger_path = out / "ledger.json"
     ledger, recovered = rebuild_ledger(load_json(ledger_path, {}) or {}, out, [item["stem"] for item in sources])
     for item in sources:
-        if (ledger.get(item['stem']) or {}).get('status') in {'STARTED', 'UNKNOWN', 'failed', 'request-started'}:
+        record = ledger.get(item["stem"], {})
+        supplied = (variant.get("prompts") or {}).get(item["stem"])
+        if not args.redo and record.get("prompt") and supplied and supplied.strip() != record["prompt"]:
+            raise MatrixError("原请求与当前设计不同；需要重做时使用 --only 与 --redo")
+        if record.get('status') in {'STARTED', 'UNKNOWN', 'failed', 'request-started'}:
             raise MatrixError('Generation outcome unknown; reconcile before retry or redo')
-    if args.redo:
-        if not args.only:
-            raise MatrixError("--redo 只能配合 --only 指定的单张或少量问题图")
-        for item in sources:
-            path = out / f"{item['stem']}.jpg"
-            if path.exists():
-                (out / "superseded").mkdir(exist_ok=True)
-                shutil.move(str(path), out / "superseded" / f"{item['stem']}-{int(time.time())}.jpg")
-            ledger.pop(item["stem"], None)
-    save_json_atomic(ledger_path, ledger)
-    todo = [item for item in sources if (ledger.get(item["stem"]) or {}).get("status") != "ok"]
-    print(json.dumps({"variant": args.variant, "todo": len(todo), "recovered": recovered,
-                      "kept": sorted(keep)}, ensure_ascii=False), flush=True)
-    if not todo:
+    if args.redo and not args.only:
+        raise MatrixError("--redo 须指定 --only 的目标图")
+    todo = [item for item in sources if args.redo or ledger.get(item["stem"], {}).get("status") != "ok"]
+    if not todo and not args.quote_only:
+        save_json_atomic(ledger_path, ledger)
         return 0
+    snapshot = load_json(run / "snapshot-scope.json", {})
+    if not snapshot.get("shop") or not snapshot.get("productId"):
+        raise MatrixError("请先通过 snapshot 核验原店铺与商品")
+    designs = {}
+    replaced = {}
+    for item in sources:
+        stem = item["stem"]
+        digest = hashlib.sha256((run / "source-main" / item["file"]).read_bytes()).hexdigest()
+        if digest != item.get("sha256"):
+            raise MatrixError("源图与原商品快照不符，请重新核验")
+        designs[stem] = {"prompt": host_prompt(variant.get("prompts"), stem), "sourceSha256": digest,
+                         "url": item["url"]}
+        if args.redo and (out / (stem + ".jpg")).is_file():
+            replaced[stem] = hashlib.sha256((out / (stem + ".jpg")).read_bytes()).hexdigest()
+    order = CreativeOrder(out, {**snapshot, "kind": "matrix-listing", "variant": args.variant,
+                                "replaces": replaced}, designs, [item["stem"] for item in todo],
+                          args.fee_approval_file)
+    if args.quote_only:
+        print(json.dumps(order.quote, ensure_ascii=False))
+        return 0
+    order.check()
     key = resolve_api_key()
     if not key:
         raise MatrixError("Missing HEIDENG_MERCHANT_LTS4AI_API_KEY; no alternate provider")
     clients = {model: company.CompanyClient(key) for model in MODELS}
     lock = threading.Lock()
-    for item in todo:
-        ledger[item['stem']] = {'status': 'STARTED', 'model': MODELS[0], 'attempts': 1}
-    save_json_atomic(ledger_path, ledger)
-    title = apply["productInfo"]["productName"]
-
     def work(index: int, item: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-        prompt = build_variant_prompt(title, variant, item["stem"])
+        stem = item["stem"]
+        prompt = designs[stem]["prompt"]
+        with lock:
+            order.reserve(stem)
+            target = out / f"{stem}.jpg"
+            if stem in replaced:
+                archive = out / "superseded" / f"{stem}-{replaced[stem]}.jpg"
+                archive.parent.mkdir(exist_ok=True)
+                shutil.copy2(target, archive)
+                target.unlink()
+            ledger[stem] = {"status": "STARTED", "model": MODELS[0], "attempts": 1, **designs[stem]}
+            save_json_atomic(ledger_path, ledger)
         began, last = time.monotonic(), ""
         for model in model_order(index):
             try:
@@ -567,7 +564,7 @@ def command_generate(args: argparse.Namespace) -> int:
                 continue
             (out / f"{item['stem']}.jpg").write_bytes(raw)
             return item["stem"], {"status": "ok", "model": model, "bytes": len(raw),
-                                  "promptSha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                                  **designs[stem], "promptSha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
                                   "seconds": round(time.monotonic() - began, 1)}
         return item["stem"], {"status": "UNKNOWN", "error": last, "model": MODELS[0], "attempts": 1}
 
@@ -846,6 +843,8 @@ def build_parser() -> argparse.ArgumentParser:
     add("snapshot", command_snapshot, variant=False).add_argument("--source-product-id", required=True)
     generate = add("generate", command_generate, store=False)
     generate.add_argument("--variants")
+    generate.add_argument("--fee-approval-file", type=Path)
+    generate.add_argument("--quote-only", action="store_true")
     generate.add_argument("--only", nargs="*", help="只处理这些原图 stem")
     generate.add_argument("--redo", action="store_true", help="把 --only 的旧成品移到 superseded/ 后重生成")
     add("upload", command_upload)

@@ -8,6 +8,8 @@
 
 ## 判断与建议路径
 
+商家用简称，随后指出对应的官方店名或商家 ID 时，核店成功后用 `run connection -- remember-alias --shop <官方店名或venderId> --alias <商家叫法>` 记录这次明确对应关系。新对话直接以简称做只读解析。若简称指向两家店，只问一次能区分两家的问题。相同主体、相似名字和默认 Profile 均不足以选店。
+
 - 通常先 `run connection -- ensure-shop --shop "目标店铺" --no-auth`。登记别名/多个Profile只用于定位，最终以实时 venderinfo 核验为准。
 - 已有授权可用则直接复用。商家明确交办连接时，如果只读探测已返回 `ready`，用 `run connection -- shortcut --shop <目标店铺> --profile <已核验 Profile>` 补齐桌面入口。本地显示过期时仍按实际结果判断，官方可能自动刷新。
 - 确实需新授权，沿用用户针对本店的明确许可，原 ensure-shop 去掉 --no-auth；商家本人在同一隔离浏览器页自行选择密码、短信或扫码，宿主衔接官方 OAuth。不要另建授权系统，不复制Cookie/Token。

@@ -44,9 +44,14 @@ class MatureRefreshTests(unittest.TestCase):
    root=Path(d);(root/'sources').mkdir();(root/'sources/fixture.img').write_bytes(b'fixture')
    common.save_json(root/'job.json',{'profile':'fixture-profile','venderId':12345,'shopName':'fixture-shop','productIds':[1001]})
    common.save_json(root/'plan-batch.json',{'tasks':{'fixture':{'key':'fixture','productId':1001,'prompt':'fixture'}},'products':[]})
+   common.save_json(root/'host-prompts.json',{'fixture':'逐图设计'})
+   gen.main(['generate.py',str(root),'--quote-only'])
+   quote=common.load_json(root/'image-quote.json')
+   self.assertEqual(quote['designs']['fixture']['prompt'],'逐图设计')
+   common.save_json(root/'fee-approval.json',{**quote,'approvalRef':'test-message','billing':'requests','maxRequests':1})
    with patch.object(gen,'probe_task',return_value=('error','',b'','unknown-first-output')) as probe:
     with self.assertRaises(SystemExit):gen.main(['generate.py',str(root)])
-    self.assertEqual(common.load_json(root/'internal-generation.json')['fixture']['status'],'failed')
+    self.assertEqual(common.load_json(root/'internal-generation.json')['fixture']['status'],'unknown')
     with self.assertRaises(SystemExit):gen.main(['generate.py',str(root)])
     self.assertEqual(probe.call_count,1)
  def test_orchestrator_does_not_auto_restart_failed_paid_step(self):

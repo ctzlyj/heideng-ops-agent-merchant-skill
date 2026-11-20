@@ -97,3 +97,11 @@ jd-material-pop-skill 2026.11.207 / b56b223；[导入说明](../mature/materials
 - “禁止出现文字”不是商品印刷的证据。未知来源返回 `needs-image-review/imageReviewRequired`，先由Agent看图，不误称待平台审核或让商家手工修图。确认是模型额外文字时可用对象值：`{"prompt":"完整新设计","textOrigin":"generated","evidence":"已查看，额外标题在背景上而非商品印刷","rejectedImageUrl":"当前回读的驳回图片URL"}`；当前图片 URL 必须匹配后才进入该修复分支。真实商品文字用 product 表达看图判断，商品本身不被擦改。
 - 新提示词形成独立修订素材组/响应记录，旧 received 字节、上传和绑定请求不覆盖。旧绑定 pending/unknown 先按原请求全量回读，不能缩小请求体或改提示词掩盖未知结果；已明确驳回的旧回执可作为同槽位来源证明继续新修订。当前 pending/approved 不生成；明确的模型拒绝是已知失败，旧请求不原样重提，新设计可用剩余预算；不把普通网络异常猜成已知拒绝。
 - `imagePromptRevisions` 是输入版本信息，不等于本次已调用/已扣费。具体实际文本与修订留在原任务素材组的 `*-prompt.json`，结合模型 attempts、原绑定回执和平台审核状态判断结果。默认范本当前保留是为了稳定复用，不是禁止以后改进它。
+
+## 全店维护和原任务回查
+
+- 向商家报告 `coverage.inventory` 里的盘点对象数、实际查槽 SKU 数和各状态槽数，另报候选 SPU/SKU 数。属性只报该次属性回执覆盖的商品。旧冻结计划缺覆盖信息时先从已核店运行只读 `audit-pop-coverage`，有差异时保留原回执，用新目录重建计划。
+- 同一 SPU 各 SKU 可以有不同的已通过图或文案。只补有缺口的 SKU 槽；待审保留，驳回按平台原因另修。遇到整批查询不完整或未识别状态，先回查事实。
+- 产生新费用前，把 `feeQuote` 中的店铺、图型、新增张数、覆盖对象与计费条件告诉商家。同时执行已授权独立 workItems，短标题可在等待生图答复时用 `maintain-short-titles` 取得原回执。属性分支按单独范围取数。共享浏览器或同一个写入目标时顺序提交。
+- 普通新素材与修复分别报价。只有对应报价已获商家批准，宿主才从批准消息生成 JSON，复制原 `scope` 和 `units`，记录 `approvalRef` 和含重试的 `maxRequests`。金额可核时用 `billing: amount`、`currency`、`unitPriceUpperBound`、`maxAmount`、`priceEvidence`；费率未知时说明金额未知，由商家明确接受 `billing: requests`。向直接生成或修复入口传 `--fee-approval-file`，内嵌驳回修复传 `--repair-fee-approval-file`。新图和维修的批准范围须与各自报价匹配。
+- 新聊天先按本店两个官方身份字段查 `task-context`。独立修图任务提供 `originalScope`、原维修结果和只读 `check-repair-status` 命令。旧任务缺 Profile 时补入当前核验的本店 Profile。汇报上传、提交、待审、已生效与结果未知的单位及检查时间；未知项先查原回执。

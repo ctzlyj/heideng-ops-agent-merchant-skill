@@ -26,6 +26,11 @@ def build_parser():
     task.add_argument('--shop-id', required=True)
     task.add_argument('--vender-id', required=True)
     task.add_argument('--task-id')
+    evidence = sub.add_parser('compare-evidence', help='同店同商品广告、成交、客服、退货两期汇总核对')
+    evidence.add_argument('--shop-id', required=True)
+    evidence.add_argument('--vender-id', required=True)
+    evidence.add_argument('--spu-id', required=True)
+    evidence.add_argument('--input', type=Path, required=True)
     return parser
 
 
@@ -37,6 +42,16 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         state = args.state or installed_state(Path(__file__).resolve().parents[1])
+        if args.command == 'compare-evidence':
+            from .commerce_evidence import compare_evidence
+            if not all(key.isdecimal() for key in (args.shop_id, args.vender_id, args.spu_id)):
+                raise SafetyError('invalid-shop-or-product-identity')
+            try:
+                result = compare_evidence(json.loads(args.input.read_text(encoding='utf-8-sig')), args.shop_id, args.vender_id, args.spu_id)
+            except (ValueError, TypeError, KeyError, OSError) as exc:
+                raise SafetyError(f'经营报表不能对齐：{exc}') from None
+            print(json.dumps(result, ensure_ascii=False, allow_nan=False))
+            return 0
         if args.command == 'task-context':
             from .merchant_tasks import task_context
             if not args.shop_id.isdecimal() or not args.vender_id.isdecimal():

@@ -115,13 +115,15 @@ class RepairScopeTests(unittest.TestCase):
         material=lambda sku:{**a._binding_material(31,1,url,sku),'status':3}
         client=Mock();client.seller_info.return_value=identity;client.resolve_category.return_value=1
         client.sku_materials.return_value=[{'skuId':sku,'materials':[material(sku)]} for sku in ('1','2')]
-        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_LTS4AI_API_KEY':'synthetic'},clear=True):
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_LTS4AI_API_KEY':'synthetic','HEIDENG_MERCHANT_HOME':d},clear=True):
             root=Path(d);(root/'repair-scope.json').write_text(json.dumps({'shopIdentity':identity,'rows':rows,'skuSources':{sku:{'logo':ref} for sku in ('1','2')},'originals':{'1':[],'2':[]}}))
             group=hashlib.sha256(json.dumps(['11','white',ref],ensure_ascii=False).encode()).hexdigest()[:20]
             path=root/'shared-bindings'/(group+'.json');path.parent.mkdir();path.write_text(json.dumps({'status':'submitted','request':request}))
             args=Namespace(output_dir=root,profile='fixture',expected_shop_name='fixture',confirm='AUTO_MAINTAIN',authorized_sku_ids=['1'],repair_kind=['white'],paid_generation=True,jingmai_first=False,jingmai_ledger=root/'ledger.json')
             model=Mock();model.image_model_stats.return_value={'usage':{},'attempts':{}}
-            with patch.object(a,'JdoClient',return_value=client),patch.object(a,'ModelClient',return_value=model),patch('heideng_merchant.mature_runtime.registered_browser_profile',return_value=None):result=pop_repair.run_rejected_repairs(args,a)
+            with patch.object(a,'JdoClient',return_value=client),patch.object(a,'ModelClient',return_value=model),patch('heideng_merchant.mature_runtime.registered_browser_profile',return_value=None):
+                from tests.test_audit_handoff_contracts import run_approved_repair
+                result=run_approved_repair(args,a)
             self.assertEqual([r['skuId'] for r in result['rows']],['1'])
             self.assertEqual(json.loads(path.read_text())['request']['skuIds'],['1','2'])
             client.bind_sku_materials.assert_not_called()
@@ -192,13 +194,15 @@ class RepairScopeTests(unittest.TestCase):
         model=Mock();model.image_model_stats.return_value={'usage':{},'attempts':{}}
         cases=[([current],'approved'),([{**current,'status':3}],'pending'),([{**old,'auditDesc':'禁止出现文字信息'}],'skipped-changed'),([old,{**old,'imageMaterial':current['imageMaterial']}],'skipped-changed')]
         for live,expected in cases:
-          with self.subTest(expected=expected,live=live),tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_LTS4AI_API_KEY':'synthetic'},clear=True):
+          with self.subTest(expected=expected,live=live),tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_LTS4AI_API_KEY':'synthetic','HEIDENG_MERCHANT_HOME':d},clear=True):
             root=Path(d);(root/'repair-scope.json').write_text(json.dumps({'shopIdentity':identity,'rows':[row],'skuSources':{'1':{'logo':'https://img14.360buyimg.com/imgzone/jfs/ref.jpg'}},'originals':{'1':[old]}}))
             args=Namespace(output_dir=root,profile='fixture',expected_shop_name='fixture',confirm='AUTO_MAINTAIN',repair_kind=['white'],paid_generation=True,jingmai_first=False,jingmai_ledger=root/'ledger.json',max_model_requests=1)
             def download(_url,path,*_args):
                 from PIL import Image
                 path.parent.mkdir(parents=True,exist_ok=True);Image.new('RGB',(800,800),'white').save(path,'JPEG')
-            with patch.object(a,'JdoClient',return_value=client),patch.object(a,'ModelClient',return_value=model),patch.object(a,'_query_binding_materials',return_value={'1':live}),patch.object(a,'_download_reference',side_effect=download),patch.object(a,'request_material_image',return_value=b'fixture') as image,patch('heideng_merchant.mature_runtime.registered_browser_profile',return_value=None):result=pop_repair.run_rejected_repairs(args,a)
+            with patch.object(a,'JdoClient',return_value=client),patch.object(a,'ModelClient',return_value=model),patch.object(a,'_query_binding_materials',return_value={'1':live}),patch.object(a,'_download_reference',side_effect=download),patch.object(a,'request_material_image',return_value=b'fixture') as image,patch('heideng_merchant.mature_runtime.registered_browser_profile',return_value=None):
+                from tests.test_audit_handoff_contracts import run_approved_repair
+                result=run_approved_repair(args,a)
           image.assert_not_called();client.bind_sku_materials.assert_not_called();self.assertEqual(result['rows'][0]['status'],expected)
 
 if __name__=='__main__':unittest.main()

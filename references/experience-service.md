@@ -11,6 +11,17 @@
 
 ## 脱敏示例
 
+同一 SPU 的四域汇总可交给 `scripts/merchant.py compare-evidence --shop-id ID --vender-id ID --spu-id ID --input FILE`。宿主自行从已授权数据整理输入，商家只交办经营目标。输入 JSON 包含 `periods` 和 `rows`。periods 的 baseline、current 各给起止日期数组（YYYY-MM-DD，含首尾）；每条 row 带字符串 shopId、venderId、spuId、domain、period、window、source、channel、basis 以及 metrics。source 引用原报表；basis 写明归因天数和模型、有效成交定义、咨询样本规则或退货统计日期。按同店同 SPU 分组后再比较。
+
+| domain | metrics 汇总字段 |
+|---|---|
+| ads | impressions、clicks、spend、attributedOrders、attributedRevenue |
+| sales | orders、revenue |
+| service | consultations、concernSamples（注明哪类顾虑及样本） |
+| returns | returns、reasonSamples（注明买家陈述的原因及样本） |
+
+让工具核对每个域的两期来源、覆盖和分母。金额币种、退款完成日与下单日、广告归因窗写进口径；不同渠道的广告归因订单和全店成交不可直接相减。只有一个期间时可以描述该期事实。把结果与咨询、售后去标识化归组依据一起读，给老板一个优先动作、对应商品、可被什么证据推翻及何时复查。例如只有“流量上升、广告成交转化下降”得到证实时，先核对该 SPU 同渠道的成交和咨询样本；只有样本也支持某一规格疑问时，再建议改对应图文。没有成本时利润写未知。上一次送审图的经营效果，从证实生效后另起窗口观察。
+
 | 观测 | 判断 | 下一步 |
 |---|---|---|
 | 同店 SPU A 在两期内广告点击从 100 增至 150，归因成交从 8 降至 6 | 点击上升但转化率从 8% 降到 4%。需要检验落地页表达、受众或商品结构的变化 | 对齐素材上线时间和渠道，优先核对客服高频问题对应的规格表达 |

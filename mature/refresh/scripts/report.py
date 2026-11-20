@@ -151,7 +151,7 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
             "逐张按原图重制；同一商品内相同图片只生成一次、多组复用；"
             "双 gpt 生图模型（Flare/Sunburst）并发生成",
         ),
-        ("提示词", job["promptTemplate"].replace("{title}", "商品标题")),
+        ("提示词", "逐图设计与来源见 image-quote.json；执行情况见 internal-generation.json"),
         (
             "未变更项",
             "标题、价格、品牌、库存、商品状态、SKU 规格图（ggtImages）；"
@@ -229,9 +229,9 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
             1 for value in generation.values() if value.get("status") == "rejected"
         ),
         "",
-        "## 提示词（用户定稿）",
+        "## 本次图片设计",
         "",
-        "> " + job["promptTemplate"].replace("{title}", "商品标题"),
+        "> " + "逐图设计与来源见 image-quote.json；执行情况见 internal-generation.json",
         "",
         "## 明细",
         "",

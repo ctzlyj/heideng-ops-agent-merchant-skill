@@ -1,6 +1,6 @@
 """detail-repair: complete the detail page of an already published product.
 
-Reads an existing listing-package, regenerates detail modules (company three GPT models only),
+Reads the original listing-package and generates the approved host-designed detail images,
 and after the user previews the result, patches ONLY the WareEditor component (PC + mobile).
 Price, stock, SKU, main images and video are never part of the request body.
 An unknown outcome is reconciled by reading the product back; the PATCH is never replayed.
@@ -13,7 +13,7 @@ import win_no_window  # noqa: F401
 import photo_listing as pl
 import detail_pages as dp
 from photo_contract import ReconcileRequired, media_entries, package_path, review_digest
-from photo_generation import atomic_json, generate_tasks, load, sha
+from photo_generation import atomic_json, load, sha
 
 CONFIRM = 'DETAIL_PATCH'
 IN_FLIGHT = ('SUBMITTING', 'UNKNOWN')
@@ -30,21 +30,20 @@ def _published(root):
     return m
 
 
-def plan(root):
+def plan(root, design):
     """Detail-only generation plan from the existing package (facts + every SKU)."""
     root = Path(root)
     m = _published(root)
-    result = pl.make_plan(root, preview=False, only='detail')
-    return {'tasks': result['tasks'], 'detailModules': result['detailModules'], 'productId': m['productId']}
+    result = pl.make_plan(root, preview=False, only='detail', design=design)
+    return {'tasks': result['tasks'], 'detailModules': result['detailModules'], 'productId': m['productId'], 'quote': result['quote']}
 
 
-def generate(root):
+def generate(root, approval=None):
     root = Path(root)
     tasks = load(root / 'plan.json')
     if not tasks or {t['role'] for t in tasks} != {'detail'}:
         raise ValueError('先运行 detail-repair plan，生成仅含详情模块的方案')
-    result = generate_tasks(tasks, root / '.generation')
-    pl.materialize_generated(root, tasks, result)
+    result = pl.generate_plan(root, approval=approval)
     return {k: v for k, v in result.items() if k != 'ledger'}
 
 
@@ -208,6 +207,10 @@ def main(argv=None):
     for name in ('plan', 'generate', 'review', 'apply', 'reconcile'):
         p = sub.add_parser(name)
         p.add_argument('--package', required=True, type=Path)
+        if name == 'plan':
+            p.add_argument('--image-prompts-file', required=True, type=Path)
+        if name == 'generate':
+            p.add_argument('--approval-file', type=Path)
         if name == 'apply':
             p.add_argument('--confirm', required=True)
             p.add_argument('--review-digest', required=True)
@@ -215,9 +218,9 @@ def main(argv=None):
     root = args.package.resolve()
     try:
         if args.command == 'plan':
-            r = plan(root); result = {'productId': r['productId'], 'detailModules': r['detailModules'], 'tasks': len(r['tasks'])}
+            r = plan(root, load(args.image_prompts_file)); result = {**r, 'tasks': len(r['tasks'])}
         elif args.command == 'generate':
-            result = generate(root)
+            result = generate(root, load(args.approval_file) if args.approval_file else None)
         elif args.command == 'review':
             result = review(root)
         elif args.command == 'apply':
@@ -226,7 +229,7 @@ def main(argv=None):
             result = reconcile(root)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
-    except (ValueError, ReconcileRequired, pl.cli.JdoError, OSError) as e:
+    except (ValueError, pl.GenerationUnknown, ReconcileRequired, pl.cli.JdoError, OSError) as e:
         print(json.dumps({'ok': False, 'type': type(e).__name__, 'message': str(e)}, ensure_ascii=False))
         return 2
 

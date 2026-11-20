@@ -72,85 +72,6 @@ def _chunk_skus(skus):
     return [skus[i:i + size] for i in range(0, len(skus), size)]
 
 
-def _specs_lines(facts):
-    d = facts.get('detail') or {}
-    lines = []
-    if facts.get('packageLengthMm') and facts.get('packageWidthMm') and facts.get('packageHeightMm'):
-        lines.append(f"包装尺寸：{facts['packageLengthMm']}×{facts['packageWidthMm']}×{facts['packageHeightMm']} mm")
-    if facts.get('weightKg'):
-        lines.append(f"包装重量：{facts['weightKg']} kg")
-    for key, label in (('productSizeText', '商品尺寸'), ('material', '材质'), ('packageContents', '包装清单')):
-        if d.get(key):
-            lines.append(f'{label}：{d[key]}')
-    return lines
-
-
-def build_detail_plan(manifest, root, *, identity_rules, style, reference_terms=()):
-    """Deterministic detail-plan.json content; prompts are generated here, never typed by the user."""
-    facts = manifest.get('facts') or {}
-    terms = list(reference_terms or (manifest.get('reference') or {}).get('bannedTerms') or [])
-    if banned_hits(style, terms):
-        raise ValueError('风格摘要含价格/促销/他牌或来源店铺标识，请改写成纯版式、配色、卖点结构描述')
-    skus = facts.get('skus') or []
-    photos_all = list(manifest['sourcePhotos'])
-    title = facts.get('title') or manifest['title']
-    points = [str(p) for p in (facts.get('sellingPoints') or []) if str(p).strip()]
-    detail = facts.get('detail') or {}
-    included = [str(x) for x in (facts.get('includedItems') or []) if str(x).strip()]
-
-    def context_for(chunk):
-        specs = [s['spec'] for s in (chunk if chunk else skus)]
-        return identity_rules + ('用户确认随商品发货的内容：' + '；'.join(included) + '。' if included else '') + '已确认事实（仅供理解，除“画面文字”外不得写入画面）：' + _text(
-            {'title': title, 'sellingPoints': points, 'specs': specs}) + '统一风格锚点（仅文字）：' + style
-    common = ('竖版2:3详情长图的一个分段，主体清楚，手机缩略图可读，四周保留约8%安全边距，各分段共享配色/光线/材质但'
-              '版式各不相同，不要重复首屏标题卡。画面文字必须逐字绘制下面“画面文字”，不得增加任何其它文字、数字、价格、促销、'
-              '品牌、店名、水印或二维码；画面文字为空时整张图不出现可读文字。')
-
-    def module(kind, extra_purpose, lines, visual, sku_chunk=None, photos=None):
-        return {'kind': kind, 'covers': list(KIND_COVERS.get(kind, (kind,))), 'title': KIND_TITLES[kind],
-                'purpose': extra_purpose, 'exactVisibleText': lines,
-                'skuKeys': [s['key'] for s in (sku_chunk or [])], 'photos': photos or photos_all,
-                'visual': visual}
-
-    modules = [
-        module('hero', '首屏：让买家一眼知道商品是什么、核心价值是什么', [title] + points[:1],
-               '商品全貌居中，单一主张，标题与商品同屏，不画参数表。'),
-        module('selling_points', '用已确认卖点解释购买理由', points[:4],
-               '用商品结构/细节特写配合每条卖点，不并列堆字；没有卖点文字时只做外观特写。'),
-    ]
-    for chunk in _chunk_skus(skus):
-        specs = [s['spec'] for s in chunk]
-        photos = list(dict.fromkeys(p for s in chunk for p in (s.get('sourcePhotos') or photos_all))) or photos_all
-        modules.append(module('sku_options', '展示全部可售款式/组合/颜色/图案，规格名与商品一一对应', specs,
-                              '每个规格一个独立展示格，商品只画对应实拍款式，规格名放在对应商品旁，不增删款式。',
-                              chunk, photos))
-    modules += [
-        module('scene', '真实使用场景：让买家看到怎么用、放在哪', [str(detail['sceneText'])] if detail.get('sceneText') else [],
-               '只讲使用场景，真实自然的环境，商品仍是主体且与实拍一致，不画参数表。'),
-        module('structure', '结构与细节：只展示实拍可见的结构', [str(x) for x in detail.get('structureNotes') or []],
-               '多角度/局部特写；看不清的背面与配件不得补画。'),
-        module('specs_package', '参数与包装：只写已确认的尺寸重量材质与包装清单', _specs_lines(facts),
-               '干净的参数信息版式，仅排版已给出的文字，禁止补充任何未列出的参数。'),
-        module('aftercare', '注意事项与售后说明', [str(x) for x in detail.get('careNotes') or []] or
-               ['收货后请检查商品完整性', '如有问题请联系店铺客服'],
-               '只讲使用提示与服务，不重新画商品英雄图。'),
-    ]
-    plan_modules = []
-    for order, mod in enumerate(modules, 1):
-        mod_id = f'detail-{order:02d}-{mod["kind"].replace("_", "")}'
-        problems = scan_visible_text(mod['exactVisibleText'], facts, terms)
-        if problems:
-            raise ValueError('详情文字未通过检查：' + '；'.join(problems))
-        text_block = '画面文字（逐字）：' + (' / '.join(mod['exactVisibleText']) or '无') + '。'
-        mod.update(id=mod_id, order=order, outputFile=f'详情图/{mod_id}.jpg', size=MODULE_SIZE, forbidden=FORBIDDEN,
-                   factsUsed=sorted(k for k in ('title', 'sellingPoints', 'skus', 'packageLengthMm', 'weightKg', 'detail') if facts.get(k)) if mod['kind'] != 'scene' else ['title'],
-                   prompt=context_for(mod['skuKeys'] and [s for s in skus if s['key'] in mod['skuKeys']]) + common + f'本段职责：{mod["title"]}——{mod["purpose"]}。构图：{mod["visual"]}' + text_block)
-        plan_modules.append(mod)
-    return {'schema': 'detail-plan/v1', 'minimum': MIN_MODULES, 'width': OUTPUT_WIDTH, 'requiredKinds': list(REQUIRED_KINDS),
-            'allSkuKeys': [s['key'] for s in skus], 'forbidden': FORBIDDEN, 'modules': plan_modules,
-            'referencePolicy': '参考链接原图仅用于风格分析，不得作为生成输入或上传素材'}
-
-
 def normalize_detail_image(source, destination, width=OUTPUT_WIDTH):
     with Image.open(source) as im:
         im = im.convert('RGB')
@@ -182,6 +103,8 @@ def _reference_hashes(root):
     if not path.is_file():
         return set()
     data = json.loads(path.read_text(encoding='utf-8-sig'))
+    if data.get('source') == 'merchant-product-apply':
+        return set()
     return {e.get('sha256') for e in data.get('entries') or [] if e.get('sha256')}
 
 
@@ -212,18 +135,19 @@ def check_detail_set(manifest, root, plan=None):
             ids = [i.get('id') for i in items]
             if ids != [m['id'] for m in plan.get('modules') or []]:
                 problems.append('详情图与 detail-plan 模块不一致或顺序错误')
-            kinds = {c for m in plan.get('modules') or [] for c in m.get('covers') or [m['kind']]}
-            for kind in REQUIRED_KINDS:
-                if kind not in kinds:
-                    problems.append(f'缺少必需详情模块：{KIND_TITLES[kind]}')
-            if 'style_variants' not in kinds:
-                problems.append('缺少图案/颜色/款式模块')
-            facts_keys = {s['key'] for s in (manifest.get('facts') or {}).get('skus') or []}
-            covered = {k for m in plan.get('modules') or [] if m['kind'] == 'sku_options' for k in m.get('skuKeys') or []}
-            if facts_keys - covered:
-                problems.append('详情页未覆盖全部SKU：' + ','.join(sorted(facts_keys - covered)))
-            if len(plan.get('modules') or []) > max(DEFAULT_MAX_MODULES, len(REQUIRED_KINDS) + len(_chunk_skus(list(facts_keys)))) + 4:
-                problems.append('详情模块数量异常过多')
+            if plan.get('schema') != 'host-detail-plan/v1':
+                kinds = {c for m in plan.get('modules') or [] for c in m.get('covers') or [m['kind']]}
+                for kind in REQUIRED_KINDS:
+                    if kind not in kinds:
+                        problems.append(f'缺少必需详情模块：{KIND_TITLES[kind]}')
+                if 'style_variants' not in kinds:
+                    problems.append('缺少图案/颜色/款式模块')
+                facts_keys = {s['key'] for s in (manifest.get('facts') or {}).get('skus') or []}
+                covered = {k for m in plan.get('modules') or [] if m['kind'] == 'sku_options' for k in m.get('skuKeys') or []}
+                if facts_keys - covered:
+                    problems.append('详情页未覆盖全部SKU：' + ','.join(sorted(facts_keys - covered)))
+                if len(plan.get('modules') or []) > max(DEFAULT_MAX_MODULES, len(REQUIRED_KINDS) + len(_chunk_skus(list(facts_keys)))) + 4:
+                    problems.append('详情模块数量异常过多')
             terms = (manifest.get('reference') or {}).get('bannedTerms') or []
             for mod in modules.values():
                 problems += scan_visible_text(mod.get('exactVisibleText') or [], manifest.get('facts') or {}, terms)

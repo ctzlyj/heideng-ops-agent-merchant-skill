@@ -22,6 +22,15 @@ def main(argv):
     pids = common.requested_pids(job, args)
     scopes = common.job_scopes(job)
 
+    existing = common.load_json(run / "plan-batch.json")
+    if existing and (common.load_json(run / "internal-generation.json") or
+                     (run / ".state" / "paid-image-budget.json").exists()):
+        original = {str(p["productId"]) for p in existing["products"]}
+        if not {str(pid) for pid in pids}.issubset(original):
+            raise SystemExit("该目录已有生图记录；新增商品请建立新的范围和报价")
+        print("保留原计划、图片编号及已提交回执")
+        return
+
     cli = common.connect(job)
     identity = common.verify_identity(cli, job, run)
     print("identity:", identity["venderId"], identity["shopName"], flush=True)
@@ -53,7 +62,7 @@ def main(argv):
 
     plan = common.build_plan(
         snapshots,
-        job["promptTemplate"],
+        None,
         int(job.get("maxPosition") or common.DEFAULT_MAX_POSITION),
         job.get("imageBase"),
         order=pids,

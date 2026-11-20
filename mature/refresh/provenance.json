@@ -8,13 +8,13 @@
   "files": {
     "scripts/_common.py": {
       "upstreamSha256": "5e56a6d8a8ad628785a406f72da7968c91bf70e8a082598163b7707d32e3b8fc",
-      "sha256": "9ae3b56b30c44255716c20dc41882e2b153222f0dfd77956207c718a21bad75e",
+      "sha256": "674917b824f0083cf1cb69164e214e5e759aa9742a7db2fb9822cf2c1cdcfae3",
       "adapted": true
     },
     "scripts/build_plan.py": {
       "upstreamSha256": "873a04b51a9c9d01fb59504cac2b3c6052b2440d6b03d5c7769c158cc70ef16b",
-      "sha256": "873a04b51a9c9d01fb59504cac2b3c6052b2440d6b03d5c7769c158cc70ef16b",
-      "adapted": false
+      "sha256": "137d7595b2e8e89940c148490f3ce41051e22d8dfea7809205297ec78a2b9de3",
+      "adapted": true
     },
     "scripts/cleanup.py": {
       "upstreamSha256": "a331f8cb5382ac7b1de0da4eea69c52c8179dc456111c58ebc5da193c93d8743",
@@ -38,7 +38,7 @@
     },
     "scripts/generate.py": {
       "upstreamSha256": "091eb311fcc7a3637f8a5874e224528f99c636e770ab0718b15296c0b6d72c2b",
-      "sha256": "27565de2d8f93c895fccd7df7c35860bba8a16b680ab68b5a0bc0a33cf7d5d41",
+      "sha256": "1ff8853e77f435a9e2898774ff8db30d415b24ac41c1259e66b93e55df7faa8b",
       "adapted": true
     },
     "scripts/image_patch_update.py": {
@@ -53,8 +53,8 @@
     },
     "scripts/new_job.py": {
       "upstreamSha256": "da1fb505156febab36a939a7fca948ba0d46cd78e44148be5bbe1840d7e8d2da",
-      "sha256": "da1fb505156febab36a939a7fca948ba0d46cd78e44148be5bbe1840d7e8d2da",
-      "adapted": false
+      "sha256": "d8cecd5a657b4a6f6cc54470a1f6d3759bf000c6486973975e5d46fd38f62642",
+      "adapted": true
     },
     "scripts/no_window.py": {
       "upstreamSha256": "7d0e2a60cf4831b4494d60cfe0ccb4119b29a14b916f8c8e7883d5aa07e9fc9b",
@@ -78,13 +78,13 @@
     },
     "scripts/repair_one.py": {
       "upstreamSha256": "cdbbf5dcf758319f3e945647fd5348c5bbc7c31fca248e457d26f84d140a9555",
-      "sha256": "cdbbf5dcf758319f3e945647fd5348c5bbc7c31fca248e457d26f84d140a9555",
-      "adapted": false
+      "sha256": "dc71a37266bba8f4e57c6fb91ae55897d771f544f3e327d1fa41f6f422426588",
+      "adapted": true
     },
     "scripts/report.py": {
       "upstreamSha256": "35078739084619338c1e03153c04a9e8dd694db60adc658740241556c1b16cd8",
-      "sha256": "35078739084619338c1e03153c04a9e8dd694db60adc658740241556c1b16cd8",
-      "adapted": false
+      "sha256": "dd1a8b0efec2df46d3c0c3573238c745c8bf0c0cc41a5bc1c3569df662644863",
+      "adapted": true
     },
     "scripts/run_all.py": {
       "upstreamSha256": "78664d10697e9319f7da5f8b1309065186146e73a2003d2fd77a01bfcbb13561",

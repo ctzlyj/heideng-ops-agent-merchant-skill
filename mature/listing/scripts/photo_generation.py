@@ -70,19 +70,6 @@ def key_from_environment():
  if not key:raise ValueError('Missing HEIDENG_MERCHANT_LTS4AI_API_KEY; no alternate credential lookup')
  return key
 
-class ModelScheduler:
- def __init__(self,capacity=4):
-  self.capacity=capacity;self.active={m:0 for m in MODELS};self.condition=threading.Condition()
- def acquire(self,preferred):
-  with self.condition:
-   while True:
-    available=[m for m in preferred if self.active[m]<self.capacity]
-    if available:
-     chosen=min(available,key=lambda m:self.active[m]);self.active[chosen]+=1;return chosen
-    self.condition.wait()
- def release(self,model):
-  with self.condition:self.active[model]-=1;self.condition.notify_all()
-
 def fingerprint(task):
  if 'referenceImages' in task:raise ValueError('Competitor images cannot be product generation references')
  if not re.fullmatch(r'[A-Za-z0-9_-]{1,50}',task.get('id','')):raise ValueError('Invalid task id')
@@ -92,65 +79,128 @@ def fingerprint(task):
  content={'prompt':task['prompt'],'photos':[sha(p) for p in task['photos']],'size':task['size'],'role':task.get('role')}
  return hashlib.sha256(json.dumps(content,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
-def generate_tasks(tasks,out,*,client=None,redo=None):
- out=Path(out);out.mkdir(parents=True,exist_ok=True);redo=set(redo or [])
- ids=[t['id'] for t in tasks]
- if len(ids)!=len(set(ids)) or not redo.issubset(ids):raise ValueError('Invalid duplicate/redo task ids')
- lock_path=out/'.generation.lock'
- try:fd=os.open(lock_path,os.O_CREAT|os.O_EXCL|os.O_WRONLY);os.close(fd)
- except FileExistsError:raise GenerationUnknown('A generation worker already owns this output; inspect before recovery')
- try:
-  ledger_path=out/'generation.json';ledger=load(ledger_path,{}) or {};receipt=load(out/'tasks.json',{}) or {}
-  todo=[];lock=threading.Lock();began=time.monotonic()
-  for index,task in enumerate(tasks):
-   name=task['id'];fp=fingerprint(task);previous=ledger.get(name) or {};file=out/'generated'/f'{name}.jpg'
-   if receipt.get(name) and receipt[name]!=fp and name not in redo:raise ValueError('Task changed: request an explicit single-image redo')
-   if name in redo:
-    if previous.get('status') in ('STARTED','UNKNOWN'):raise GenerationUnknown('Unknown old request must be reconciled before redo')
-    if file.exists():
-     archive=out/'history';archive.mkdir(exist_ok=True);os.replace(file,archive/f'{name}-{time.time_ns()}.jpg')
-    previous={};ledger.pop(name,None)
-   if previous.get('status')=='SUCCEEDED':
-    if not file.is_file() or sha(file)!=previous['sha256']:raise ValueError('Cached generated file changed')
-    continue
-   if previous.get('status') in ('STARTED','UNKNOWN'):
-    if file.is_file() and receipt.get(name)==fp:
-     image_bytes(file.read_bytes());ledger[name]={**previous,'status':'SUCCEEDED','sha256':sha(file),'recovered':True};continue
-    raise GenerationUnknown(f'{name}: previous generation outcome unknown; no automatic replay')
-   receipt[name]=fp;todo.append((index,task))
-  atomic_json(out/'tasks.json',receipt);atomic_json(ledger_path,ledger)
-  if todo and client is None:client=CompanyPhotoClient(key_from_environment())
-  scheduler=ModelScheduler(getattr(client,"capacity",4))
-  def work(index,task):
-   name=task['id'];started=time.monotonic();attempts=[]
-   preferred=[MODELS[(index+offset)%len(MODELS)] for offset in range(len(MODELS))]
-   for offset in range(len(MODELS)):
-    model=scheduler.acquire(preferred)
-    preferred.remove(model)
-    with lock:
-     ledger[name]={'status':'STARTED','model':model,'fingerprint':receipt[name],'attempts':attempts};atomic_json(ledger_path,ledger)
-    try:raw=client.edit(model=model,prompt=task['prompt'],photos=task['photos'],size=task['size'])
-    except GenerationRejected as e:
-     attempts.append({'model':model,'status':'REJECTED','httpStatus':e.status});continue
-    except Exception as e:
-     return name,{'status':'UNKNOWN','model':model,'fingerprint':receipt[name],'attempts':attempts,'error':type(e).__name__,'seconds':round(time.monotonic()-started,2)}
-    finally:scheduler.release(model)
-    raw=image_bytes(raw);file=out/'generated'/f'{name}.jpg';file.parent.mkdir(exist_ok=True)
-    temp=file.with_suffix('.tmp');temp.write_bytes(raw);os.replace(temp,file)
-    return name,{'status':'SUCCEEDED','model':model,'fingerprint':receipt[name],'attempts':attempts,'sha256':sha(file),'localPath':str(file.relative_to(out)),'seconds':round(time.monotonic()-started,2)}
-   return name,{'status':'REJECTED','attempts':attempts,'fingerprint':receipt[name],'seconds':round(time.monotonic()-started,2)}
-  with ThreadPoolExecutor(max_workers=12) as pool:
-   futures=[pool.submit(work,i,t) for i,t in todo]
-   for future in as_completed(futures):
-    name,result=future.result()
-    with lock:ledger[name]=result;atomic_json(ledger_path,ledger)
-  selected=[ledger[n] for n in ids]
-  report={'successCount':sum(r['status']=='SUCCEEDED' for r in selected),'unknownCount':sum(r['status']=='UNKNOWN' for r in selected),'failedCount':sum(r['status']=='REJECTED' for r in selected),'seconds':round(time.monotonic()-began,2),'modelsUsed':sorted({r.get('model') for r in selected if r.get('model')}),'ledger':ledger}
-  submitted=[]
-  for _,task in todo:
-   rec=ledger[task['id']]
-   if rec.get('model'):submitted.append(rec['model'])
-   submitted.extend(a['model'] for a in rec.get('attempts') or [])
-  report.update(submittedCount=len(todo),modelsSubmitted=sorted(set(submitted)))
-  atomic_json(out/'generation-result.json',report);return report
- finally:lock_path.unlink(missing_ok=True)
+def generation_scope(manifest, tasks):
+    # Bind the authorized shop and deliverables; changing copy within that scope is allowed.
+    identity = manifest['store']
+    return {'task': manifest['packageId'], 'shop': str(identity['venderId']),
+            'profile': identity['profile'], 'model': MODELS[0],
+            'outputs': [{'id': t['id'], 'role': t['role'], 'sku': t.get('skuKey'), 'sources': t['sourceSha256'],
+                         'action': 'reuse' if t.get('reusePhoto') else 'generate'} for t in tasks]}
+
+
+def pending_ids(tasks, out, redo=()):
+    ledger = load(Path(out)/'generation.json', {})
+    return [t['id'] for t in tasks if not t.get('reusePhoto') and
+            (t['id'] in redo or (ledger.get(t['id']) or {}).get('status') != 'SUCCEEDED')]
+
+
+def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=None):
+    from heideng_merchant.state import FileLock
+    from heideng_merchant.image_budget import validate_approval, reserve_request
+
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    redo = set(redo or [])
+    tasks = [task for task in tasks if not task.get('reusePhoto')]
+    ids = [task['id'] for task in tasks]
+    if len(ids) != len(set(ids)) or not redo.issubset(ids):
+        raise ValueError('Invalid duplicate/redo task ids')
+    if (out/'.generation.lock').exists():
+        raise GenerationUnknown('发现旧版任务锁，请先核实旧 worker 与原回执')
+
+    with FileLock(out/'.generation.guard'):
+        ledger_path = out/'generation.json'
+        ledger = load(ledger_path, {})
+        receipt_path = out/'tasks.json'
+        receipts = load(receipt_path, {})
+        todo = []
+        lock = threading.Lock()
+        began = time.monotonic()
+        for task in tasks:
+            name = task['id']
+            current = fingerprint(task)
+            old = ledger.get(name) or {}
+            status = old.get('status')
+            old_key = old.get('fingerprint') or receipts.get(name)
+            path = out/'generated'/f'{name}.jpg'
+            if status in ('STARTED', 'UNKNOWN'):
+                if name in redo or current != old_key or not path.is_file():
+                    raise GenerationUnknown(f'{name} 的上次生成结果待核对，请先查原回执')
+                image_bytes(path.read_bytes())
+                ledger[name] = dict(old, status='SUCCEEDED', sha256=sha(path),
+                                    localPath=str(path.relative_to(out)), recovered=True)
+                atomic_json(ledger_path, ledger)
+                continue
+            if old_key and old_key != current and name not in redo:
+                raise ValueError('Task changed: request an explicit single-image redo')
+            if status == 'SUCCEEDED':
+                if not path.is_file() or sha(path) != old['sha256']:
+                    raise ValueError('Cached generated file changed')
+                if name not in redo:
+                    continue
+            todo.append((task, current))
+
+        if todo:
+            units = approval.get('units') if isinstance(approval, dict) else None
+            needed = {task['id'] for task, _ in todo}
+            if not isinstance(units, list) or not needed.issubset(units) or not set(units).issubset(ids):
+                raise ValueError('付费图片需要与当前商品、素材范围和新增请求数一致的商家批准')
+            validate_approval(approval, scope=scope, units=units)
+            if approval['maxRequests'] < len(needed):
+                raise ValueError('新增图片数超过请求上限，请按已批准张数调整计划')
+            if client is None:
+                client = CompanyPhotoClient(key_from_environment())
+
+        def work(task, current):
+            name = task['id']
+            path = out/'generated'/f'{name}.jpg'
+            model = MODELS[0]
+            started = time.monotonic()
+            with lock:
+                old = ledger.get(name) or {}
+                prior = None
+                if name in redo and old.get('status') == 'SUCCEEDED':
+                    prior = {'status':'SUCCEEDED', 'sha256':old['sha256'],
+                             'receiptHash': hashlib.sha256(json.dumps(old,sort_keys=True).encode()).hexdigest()}
+                reserve_request(out.parent, approval, scope=scope, units=units,
+                                request_id=name, previous_receipt=prior)
+                if name in redo and path.exists():
+                    archive = out/'history'
+                    archive.mkdir(exist_ok=True)
+                    os.replace(path, archive/f'{name}-{time.time_ns()}.jpg')
+                record = {'status':'STARTED', 'model':model, 'fingerprint':current,
+                          'approvalRef':approval['approvalRef'], 'previousReceipt':prior, 'attempts':[]}
+                ledger[name] = record
+                receipts[name] = current
+                atomic_json(ledger_path, ledger)
+                atomic_json(receipt_path, receipts)
+            try:
+                raw = client.edit(model=model, prompt=task['prompt'], photos=task['photos'], size=task['size'])
+                data = image_bytes(raw)
+                path.parent.mkdir(exist_ok=True)
+                tmp = path.with_suffix('.tmp')
+                tmp.write_bytes(data)
+                os.replace(tmp, path)
+                outcome = dict(record, status='SUCCEEDED', sha256=sha(path), localPath=str(path.relative_to(out)))
+            except GenerationRejected as error:
+                outcome = dict(record, status='REJECTED', attempts=[{'model':model, 'status':'REJECTED', 'httpStatus':error.status}])
+            except Exception as error:
+                outcome = dict(record, status='UNKNOWN', error=type(error).__name__)
+            with lock:
+                ledger[name] = dict(outcome, seconds=round(time.monotonic()-started, 2))
+                atomic_json(ledger_path, ledger)
+
+        if todo:
+            with ThreadPoolExecutor(max_workers=max(1, min(12, int(getattr(client, 'capacity', 4))))) as pool:
+                futures = [pool.submit(work, task, current) for task, current in todo]
+                for future in as_completed(futures):
+                    future.result()
+        selected = [ledger[name] for name in ids]
+        report = {'successCount':sum(r['status']=='SUCCEEDED' for r in selected),
+                  'unknownCount':sum(r['status']=='UNKNOWN' for r in selected),
+                  'failedCount':sum(r['status']=='REJECTED' for r in selected),
+                  'seconds':round(time.monotonic()-began,2),
+                  'modelsUsed':sorted({r['model'] for r in selected if r.get('model')}),
+                  'ledger':ledger, 'submittedCount':len(todo), 'modelsSubmitted':list(MODELS) if todo else []}
+        atomic_json(out/'generation-result.json', report)
+        return report

@@ -30,7 +30,7 @@ def main(argv):
 
     fresh = common.build_plan(
         {pid: detail},
-        job["promptTemplate"],
+        None,
         int(job.get("maxPosition") or common.DEFAULT_MAX_POSITION),
         job.get("imageBase"),
         order=[pid],

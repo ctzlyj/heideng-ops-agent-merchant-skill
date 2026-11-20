@@ -14,25 +14,27 @@ import detail_pages as dp
 import sale_attr_templates as sat
 from jd_product_mover import HttpClient,MoverError,parse_mobile_page,parse_detail_urls
 from photo_contract import (SCHEMA_VERSION,ReconcileRequired,check_store,initial_manifest,join_detail_panels,media_entries,missing_information,package_path,review_digest,walk_components)
-from photo_generation import atomic_json,generate_tasks,load,sha
+from photo_generation import GenerationUnknown,atomic_json,generate_tasks,load,sha
 from skill_paths import installed_skill_dir
 
-IDENTITY_RULES='只使用用户实拍图中的真实商品，外形、比例、颜色、结构、配件与原图一致。禁止补画看不清或被遮挡的部件；不得复制参考链接的任何商品图，禁止别家品牌、店名、水印、二维码。仅使用下面已确认事实；不添加未经核实的材质、尺寸、承重、认证、功效或价格承诺。'
-DEFAULT_PHOTO_RULES=('【默认生成限制】只画实拍商品本体；不得添加毛巾、纸巾、洗漱用品、植物、人物、宠物、瓶罐、袜子饰品等非售卖物，除非用户已确认它们属于赠品或包装内；'
- '不写未确认宣传语（如强力、牢固、不易掉落、一秒上墙、轻松安装、不伤墙、便捷），不写承重、材质、认证、功效、尺寸、价格和促销；不出现“商品名称”等占位字样、斜杠、包装盒；'
- '规格、层数、颜色必须与对应SKU一致：画面结构（如1层只有一个篮、2层才有下方托盘）、规格文字逐字与确认事实相同；不确定的部分留白，不编造。')
-IDENTITY_RULES=IDENTITY_RULES+DEFAULT_PHOTO_RULES
-ON_SALE_STATUSES=(1,103)  # 103 is the live POP on-sale value (1.2.1 only accepted a fixture value 1)
-DEFAULT_STYLE='专业干净的京东电商风格，柔和光线，统一配色，主体清楚，中文排版准确。'
+ON_SALE_STATUSES = (1, 103)
+
 
 def ensure_shop(shop):
- linker=installed_skill_dir('jingmai-cli-linker')
- if not linker or not (linker/'scripts/linker.py').is_file():raise ValueError('Missing optional jingmai-cli-linker/scripts/linker.py under <package>/mature; shop authorization requires user permission')
- p=subprocess.run([sys.executable,'-X','utf8',str(linker/'scripts/linker.py'),'ensure-shop','--shop',shop],capture_output=True,text=True,encoding='utf-8',timeout=900)
- try:data=json.loads(p.stdout)
- except ValueError:raise ValueError('京麦 CLI 店铺连接未返回可核验结果') from None
- if data.get('status')!='ready':raise ValueError('京麦 CLI 店铺连接未就绪：'+str(data.get('status'))+'；'+str(data.get('hint') or '请完成本人授权或选择准确店铺'))
- return check_store({k:data[k] for k in ('profile','venderId','shopName')})
+    connector = installed_skill_dir('connection')
+    if not connector or not (connector / 'scripts/linker.py').is_file():
+        raise ValueError('安装包缺少 mature/connection/scripts/linker.py，请修复安装后继续')
+    command = [sys.executable, '-X', 'utf8', str(connector / 'scripts/linker.py'),
+               'ensure-shop', '--shop', shop, '--no-auth']
+    run = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', timeout=900)
+    try:
+        data = json.loads(run.stdout)
+    except ValueError:
+        raise ValueError('连接器没有返回可核验的店铺身份，请用连接入口核对') from None
+    if data.get('status') != 'ready':
+        raise ValueError('请由宿主先完成目标店连接：' + str(data.get('reason') or data.get('status')))
+    return check_store({k: data[k] for k in ('profile', 'venderId', 'shopName')})
+
 
 def verify_store(store):
  check_store(store);actual=dict(store)
@@ -78,6 +80,60 @@ def read_manifest(root):
  if not m or m.get('schemaVersion')!=SCHEMA_VERSION:raise ValueError('A valid listing-package/manifest.json is required')
  check_store(m['store']);return m
 
+def create_from_same_shop(root, store, product_id, title, photos=(), client=None):
+    """Use the verified shop's editor gallery for this SPU. Keep SEO slots out of the set."""
+    from image_patch_update import group_urls
+    root = Path(root)
+    if (root/'manifest.json').exists():
+        raise ValueError('已有原任务，请恢复原包')
+    verify_store(store)
+    source = cli.get('jdo-product-update', '/rest/sp-product/v0/product-apply/{applyId}',
+                     {'applyId': str(product_id), 'scene': 'pop'}).get('data') or {}
+    product = source.get('productInfo') or {}
+    if str(product.get('productId')) != str(product_id):
+        raise ValueError('本店源商品编辑详情未核实 SPU，请核对来源')
+    groups = group_urls(source)
+    main = groups.get('0000000000') or []
+    if not main or not all(main):
+        raise ValueError('本店商品编辑详情缺少完整 SPU 轮播图，请核对原链接')
+    desc = product.get('productDetailDesc') or {}
+    detail = dp.extract_image_urls(desc.get('desc') or desc.get('mobileDesc'))
+    sources = [('spu_main', '0000000000', i, value) for i, value in enumerate(main, 1)]
+    for group, values in groups.items():
+        if group != '0000000000' and values and values[0]:
+            sources.append(('sku_main', group, 1, values[0]))
+    sources.extend(('detail', '', i, value) for i, value in enumerate(detail, 1))
+    client = client or HttpClient(retries=1)
+    cache = root/'.reference-cache'
+    cache.mkdir(parents=True, exist_ok=True)
+    files, entries = [], []
+    for role, group, order, value in sources:
+        url = cli.detail_image_url(value)
+        host = (urlparse(url).hostname or '').lower()
+        if not host.endswith(('.360buyimg.com', '.jd.com')) or not url.startswith(('https://', 'http://')):
+            raise ValueError('源商品图片地址未经核实')
+        path = cache/(hashlib.sha256(url.encode()).hexdigest()+'.jpg')
+        if not path.is_file():
+            from photo_generation import image_bytes
+            image = image_bytes(client.get_bytes(url, headers={'User-Agent': 'Mozilla/5.0'}))
+            temp = path.with_suffix('.tmp')
+            temp.write_bytes(image)
+            os.replace(temp, path)
+        files.append(path)
+        entries.append({'role': role, 'group': group, 'order': order, 'sourceUrl': url,
+                        'path': str(path.relative_to(root)), 'sha256': sha(path)})
+    m = create_package(root, store, list(photos) + files, title, reference_answered=True)
+    for entry, copied in zip(entries, m['sourcePhotos'][len(photos):]):
+        entry['productPhoto'] = copied
+    receipt = {'sourceSpuId': str(product_id), 'store': store, 'source': 'merchant-product-apply',
+               'mainCount': len(main), 'detailCount': len(detail), 'entries': entries}
+    atomic_json(cache/'assets.json', receipt)
+    m['reference'].update(sourceSpuId=str(product_id), purpose='same-shop-replica',
+                          cacheManifest='.reference-cache/assets.json')
+    atomic_json(root/'manifest.json', m)
+    return m
+
+
 def collect_reference(root,client=None):
  root=Path(root);m=read_manifest(root);url=clean_reference_url(m.get('reference',{}).get('url'))
  if not url:raise ValueError('The user selected no reference; do not ask again or invent one')
@@ -97,65 +153,141 @@ def collect_reference(root,client=None):
  atomic_json(cache/'assets.json',result);m['reference']['cacheManifest']=str((cache/'assets.json').relative_to(root));m['timings']['referenceCollectionSeconds']=result['seconds'];atomic_json(root/'manifest.json',m)
  return result
 
-def build_generation_plan(m,root,reference,preview=False,only=None):
- root=Path(root);facts=m.get('facts') or {}
- if only=='detail':
-  if not facts.get('skus') or not (facts.get('title') or m.get('title')):raise ValueError('补详情页至少需要已确认的标题与全部SKU清单')
- elif not preview:
-  missing=missing_information(facts,reference)
-  if missing:raise ValueError('集中补齐信息：'+', '.join(missing))
- sources=[str(package_path(root,p)) for p in m['sourcePhotos']]
- style=(m.get('reference') or {}).get('styleSummary') or DEFAULT_STYLE
- verified={'title':facts.get('title') or m['title'],'sellingPoints':facts.get('sellingPoints') or []}
- if not preview and only!='detail':verified.update({k:facts[k] for k in ('brandId','categoryId')});verified['specifications']=[{'spec':s['spec']} for s in facts['skus']]
- included=[str(x) for x in (facts.get('includedItems') or []) if str(x).strip()]
- common=IDENTITY_RULES+('用户确认随商品发货的内容：'+'；'.join(included)+'（仅这些可入画，且必须与实拍一致）。' if included else '')+'已确认事实：'+json.dumps(verified,ensure_ascii=False)+'风格学习摘要（仅文字）：'+style
- descriptions=[('main-01','main','纯白背景(#FFFFFF)产品独立首图：不要任何场景、墙面、浴室、台面、绿植、洗护品、箭头、放大圆圈，主体完整居中四周留白，移除手和非售卖的使用配景，不加文字或标签。'),
- ('main-02','main','简洁生活场景图；真实商品主体占主要画面，只写已确认商品名称，不编参数。'),
- ('main-03','main','突出已确认收纳用途，统一高级电商版式，中文逐字准确。')]
- if not preview:descriptions += [('main-04','main','以实拍角度展示可见结构细节，不扩展看不清的背面或配件。'),('main-05','main','已确认卖点信息图；仅用事实里的短句，不添加承重、功效、材质数据。')]
- plan=[]
- for key,role,description in descriptions:plan.append({'id':key,'role':role,'prompt':common+description,'photos':sources,'size':'1024x1024','previewOnly':preview})
- if only=='detail':plan=[]
- if not preview:
-  for i,sku in enumerate(facts['skus'] if only!='detail' else [],1):
-   selected=sku.get('sourcePhotos') or m['sourcePhotos']
-   if not set(selected).issubset(m['sourcePhotos']):raise ValueError('SKU source photos must belong to the user photo set')
-   plan.append({'id':f'sku-{i:02d}','role':'sku','skuKey':sku['key'],'prompt':common+'生成白底SKU图，商品对应用户确认规格：'+sku['spec']+'。只画对应实拍商品，规格文字必须准确，不能用文字遮挡商品。','photos':[str(package_path(root,p)) for p in selected],'size':'1024x1024','previewOnly':False})
-  for mod in make_detail_plan(m,root)['modules']:
-   plan.append({'id':mod['id'],'role':'detail','module':mod['kind'],'skuKeys':mod['skuKeys'],'prompt':mod['prompt'],'photos':[str(package_path(root,p)) for p in mod['photos']],'size':dp.MODULE_SIZE,'previewOnly':False})
- return plan
+def prepare_creative_plan(manifest, root, reference, design, *, preview=False, only=None):
+    """Translate the host's ordered design into exact model calls and reusable assets."""
+    facts = manifest.get('facts') or {}
+    if only == 'detail':
+        if not facts.get('skus') or not (facts.get('title') or manifest.get('title')):
+            raise ValueError('详情页需要已确认的商品标题与规格')
+    elif not preview:
+        missing = missing_information(facts, reference)
+        if missing:
+            raise ValueError('先补齐发品事实：' + '、'.join(missing))
+    if not isinstance(design, dict) or not isinstance(design.get('images'), list) or not design['images']:
+        raise ValueError('请宿主根据商品事实、原图与经营目标提供逐图设计 --image-prompts-file')
+    ref = manifest.get('reference') or {}
+    if ref.get('url') or ref.get('sourceSpuId'):
+        evidence = load(package_path(root, ref.get('cacheManifest') or '.reference-cache/assets.json'), {})
+        if ref.get('sourceSpuId') and (evidence.get('sourceSpuId') != ref['sourceSpuId'] or evidence.get('store') != manifest['store']):
+            raise ValueError('轮播来源与本次店铺、SPU 不匹配')
+        if ref.get('url') and evidence.get('sourceUrl') != ref['url']:
+            raise ValueError('轮播参考来源与本次链接不一致')
+        if not evidence.get('mainCount') or not str(design.get('styleObservations') or '').strip():
+            raise ValueError('先获取已指定的真实轮播图，记录宿主观察到的原图风格')
+    source_photos = set(manifest['sourcePhotos'])
+    sku_keys = {s['key'] for s in facts.get('skus') or []}
+    tasks, modules, ids, planned_skus = [], [], set(), []
+    for spec in design['images']:
+        if not isinstance(spec, dict):
+            raise ValueError('逐图设计条目必须是对象')
+        key, role = spec.get('id'), spec.get('role')
+        if not isinstance(key, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,50}', key) or key in ids:
+            raise ValueError('逐图设计需要唯一的图片编号')
+        if role not in ('main', 'sku', 'detail') or (only and role != only) or (preview and role != 'main'):
+            raise ValueError('图片用途与当前计划不一致')
+        ids.add(key)
+        reuse = spec.get('reusePhoto')
+        photos = [reuse] if reuse else spec.get('photos')
+        if not isinstance(photos, list) or not photos or not all(isinstance(p, str) and p in source_photos for p in photos):
+            raise ValueError(f'{key} 需要选择包内真实商品素材，风格参考缓存只供观察')
+        paths = [package_path(root, p) for p in photos]
+        if not all(p.is_file() for p in paths):
+            raise ValueError(f'{key} 的源图片缺失')
+        prompt = spec.get('prompt')
+        if not reuse and (not isinstance(prompt, str) or not prompt.strip()):
+            raise ValueError(f'请宿主为 {key} 设计完整提示词')
+        task = {'id': key, 'role': role, 'photos': list(map(str, paths)),
+                'size': dp.MODULE_SIZE if role == 'detail' else '1024x1024',
+                'previewOnly': preview, 'promptSource': 'host', 'sourceSha256': [sha(p) for p in paths]}
+        if reuse:
+            task['reusePhoto'] = reuse
+        else:
+            task['prompt'] = prompt
+        if role == 'sku':
+            task['skuKey'] = spec.get('skuKey')
+            planned_skus.append(task['skuKey'])
+        elif role == 'detail':
+            module = dict(spec, kind=spec.get('kind') or 'detail', skuKeys=spec.get('skuKeys') or [],
+                          outputFile=f'详情图/{key}.jpg')
+            if not set(module['skuKeys']).issubset(sku_keys):
+                raise ValueError(f'{key} 含未登记的规格')
+            issues = dp.scan_visible_text(module.get('exactVisibleText') or [], facts, ref.get('bannedTerms', []))
+            if issues:
+                raise ValueError('；'.join(issues))
+            modules.append(module)
+            task.update(module=module['kind'], skuKeys=module['skuKeys'])
+        tasks.append(task)
+    if not only and not any(t['role'] == 'main' for t in tasks):
+        raise ValueError('主图计划不能为空')
+    if not preview and not only and (set(planned_skus) != sku_keys or len(planned_skus) != len(sku_keys)):
+        raise ValueError('请为每个实际 SKU 提供一张设计图或可复用规格图')
+    if not preview:
+        minimum = (dp.exemption(manifest) or {}).get('minimum', dp.MIN_MODULES)
+        if len(modules) < minimum:
+            raise ValueError(f'详情交付需要至少 {minimum} 张合格图，可选择已有图片复用')
+    return tasks, modules
 
-def make_detail_plan(m,root):
- style=(m.get('reference') or {}).get('styleSummary') or DEFAULT_STYLE
- return dp.build_detail_plan(m,root,identity_rules=IDENTITY_RULES,style=style,reference_terms=(m.get('reference') or {}).get('bannedTerms') or [])
 
-def make_plan(root,reference=None,preview=False,only=None):
- root=Path(root);m=read_manifest(root);reference=reference if reference is not None else load(root/'reference.json',{})
- tasks=build_generation_plan(m,root,reference,preview,only);atomic_json(root/'plan.json',tasks);modules=0
- if not preview:
-  detail_plan=make_detail_plan(m,root);atomic_json(root/'detail-plan.json',detail_plan);modules=len(detail_plan['modules'])
- return {'tasks':tasks,'previewOnly':preview,'detailModules':modules}
+def make_plan(root, reference=None, preview=False, only=None, design=None, redo=()):
+    root = Path(root)
+    m = read_manifest(root)
+    reference = reference if reference is not None else load(root/'reference.json', {})
+    tasks, modules = prepare_creative_plan(m, root, reference, design, preview=preview, only=only)
+    atomic_json(root/'plan.json', tasks)
+    atomic_json(root/'host-design.json', design)
+    if not preview:
+        atomic_json(root/'detail-plan.json', {'schema': 'host-detail-plan/v1', 'modules': modules})
+    quote = generation_quote(root, m, tasks, redo)
+    atomic_json(root/'image-quote.json', quote)
+    return {'tasks': tasks, 'previewOnly': preview, 'detailModules': len(modules), 'quote': quote}
+
+
+def generation_quote(root, manifest, tasks, redo=()):
+    from photo_generation import generation_scope, pending_ids
+    scope = generation_scope(manifest, tasks)
+    units = pending_ids(tasks, root/'.generation', redo)
+    return {'scope': scope, 'units': units, 'estimatedPaidImageCount': len(units),
+            'reusedImageCount': len(tasks) - len(units), 'maxRequests': len(units),
+            'actualAmount': None, 'pricing': '按本账户有效报价计算金额上限，或经商家明确同意按请求数封顶'}
+
+
+def generate_plan(root, *, approval=None, redo=()):
+    root = Path(root)
+    m = read_manifest(root)
+    plan = load(root/'plan.json', [])
+    design = load(root/'host-design.json')
+    if not plan or not design:
+        raise ValueError('付费执行需要宿主逐图设计。旧任务请保留原图与回执并重新 make-plan')
+    only = 'detail' if all(t['role'] == 'detail' for t in plan) else None
+    expected, _ = prepare_creative_plan(m, root, load(root/'reference.json', {}), design,
+                                        preview=all(t.get('previewOnly') for t in plan), only=only)
+    if expected != plan:
+        raise ValueError('原计划或来源已变化，请重新核对设计和报价')
+    quote = generation_quote(root, m, plan, redo)
+    result = generate_tasks(plan, root/'.generation', redo=redo, approval=approval, scope=quote['scope'])
+    materialize_generated(root, plan, result)
+    return result
+
 
 def materialize_generated(root,plan,result):
  root=Path(root);m=read_manifest(root);records=result['ledger'];main=[];details=[];variants=[]
  roles={t['role'] for t in plan};detail_only=roles=={'detail'}
  for task in plan:
   rec=records.get(task['id']) or {}
-  if rec.get('status')!='SUCCEEDED':continue
+  if not task.get('reusePhoto') and rec.get('status')!='SUCCEEDED':continue
   folder={'main':'主图','sku':'SKU图','detail':'详情图'}[task['role']];dest=root/folder/f'{task["id"]}.jpg';dest.parent.mkdir(exist_ok=True)
-  source=root/'.generation'/rec['localPath']
+  source=package_path(root,task['reusePhoto']) if task.get('reusePhoto') else root/'.generation'/rec['localPath']
   if task['role']=='detail':dp.normalize_detail_image(source,dest)
   else:shutil.copy2(source,dest)
-  item={'id':task['id'],'localPath':str(dest.relative_to(root)),'sha256':sha(dest),'model':rec['model'],'onlineUrl':'','previewOnly':task.get('previewOnly',False)}
-  if task['role']=='main':item['role']='white' if task['id']=='main-01' else 'main';main.append(item)
+  item={'id':task['id'],'localPath':str(dest.relative_to(root)),'sha256':sha(dest),'model':rec.get('model'), 'source':'reuse' if task.get('reusePhoto') else 'generated','onlineUrl':'','previewOnly':task.get('previewOnly',False)}
+  if task['role']=='main':item['role']='main';main.append(item)
   elif task['role']=='detail':item.update(module=task.get('module'),skuKeys=task.get('skuKeys') or []);details.append(item)
   else:variants.append({'key':task['skuKey'],'skuId':None,'skuImage':item})
  if not detail_only:m['mainImages']=main;m['variants']=variants
  m['detailImages']=details
  m.setdefault('timings',{})['generationSeconds']=result['seconds'];m['generationModels']=result['modelsUsed']
  m.pop('review',None);m.pop('imageReview',None)
- complete=result['successCount']==len(plan)
+ complete=result['successCount']+sum(bool(t.get('reusePhoto')) for t in plan)==len(plan)
  if not detail_only:m['status']='MATERIAL_PREVIEW' if any(t.get('previewOnly') for t in plan) else ('MATERIAL_REVIEW_PENDING' if complete else 'MATERIAL_INCOMPLETE')
  atomic_json(root/'manifest.json',m);return m
 
@@ -242,7 +374,7 @@ def review_package(root):
   overview=dp.overview_image([package_path(root,d['localPath']) for d in details],root/'详情图'/'详情页总览.jpg');lines += ['',f"![详情页总览]({overview.relative_to(root).as_posix()})（仅预览，不上传）"]
  lines += ['','## 图片预览']
  for item in media_entries(m):lines.append(f"![图片]({item['localPath']})")
- lines += ['',f'确认摘要：`{digest}`','未收到用户明确确认，不得调用 prepare 或 publish；图片/价格等有任何变化需重新预览确认。']
+ lines += ['',f'确认摘要：`{digest}`','宿主质检或商家亲审按实际审核人记录。发布采用本次商家的经营授权；预览变化时重新核验图片。']
  (root/'确认清单.md').write_text('\n'.join(lines),encoding='utf-8')
  page='<html><meta charset="utf-8"><title>实拍上新预览</title><style>body{font:16px sans-serif;padding:24px}img{max-width:450px;margin:8px;vertical-align:top}pre{white-space:pre-wrap}</style><h1>实拍上新预览（尚未发布）</h1><pre>'+html.escape('\n'.join(lines[:15]))+'</pre><h2>详情页：'+str(len(details))+' 张</h2><pre>'+html.escape('\n'.join(l for l in lines if l.startswith('例外') or l.startswith('- 问题') or l[:1].isdigit()))+'</pre>'+('<img src="详情图/详情页总览.jpg" style="max-width:100%">' if details else '')
  for item in media_entries(m):page+='<figure><img src="'+html.escape(item['localPath'],quote=True)+'"><figcaption>'+html.escape(item['localPath'])+'</figcaption></figure>'
@@ -253,13 +385,14 @@ def check_review(root,digest):
  if not digest or (m.get('review') or {}).get('digest')!=digest or review_digest(m,root)!=digest:raise ValueError('Review changed or missing; show current preview and ask user confirmation')
  return m
 
-def accept_images(root,digest,*,confirm):
+def accept_images(root,digest,*,confirm,reviewer='host',evidence=None):
  if confirm!='PHOTOS_REVIEWED':raise ValueError('Only after user preview acceptance: --confirm PHOTOS_REVIEWED')
+ if reviewer not in ('host','merchant') or (reviewer=='merchant' and not str(evidence or '').strip()):raise ValueError('商家亲审需要关联本次预览的明确答复')
  root=Path(root);m=check_review(root,digest)
  if m.get('qualityProblems'):raise ValueError('Known image identity/text issues must be fixed and reviewed first')
  gate=dp.check_detail_set(m,root)
  if not gate['ok']:raise ValueError('详情页未通过发布前检查，先补生成：'+'；'.join(gate['problems']))
- m['imageReview']={'ok':True,'digest':digest,'by':'USER_CONFIRMED','at':time.strftime('%Y-%m-%dT%H:%M:%S')}
+ m['imageReview']={'ok':True,'digest':digest,'by':'USER_CONFIRMED' if reviewer=='merchant' else 'HOST_REVIEWED','evidence':evidence,'at':time.strftime('%Y-%m-%dT%H:%M:%S')}
  atomic_json(root/'manifest.json',m);return m['imageReview']
 
 @contextmanager
@@ -278,7 +411,7 @@ def prepare_package(root,reference,*,confirm,digest):
 def _prepare_package(root,reference,*,confirm,digest):
  if confirm!='PREPARE_PHOTO_LISTING':raise ValueError('Image upload and platform validation require --confirm PREPARE_PHOTO_LISTING after preview')
  root=Path(root);m=check_review(root,digest)
- if not (m.get('imageReview') or {}).get('ok') or m['imageReview'].get('digest')!=digest or m.get('qualityProblems'):raise ValueError('User must accept current image identity/text before platform preparation')
+ if not (m.get('imageReview') or {}).get('ok') or m['imageReview'].get('digest')!=digest or m.get('qualityProblems'):raise ValueError('Current image quality review is required before preparation')
  if m.get('productId') or load(root/'state.json',{}).get('status') in ('SUBMITTING','UNKNOWN','SUCCEEDED'):raise ReconcileRequired('Reconcile the existing submission first')
  listing=build_listing(m,root,reference);verify_store(m['store']);began=time.monotonic();runtime=root/'.publish';runtime.mkdir(exist_ok=True)
  ledger_path=runtime/'uploads.json';uploads=load(ledger_path,{}) or {};zone=reference['media']['zoneId'];cat=reference['media']['defaultCategoryId']
@@ -425,21 +558,45 @@ def verify_package(root,attempts=18,interval=10):
  m['deliveryChecks']={'platformValidationPassed':bool((load(root/'.publish/validation-response.json',{}) is not None) and not [v for v in pipeline.validation_violations(load(root/'.publish/validation-response.json',{}) or {}) if int(v.get('detectResult') or 0)==1]),'productOnSale':'product not on sale' not in problems and not any(x.startswith(('SKU not on shelf','disabled SKU')) for x in problems),'detailQualityPassed':not detail_problems,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%S')}
  m['deliveryChecks']=dp.delivery_checks(m);m['deliveryChecks']['statement']=dp.completion_statement(m['deliveryChecks'])
  m['skuIds']=[int(s['skuId']) for s in detail['skuList']];m['status']='VERIFIED' if not problems else 'VERIFICATION_FAILED';m['timings']['verifySeconds']=round(time.monotonic()-began,2);m['verification']={'problems':problems,'skuCount':len(online),'at':time.strftime('%Y-%m-%dT%H:%M:%S')}
- atomic_json(root/'manifest.json',m);atomic_json(root/'.publish/verification.json',m['verification']);return {'status':m['status'],'productId':pid,'skuIds':m['skuIds'],'problems':problems,'deliveryChecks':dp.delivery_checks(m),'statement':m['deliveryChecks']['statement']}
+ links=consumer_links(detail['skuList'],expected)
+ m['consumerLinks']=links
+ m['verification'].update(consumerLinks=links,consumerPageStatus='unchecked')
+ atomic_json(root/'manifest.json',m)
+ atomic_json(root/'.publish/verification.json',m['verification'])
+ return {'status':m['status'],'productId':pid,'skuIds':m['skuIds'],'consumerLinks':links,
+         'representativeLink':links[0]['url'] if links else None, 'consumerPageStatus':'unchecked',
+         'problems':problems,'deliveryChecks':dp.delivery_checks(m),'statement':m['deliveryChecks']['statement']}
+
+
+def consumer_links(skus, expected):
+    links = []
+    for sku in skus:
+        sku_id = str(sku.get('skuId') or '')
+        local = expected.get(str(sku.get('outerId')))
+        if not local or not sku_id.isdecimal():
+            continue
+        aliases = [attr.get('attrValueAlias') for attr in sku.get('saleAttrs') or []]
+        links.append({'skuId': int(sku_id), 'spec': ' / '.join(x for x in aliases if x),
+                      'jdPrice': (sku.get('priceInfo') or {}).get('jdPrice'),
+                      'url': f'https://item.jd.com/{sku_id}.html'})
+    return links
+
 
 def main(argv=None):
  for stream in (sys.stdout,sys.stderr):
   if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8',errors='replace')
  parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
- init=sub.add_parser('init');init.add_argument('--package',required=True,type=Path);init.add_argument('--shop',required=True);init.add_argument('--photos',nargs='+',required=True,type=Path);init.add_argument('--title',required=True)
- choice=init.add_mutually_exclusive_group(required=True);choice.add_argument('--reference');choice.add_argument('--no-reference',action='store_true')
+ init=sub.add_parser('init');init.add_argument('--package',required=True,type=Path);init.add_argument('--shop',required=True);init.add_argument('--photos',nargs='+',default=[],type=Path);init.add_argument('--title',required=True)
+ choice=init.add_mutually_exclusive_group(required=True);choice.add_argument('--reference');choice.add_argument('--source-spu',type=int);choice.add_argument('--no-reference',action='store_true')
  for name in ('refresh','reference','set-facts','questions','make-plan','generate','review','accept-images','prepare','publish','verify','reconcile','confirm-not-created','discover-sale-templates','apply-sale-templates'):
   p=sub.add_parser(name);p.add_argument('--package',required=True,type=Path)
   if name=='refresh':p.add_argument('--category-id',type=int,required=True);p.add_argument('--category-name',default='');p.add_argument('--brand-category-id',type=int)
   if name=='confirm-not-created':p.add_argument('--reason',required=True)
   if name=='set-facts':p.add_argument('--facts',required=True,type=Path);p.add_argument('--style',type=Path)
   if name=='make-plan':p.add_argument('--preview',action='store_true');p.add_argument('--only',choices=['detail'],help='只重做详情模块（已有主图/SKU图不变）')
-  if name=='generate':p.add_argument('--redo',nargs='*',default=[])
+  if name=='make-plan':p.add_argument('--image-prompts-file',type=Path,required=True);p.add_argument('--redo',nargs='*',default=[])
+  if name=='generate':p.add_argument('--redo',nargs='*',default=[]);p.add_argument('--approval-file','--fee-approval-file',type=Path)
+  if name=='accept-images':p.add_argument('--reviewer',choices=['host','merchant'],default='host');p.add_argument('--evidence')
   if name in ('prepare','publish','accept-images'):p.add_argument('--confirm',required=True);p.add_argument('--review-digest',required=True)
  args=parser.parse_args(argv);root=args.package.resolve();command=args.command;command_began=time.monotonic()
  try:
@@ -449,7 +606,11 @@ def main(argv=None):
     link=Path(shop)
     if not link.is_file():raise ValueError('The exact shop shortcut is missing')
     shop=link.stem.removeprefix('京麦-')
-   result=create_package(root,ensure_shop(shop),args.photos,args.title,args.reference,True)
+   store=ensure_shop(shop)
+   if args.source_spu:
+    result=create_from_same_shop(root,store,args.source_spu,args.title,args.photos)
+   else:
+    result=create_package(root,store,args.photos,args.title,args.reference,True)
   elif command=='refresh':
    m=read_manifest(root);verify_store(m['store']);r=cli.refresh_reference(root/'reference.json',args.category_id,args.category_name,args.brand_category_id);r['store']=m['store'];atomic_json(root/'reference.json',r)
    result={'category':r['category'],'brandlessAllowed':any(str(b.get('brandId'))=='-1' for b in r['brands'])}
@@ -459,7 +620,7 @@ def main(argv=None):
    if not isinstance(f,dict):raise ValueError('Facts must be a JSON object')
    m['facts']=f;m['title']=f.get('title') or m['title'];m['sellingPoints']=f.get('sellingPoints') or [];m.pop('review',None)
    if args.style:
-    style=load(args.style);reject_credentials(style);m['reference']['styleSummary']=str(style.get('styleSummary') or DEFAULT_STYLE)
+    style=load(args.style);reject_credentials(style);m['reference']['styleSummary']=str(style.get('styleSummary') or '')
    atomic_json(root/'manifest.json',m);result={'missing':missing_information(f,load(root/'reference.json',{}))}
   elif command=='questions':
    m=read_manifest(root);reference=load(root/'reference.json',{});missing=missing_information(m.get('facts') or {},reference)
@@ -467,11 +628,11 @@ def main(argv=None):
    question={'askTogetherOnce':True,'missingFields':missing,**({'saleAttributeQuestion':structured['ask']} if structured.get('ask') else {}),'rule':'参数必须由用户提供或明确确认；看不清的结构要求补拍，不按参考商品猜参数'}
    atomic_json(root/'missing-information.json',question);result=question
   elif command=='make-plan':
-   r=make_plan(root,preview=args.preview,only=args.only);result={'tasks':len(r['tasks']),'previewOnly':args.preview,'detailModules':r['detailModules']}
+   r=make_plan(root,preview=args.preview,only=args.only,design=load(args.image_prompts_file),redo=args.redo);result={**r,'tasks':len(r['tasks'])}
   elif command=='generate':
-   plan=load(root/'plan.json');result=generate_tasks(plan,root/'.generation',redo=args.redo);materialize_generated(root,plan,result);review_package(root);result={k:v for k,v in result.items() if k!='ledger'}
+   result=generate_plan(root,redo=args.redo,approval=load(args.approval_file) if args.approval_file else None);review_package(root);result={k:v for k,v in result.items() if k!='ledger'}
   elif command=='review':result=review_package(root)
-  elif command=='accept-images':result=accept_images(root,args.review_digest,confirm=args.confirm)
+  elif command=='accept-images':result=accept_images(root,args.review_digest,confirm=args.confirm,reviewer=args.reviewer,evidence=args.evidence)
   elif command=='prepare':result=prepare_package(root,load(root/'reference.json'),confirm=args.confirm,digest=args.review_digest)
   elif command=='publish':result=publish_package(root,confirm=args.confirm,digest=args.review_digest)
   elif command=='discover-sale-templates':result=discover_sale_templates(root,load(root/'reference.json',{}))
@@ -482,7 +643,7 @@ def main(argv=None):
   if (root/'manifest.json').is_file():
    current=read_manifest(root);current.setdefault('timings',{})[command+'CommandSeconds']=round(time.monotonic()-command_began,2);atomic_json(root/'manifest.json',current)
   print(json.dumps(result,ensure_ascii=False,indent=2));return 0
- except (ValueError,ReconcileRequired,cli.JdoError,MoverError,OSError) as e:
+ except (ValueError,GenerationUnknown,ReconcileRequired,cli.JdoError,MoverError,OSError) as e:
   print(json.dumps({'ok':False,'type':type(e).__name__,'message':str(e)},ensure_ascii=False));return 2
 
 if __name__=='__main__':raise SystemExit(main())

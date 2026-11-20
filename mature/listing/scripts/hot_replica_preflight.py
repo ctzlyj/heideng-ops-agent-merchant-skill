@@ -1,19 +1,10 @@
 # -*- coding: utf-8 -*-
 """Hot-replica preflight for one source SKU (formal, parameterized).
 
-Chain position (single link): brand gate -> detail-page drop classification
-(gemini double pass, intersection only) -> seam continuity plan -> flexible
-dynamic-prompt remake plan (ALL spu_main images, per-source SKU spec images,
-style representative images; series products also plan their per-style scene
-sequences).
-
-Formalized from the battle-tested task-local 62_preflight_and_plan.py
-(2026-09-28..30 zeya batches). Store-specific fields are removed; the target
-category reference is passed via --reference and feeds the hard
-hot_replica_mode.brand_gate() check BEFORE any plan is written. Brand-required
-categories exit with SKIPPED_BRAND_REQUIRED and no plan (no generation quota).
+Read the host's observed drops and continuity analysis, then produce a scoped
+inventory and an individually designed generation or reuse decision for each image.
 """
-import argparse, base64, json, pathlib, re, sys, urllib.request, os
+import argparse, json, pathlib, sys, os
 if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -22,72 +13,13 @@ sys.path.insert(0, str(SKILL / "scripts"))
 import jd_product_mover as mover  # noqa: E402
 import hot_replica_mode as hotmode  # noqa: E402
 
-API_ROOT = "https://api.lts4ai.com/v1"
-DEFAULT_MODEL = "host-analysis"
-_HOST_ANALYSIS = None
-
-DROP_PROMPT = """这是某个京东商品详情页的源图序列（红色数字 1 到 N 是显示顺序）。我要重制上架，需要先剔除无价值页。
-只输出一个紧凑JSON（不要markdown、不要多余文字）：{"drops":[{"i":页码,"reason":"类别"}]}
-剔除类别仅限：品牌信息/价格活动/榜单销量/平台专属/公司介绍/源头工厂/客服售后/专利/淘金币 无价值页。
-规则：仅当整页主体是上述类别时才剔除；正常的产品展示、卖点、尺寸、场景、材质、使用方法页一律保留。宁可保留也不误删。没有可剔项就输出 {"drops":[]}。"""
-
-PROMPT = """这是某个京东商品详情页的源图序列（红色数字#1到#N是显示顺序）。我会对每张图独立重制，需要在重制前防止相邻图风格断层。只输出一个紧凑JSON对象（不要markdown代码块、不要多余文字）：
-{
- "spec": "整组详情页必须统一的背景色调（色系和色值范围）、光线、字体风格、版式语言（40字内中文）",
- "pages": [{"i":1,"title":"内容类型10字内","prev":false,"next":true}]
-}
-规则：相邻两页共享同一背景、同一场景被切开、或色调版式明显连续才设 prev/next=true；独立小节设为 false。pages 必须按 #1 到 #N 逐页覆盖，不得遗漏。"""
-
-
-def parse_json_loose(text):
-    text = (text or "").strip()
-    try:
-        return json.loads(text)
-    except Exception:
-        m = re.search(r"\{.*\}", text, re.S)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except Exception:
-                return None
-    return None
-
-
-def ask(image_path: pathlib.Path, prompt: str, model: str, max_side: int = 1600, max_tokens: int = 16000) -> str:
-    if not isinstance(_HOST_ANALYSIS, dict):
-        raise RuntimeError("Use --analysis-file with actual host image review (drops and continuity); no model request submitted")
-    value = _HOST_ANALYSIS.get("drops") if prompt == DROP_PROMPT else _HOST_ANALYSIS.get("continuity")
-    if prompt == DROP_PROMPT and isinstance(value, list): value = {"drops": value}
-    if not isinstance(value, dict): raise RuntimeError("Host analysis is missing drops/continuity")
-    return json.dumps(value, ensure_ascii=False)
-
-
-def ask_drop(image_path: pathlib.Path, model: str) -> dict:
-    for attempt in range(1, 4):
-        raw = ask(image_path, DROP_PROMPT, model)
-        data = parse_json_loose(raw)
-        if isinstance(data, dict) and isinstance(data.get("drops"), list):
-            return data
-        print(f"drop attempt {attempt}: incomplete, retrying")
-    raise RuntimeError("gemini drop classification incomplete after 3 attempts")
-
-
-def extract_page_objects(raw: str) -> dict:
-    out = {}
-    for m in re.finditer(r"\{[^{}]*\"i\"\s*:\s*(\d+)[^{}]*\}", raw or ""):
-        try:
-            obj = json.loads(m.group(0))
-            i = int(obj.get("i") or 0)
-            if i > 0 and obj.get("title"):
-                out[i] = obj
-        except Exception:
-            continue
-    return out
-
-
-def extract_spec(raw: str) -> str:
-    m = re.search(r"\"(?:spec|unifiedStyleSpec)\"\s*:\s*\"([^\"\\]{10,})", raw or "")
-    return m.group(1) if m else ""
+def read_analysis(path):
+    if path is None:
+        raise RuntimeError("Use --analysis-file with actual host image review; no model request submitted")
+    analysis = mover.read_json(path)
+    if not isinstance(analysis, dict) or not isinstance(analysis.get("drops"), list) or not isinstance(analysis.get("continuity"), dict):
+        raise ValueError("Host analysis must contain drops and continuity")
+    return analysis
 
 
 def build_sheet(folder: pathlib.Path, items, out_path: pathlib.Path, cell_w=300, cols=10):
@@ -122,12 +54,11 @@ def main():
     ap.add_argument("--work-dir", default=None,
                     help="artifact dir (default <draft>/hot-replica): sheets, continuity plan, remake plan")
     ap.add_argument("--analysis-file", type=pathlib.Path, help="Actual host review JSON: drops list and continuity {spec,pages}; not a company model")
-    ap.add_argument("--model", default=DEFAULT_MODEL)
+    ap.add_argument("--image-prompts-file", type=pathlib.Path, help="JSON mapping imageKey to the complete host design")
+    ap.add_argument("--model", default="host-analysis", help="source label for the recorded analysis")
     ap.add_argument("--drop-passes", type=int, default=2)
     ap.add_argument("--page-attempts", type=int, default=6)
     a = ap.parse_args()
-    global _HOST_ANALYSIS
-    _HOST_ANALYSIS = mover.read_json(a.analysis_file) if a.analysis_file else None
     SKU = a.sku
     root = pathlib.Path(a.draft_root)
     folder = next(root.glob(SKU + "_*"), None)
@@ -151,45 +82,27 @@ def main():
     details = sorted([i for i in listing["images"] if i.get("role") == "detail"],
                      key=lambda x: int(x.get("order") or 0))
 
-    # v3 three-layer dynamic prompt (title with SKU-spec tail stripped).
-    prompt_title = hotmode.strip_sku_spec(str(listing["product"].get("title") or ""))
-    prompt_dynamic = hotmode.build_dynamic_prompt(prompt_title)
-    (work / f"prompt-{SKU}.txt").write_text(prompt_dynamic, encoding="utf-8")
-    print("DYNAMIC PROMPT:", prompt_dynamic)
-
-    full_sheet = build_sheet(folder, details, work / f"drop-sheet-{SKU}.png")
-    drop_passes = [ask_drop(full_sheet, a.model) for _ in range(max(1, a.drop_passes))]
-    drop_maps = [{int(d.get("i")): str(d.get("reason") or "无价值页")
-                  for d in (dp.get("drops") or []) if d.get("i")} for dp in drop_passes]
-    drop_by_index = {i: drop_maps[0][i] for i in drop_maps[0] if all(i in m for m in drop_maps)}
+    analysis = read_analysis(a.analysis_file)
+    if details:
+        build_sheet(folder, details, work / f"drop-sheet-{SKU}.png")
+    drop_by_index = {int(row["i"]): str(row["reason"]) for row in analysis["drops"]}
+    if any(i < 1 or i > len(details) for i in drop_by_index):
+        raise ValueError("Host review refers to an absent detail image")
     dropped_details = {details[i - 1]["imageKey"]: drop_by_index[i]
                        for i in sorted(drop_by_index) if 1 <= i <= len(details)}
     kept = [item for n, item in enumerate(details, 1) if n not in drop_by_index]
     print(f"drop pass: {len(dropped_details)} dropped, {len(kept)} kept | {dropped_details}")
 
     details = kept
-    sheet_path = build_sheet(folder, details, work / f"preflight-sheet-{SKU}.png")
-    print(f"sheet: {sheet_path.name} ({len(details)} pages)")
-
-    pages_by_i, spec = {}, ""
-    for attempt in range(1, a.page_attempts + 1):
-        raw = ask(sheet_path, PROMPT, a.model)
-        (work / f"preflight-raw-{SKU}.md").write_text(raw, encoding="utf-8")
-        data = parse_json_loose(raw)
-        spec = spec or extract_spec(raw)
-        if isinstance(data, dict) and isinstance(data.get("pages"), list):
-            for obj in data["pages"]:
-                i = int(obj.get("i") or 0)
-                if i > 0:
-                    pages_by_i[i] = obj
-        pages_by_i.update(extract_page_objects(raw))
-        if len(pages_by_i) >= len(details) and spec:
-            break
-        print(f"attempt {attempt}: merged {len(pages_by_i)}/{len(details)} pages, retrying")
-    if len(pages_by_i) < len(details):
-        print(f"FAIL: gemini pages incomplete after {a.page_attempts} attempts "
-              f"({len(pages_by_i)}/{len(details)}); raw saved")
-        return 1
+    sheet_path = work / f"preflight-sheet-{SKU}.png"
+    if details:
+        build_sheet(folder, details, sheet_path)
+    continuity = analysis["continuity"]
+    spec = str(continuity.get("spec") or continuity.get("unifiedStyleSpec") or "")
+    rows = continuity.get("pages") or []
+    pages_by_i = {int(row["i"]): row for row in rows}
+    if len(rows) != len(details) or set(pages_by_i) != set(range(1, len(details) + 1)):
+        raise ValueError("Host continuity review must cover each retained detail image once")
     pages = [pages_by_i[i] for i in range(1, len(details) + 1)]
 
     kept_idx = list(zip(details, pages))
@@ -205,7 +118,7 @@ def main():
         })
     for i in range(len(cont_images) - 1):
         cont_images[i]["continuousWithNext"] = cont_images[i + 1]["continuousWithPrev"]
-    cont = {"sku": SKU, "model": a.model, "sheet": sheet_path.name,
+    cont = {"sku": SKU, "model": a.model, "sheet": sheet_path.name if details else None,
             "unifiedStyleSpec": spec[:800],
             "images": cont_images}
     (work / f"continuity-plan-{SKU}.json").write_text(
@@ -213,7 +126,8 @@ def main():
     print(f"continuity: {len(cont_images)} kept pages, drops={dropped_details}")
 
     # dynamic-prompt remake plan (flexible main count)
-    mains_src = [i["localPath"] for i in listing["images"] if i.get("role") == "spu_main"]
+    mains_src = [i["localPath"] for i in sorted(listing["images"], key=lambda x: int(x.get("order") or 0))
+                 if i.get("role") == "spu_main"]
     if len(mains_src) < 2:
         print(f"FAIL: spu_main images must be >= 2, got {len(mains_src)}")
         return 1
@@ -221,14 +135,12 @@ def main():
     for n, src in enumerate(mains_src, 1):
         order += 1
         images.append({"imageKey": f"SPU-MAIN-{n:02d}", "role": "spu_main", "order": order,
-                       "source": src, "output": f"重制-固定/主图/SPU-MAIN-{n:02d}.png",
-                       "prompt": prompt_dynamic})
+                       "source": src, "output": f"重制-固定/主图/SPU-MAIN-{n:02d}.png"})
     for new_pos, (item, page) in enumerate(kept_idx, 1):
         order += 1
         images.append({"imageKey": item["imageKey"], "role": "detail", "order": new_pos,
                        "source": item["localPath"],
-                       "output": f"重制-固定/详情图/{item['imageKey']}.png",
-                       "prompt": prompt_dynamic})
+                       "output": f"重制-固定/详情图/{item['imageKey']}.png"})
     sku_mains = [i for i in listing["images"] if i.get("role") == "sku_main"]
     seen = {}
     for im in sku_mains:
@@ -257,8 +169,7 @@ def main():
                 order += 1
                 images.append({"imageKey": target_key, "role": "style_scene", "order": order,
                                "source": source_path,
-                               "output": f"重制-固定/款式组/{target_key}.png",
-                               "prompt": prompt_dynamic})
+                               "output": f"重制-固定/款式组/{target_key}.png"})
                 scene_source_to_key[source_path] = target_key
             position = int(item.get("order") or 0)
             style_scene_mapping.append({"style": style, "pos": position, "imageKey": target_key})
@@ -266,18 +177,28 @@ def main():
     deannotate = []
     for n, (src, key) in enumerate(seen.items(), 1):
         out = f"重制-固定/SKU图/SKU图{n}.png"
-        images.append({"imageKey": f"SKU-MAIN-{n:03d}", "source": src, "output": out,
-                       "prompt": prompt_dynamic})
+        images.append({"imageKey": f"SKU-MAIN-{n:03d}", "source": src, "output": out})
         if not series_mode:
-            deannotate.append({"imageKey": f"SKU-REP-{n:03d}", "source": out, "output": out,
-                               "prompt": prompt_dynamic})
-    plan = {"task": f"{SKU} hot-replica (dynamic prompt + continuity)",
-            "title": listing["product"]["title"], "mode": "dynamic-prompt+continuity",
+            deannotate.append({"imageKey": f"SKU-REP-{n:03d}", "source": src, "output": f"重制-固定/款式代表/SKU-REP-{n:03d}.png"})
+    units = images + deannotate
+    prompts = mover.read_json(a.image_prompts_file) if a.image_prompts_file else analysis.get("imagePrompts", {})
+    source_sheet = [{"imageKey": row["imageKey"], "source": row["source"], "role": row.get("role") or "sku"}
+                    for row in units]
+    (work / f"design-input-{SKU}.json").write_text(json.dumps(source_sheet, ensure_ascii=False, indent=2), encoding="utf-8")
+    from heideng_merchant.creative_images import host_prompt
+    for row in units:
+        design = prompts.get(row["imageKey"])
+        if isinstance(design, dict) and design.get("reuse") is True:
+            row["reuse"] = True
+        else:
+            row["prompt"] = host_prompt(prompts, row["imageKey"])
+    plan = {"task": f"{SKU} hot-replica (host design + continuity)",
+            "title": listing["product"]["title"], "mode": "host-design+continuity",
             "styleImageMode": "series" if series_mode else "shared",
             "styleSceneMapping": style_scene_mapping,
-            "promptTitle": prompt_title,
+            "sourceSku": SKU,
             "droppedDetails": dropped_details,
-            "skuMainPolicy": "dynamic-prompt-regenerate",
+            "skuMainPolicy": "host-design",
             "images": images, "deannotate": deannotate}
     (work / f"remake-plan-{SKU}.json").write_text(
         json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -285,9 +206,8 @@ def main():
           f"styleScenes={len(scene_source_to_key)} styleSlots={len(style_scene_mapping)} "
           f"mains={len(mains_src)} details={len(kept_idx)} sku={len(seen)} "
           f"reps={len(deannotate)} drops={len(dropped_details)}")
-    print(f"NEXT: generate_with_continuity.py --draft {folder} --plan "
-          f"{work / ('remake-plan-' + SKU + '.json')} --continuity "
-          f"{work / ('continuity-plan-' + SKU + '.json')}")
+    print(f"使用 company_jpeg_edits.py --plan {work / ('remake-plan-' + SKU + '.json')} --draft {folder} "
+          f"--output {work} --store-config <已核店配置> --dry-run 查看增量报价")
     return 0
 
 
