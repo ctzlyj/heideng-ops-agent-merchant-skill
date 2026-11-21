@@ -1,4 +1,5 @@
 """Offline contract tests for bounded mature listing reuse (no live services)."""
+from tests.fee_consent import isolated_fees, signed_fixture
 import copy
 import hashlib
 import importlib
@@ -183,6 +184,7 @@ class MatureListingTests(unittest.TestCase):
                 self.assertEqual(raw, jpeg()); self.assertEqual(meta["provider"], "lts4ai")
             with self.assertRaises(ValueError): pg.CompanyPhotoClient("offline-sentinel").edit(model="old-model", prompt="x", photos=[src], size="1024x1024")
 
+    @isolated_fees
     def test_photo_receipt_caches_success_and_never_retries_unknown_or_redo(self):
         pg = module("photo_generation")
         class LocalClient:
@@ -197,7 +199,7 @@ class MatureListingTests(unittest.TestCase):
             root = Path(t); src = root / "photo.jpg"; src.write_bytes(jpeg())
             tasks = [{"id": "main", "prompt": "x", "photos": [str(src)], "size": "1024x1024", "role": "main"}]
             scope = {"task": "fixture", "shop": "42"}
-            approved = dict(approval={"scope":scope,"units":["main"],"maxRequests":1,"approvalRef":"reply-1","billing":"requests"},scope=scope)
+            approved = dict(approval=signed_fixture({"scope":scope,"units":["main"],"maxRequests":1,"approvalRef":"reply-1","billing":"requests"}),scope=scope)
             client = LocalClient()
             with self.assertRaises(ValueError):
                 pg.generate_tasks(tasks, root / "ok", client=client)
@@ -207,16 +209,19 @@ class MatureListingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"上限"):
                 pg.generate_tasks(tasks, root / "ok"/".generation", client=client, redo=["main"], **approved)
             self.assertEqual(client.calls,1)
-            revised=dict(approved,approval=dict(approved["approval"],approvalRef="reply-2"))
+            revised=dict(approved,approval=signed_fixture(dict(approved["approval"],approvalRef="reply-2")))
             pg.generate_tasks(tasks, root / "ok"/".generation", client=client, redo=["main"], **revised)
             self.assertEqual(client.calls,2)
-            failed = LocalClient(True); result = pg.generate_tasks(tasks, root / "unknown"/".generation", client=failed, **approved)
+            failed = LocalClient(True)
+            other = dict(approved, approval=signed_fixture(approved["approval"]))
+            result = pg.generate_tasks(tasks, root / "unknown"/".generation", client=failed, **other)
             self.assertEqual(result["unknownCount"], 1)
             for redo in (None, ["main"]):
                 with self.assertRaises(pg.GenerationUnknown): pg.generate_tasks(tasks, root / "unknown"/".generation", client=failed, redo=redo, **approved)
             self.assertEqual(failed.calls, 1)
             self.assertNotIn("private provider", (root / "unknown" / ".generation"/"generation.json").read_text())
 
+    @isolated_fees
     def test_merchant_gallery_host_design_fee_and_reuse(self):
         pl = module("photo_listing"); pg = module("photo_generation")
         store = {"profile":"pop-test","venderId":42,"shopName":"测试店"}
@@ -252,7 +257,7 @@ class MatureListingTests(unittest.TestCase):
             with patch.object(pg,"CompanyPhotoClient",return_value=provider),patch.object(pg,"key_from_environment",return_value="offline"):
                 with self.assertRaises(ValueError): pl.generate_plan(root)
                 provider.edit.assert_not_called()
-                pl.generate_plan(root,approval=dict(quote,billing="requests",approvalRef="merchant-approval"))
+                pl.generate_plan(root,approval=signed_fixture(dict(quote,billing="requests",approvalRef="merchant-approval")))
                 pl.generate_plan(root)
                 provider.edit.assert_called_once()
                 self.assertEqual(provider.edit.call_args.kwargs["prompt"],prompt)
@@ -271,7 +276,12 @@ class MatureListingTests(unittest.TestCase):
         pl=module("photo_listing"); pc=module("photo_contract")
         fields=pc.missing_information({"categoryId":53207,"title":"图"*31,"weightKg":"0","packageWidthMm":0,
             "packageLengthMm":0,"packageHeightMm":0},{})
-        self.assertTrue({"title-exceeds-60-units","weightKg","packageWidthMm","packageLengthMm","packageHeightMm"}.issubset(fields))
+        self.assertTrue({"title-exceeds-60-units","weightKg","packageWidthMm"}.issubset(fields))
+        self.assertTrue({"packageLengthMm","packageHeightMm"}.isdisjoint(fields))
+        self.assertEqual(pc.missing_logistics({"categoryId":1}, {}), [])
+        schema = {"schema":{"componentCode":"WareHeight","validateRule":[{"validateType":"required","validateRule":True},{"validateType":"minimum","validateRule":10}]}}
+        self.assertEqual(pc.missing_logistics({"categoryId":2,"packageHeightMm":9}, schema), ["packageHeightMm"])
+        self.assertEqual(pc.missing_logistics({"categoryId":2,"packageHeightMm":10}, schema), [])
         with tempfile.TemporaryDirectory() as t, patch.object(pl,"check_review",return_value={}), patch.object(pl.dp,"check_detail_set",return_value={"ok":True}):
             with self.assertRaisesRegex(ValueError,"明确答复"):
                 pl.accept_images(t,"proof",confirm="PHOTOS_REVIEWED",reviewer="merchant")
@@ -279,6 +289,7 @@ class MatureListingTests(unittest.TestCase):
             self.assertEqual(pl.accept_images(t,"proof",confirm="PHOTOS_REVIEWED",reviewer="merchant",
                 evidence="merchant reply 3")["by"],"USER_CONFIRMED")
 
+    @isolated_fees
     def test_company_receipt_never_replays_attempted_generation(self):
         c = module("company_jpeg_edits")
         class Broken:
@@ -290,12 +301,13 @@ class MatureListingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "批准"):
                 c.generate_plan(plan, root, client=Broken())
             quote = json.loads((root / "image-quote.json").read_text(encoding="utf-8"))
-            (root / "fee-approval.json").write_text(json.dumps({**quote, "approvalRef": "fixture-reply",
-                                                               "maxRequests": 1, "billing": "requests"}))
+            (root / "fee-approval.json").write_text(json.dumps(signed_fixture({**quote, "approvalRef": "fixture-reply",
+                                                               "maxRequests": 1, "billing": "requests"})))
             with self.assertRaises(RuntimeError): c.generate_plan(plan, root, client=Broken())
             with self.assertRaisesRegex(RuntimeError, "reconcile"): c.generate_plan(plan, root, client=Broken())
             self.assertEqual(json.loads((root / "generation.json").read_text())[sha]["attempts"], 1)
 
+    @isolated_fees
     def test_host_replica_quote_and_provider_match_per_image_and_reuse(self):
         company = module("company_jpeg_edits")
         shop = {"profile": "pop-fixture", "venderId": 123}
@@ -317,7 +329,7 @@ class MatureListingTests(unittest.TestCase):
             self.assertEqual(quote["reusedSources"], {"spec": source["sha"]})
             self.assertEqual(client.edit.call_count, 0)
             approval = run / "fee-approval.json"
-            approval.write_text(json.dumps({**quote, "billing": "requests", "maxRequests": 2, "approvalRef": "message"}))
+            approval.write_text(json.dumps(signed_fixture({**quote, "billing": "requests", "maxRequests": 2, "approvalRef": "message"})))
             company.generate_plan(plan, run, client=client)
             self.assertCountEqual([call.kwargs["prompt"] for call in client.edit.call_args_list],
                                   ["focus on the fold hinge", "show the adjustment screw"])
@@ -410,6 +422,7 @@ print('offline imports and merchant defaults OK')
             m["facts"]["confirmed"] = False
             with self.assertRaisesRegex(ValueError, "Missing verified facts"): pl.build_listing(m, root, reference)
 
+    @isolated_fees
     def test_matrix_unknown_request_cannot_replay_even_with_explicit_redo(self):
         mx = module("matrix_listing"); company = module("company_jpeg_edits")
         class Broken:
@@ -430,8 +443,8 @@ print('offline imports and merchant defaults OK')
                 self.assertEqual(mx.command_generate(args), 0)
                 quote_dir = root / "generated/a"
                 quote = json.loads((quote_dir / "image-quote.json").read_text(encoding="utf-8"))
-                (quote_dir / "fee-approval.json").write_text(json.dumps({**quote, "approvalRef": "test-matrix",
-                                                                          "billing": "requests", "maxRequests": 1}))
+                (quote_dir / "fee-approval.json").write_text(json.dumps(signed_fixture({**quote, "approvalRef": "test-matrix",
+                                                                          "billing": "requests", "maxRequests": 1})))
                 args.quote_only = False
                 self.assertEqual(mx.command_generate(args), 2)
                 with self.assertRaisesRegex(mx.MatrixError, "unknown.*reconcile"): mx.command_generate(args)

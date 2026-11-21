@@ -1,4 +1,5 @@
 """Task-local host prompts are real inputs, not changes to the mature default template."""
+from tests.fee_consent import isolated_fees, signed_fixture
 import io,json,tempfile,unittest,os,hashlib
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -58,6 +59,7 @@ class TaskImagePromptTests(unittest.TestCase):
                 except TypeError as error:self.fail('批次入口没有传递任务提示词：'+str(error))
             self.assertEqual(result.failed_spus,0);self.assertEqual(call.call_args.args[2],custom)
 
+    @isolated_fees
     def test_generate_cli_reads_the_host_file_and_passes_it_to_the_real_batch_entry(self):
         a=self.agent();job=a.SpuJob('11','1','fixture',('1',),(('1','fixture'),))
         prepared=a.PreparedSource('fixture','Sheet1',(),(a.SourceRow('1','fixture','11'),),(job,),1,1,0)
@@ -71,7 +73,7 @@ class TaskImagePromptTests(unittest.TestCase):
                 batch.assert_not_called()
                 fee = json.loads((root/'.state/image-fee-quote.json').read_text(encoding='utf-8'))
                 approval = root/'fee.json'
-                approval.write_text(json.dumps({**fee,'approvalRef':'fixture-message','billing':'requests','maxRequests':4}))
+                approval.write_text(json.dumps(signed_fixture({**fee,'approvalRef':'fixture-message','billing':'requests','maxRequests':4})))
                 code=a.main(argv+['--fee-approval-file',str(approval)])
             self.assertEqual(code,0);self.assertEqual(batch.call_args.kwargs['image_prompts']['11']['white']['prompt'],'新的任务提示词')
 

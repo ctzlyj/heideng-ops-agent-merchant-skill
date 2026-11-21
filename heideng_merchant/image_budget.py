@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 import re
+import uuid
 from pathlib import Path
 
 from .safety import atomic_json, read_json, safe_join
@@ -24,7 +25,7 @@ def _positive_amount(value):
     return amount
 
 
-def validate_approval(approval, *, scope, units):
+def validate_terms(approval, *, scope, units):
     """Validate the actual task scope and the stable list of approved image IDs."""
     if not isinstance(approval, dict) or not isinstance(scope, dict) or not scope or approval.get('scope') != scope:
         raise ValueError('请先取得当前店铺与任务范围的生图费用批准')
@@ -52,7 +53,15 @@ def validate_approval(approval, *, scope, units):
     return approval
 
 
-def reserve_request(directory, approval, *, scope, units, request_id, previous_receipt=None):
+def validate_approval(approval, *, scope, units):
+    from .fee_consent import verified_receipt
+    validate_terms(approval, scope=scope, units=units)
+    verified_receipt(approval)
+    return approval
+
+
+def reserve_request(directory, approval, *, scope, units, request_id, previous_receipt=None,
+                    unresolved_reservation=None):
     """Keep uncertain attempts reserved across crashes, overlapping workers and reruns."""
     validate_approval(approval, scope=scope, units=units)
     if request_id not in approval['units']:
@@ -65,17 +74,41 @@ def reserve_request(directory, approval, *, scope, units, request_id, previous_r
         if reference in data['approvals'] and data['approvals'][reference] != digest:
             raise ValueError('费用批准范围已改变，请核对批准记录')
         fingerprint = _digest([scope, request_id])
-        if previous_receipt is not None:
+        if unresolved_reservation is not None:
+            parent = data['requests'].get(unresolved_reservation, {})
+            if (previous_receipt is not None or parent.get('unit') != request_id or
+                    parent.get('approvalRef') == reference or scope.get('possibleDuplicateCharge') is not True or
+                    scope.get('unresolvedRequests', {}).get(request_id) != unresolved_reservation):
+                raise ValueError('追加尝试须关联原未知请求和独立的重复计费风险批准')
+            # The same outstanding attempt can have at most one direct successor.
+            fingerprint = _digest(['replace-unresolved', unresolved_reservation])
+        elif previous_receipt is not None:
             # Only callers that verified a completed original request may start a revision.
             if not isinstance(previous_receipt, dict) or previous_receipt.get('status') != 'SUCCEEDED' or not previous_receipt.get('sha256'):
                 raise ValueError('重做需要可核对的原成功回执')
             fingerprint = _digest([scope, request_id, previous_receipt])
-        if fingerprint in data['requests']:
+        previous = data['requests'].get(fingerprint)
+        if previous and (previous.get('state') != 'reserving' or previous.get('approvalRef') != reference):
             raise ValueError('原生图请求已预占，请先查原回执，禁止重复发送')
         used = sum(item['approvalRef'] == reference for item in data['requests'].values())
-        if used >= approval['maxRequests']:
+        if not previous and used >= approval['maxRequests']:
             raise ValueError('已达到商家批准的计费请求上限')
+        from .fee_consent import charge_attempt
         data['approvals'][reference] = digest
-        data['requests'][fingerprint] = {'approvalRef': reference, 'unit': request_id, 'state': 'reserved'}
+        entry = previous or {'approvalRef': reference, 'unit': request_id, 'state': 'reserving',
+                             'intent': uuid.uuid4().hex}
+        data['requests'][fingerprint] = entry
+        if unresolved_reservation is not None:
+            entry['replacesUnknown'] = unresolved_reservation
         atomic_json(ledger, data)
-        return {'reserved': used + 1, 'limit': approval['maxRequests'], 'requestId': request_id}
+        try:
+            charge_attempt(approval, directory=directory, fingerprint=fingerprint, intent=entry['intent'])
+        except ValueError:
+            # The central receipt declined this reservation. No dispatch has been authorized.
+            del data['requests'][fingerprint]
+            atomic_json(ledger, data)
+            raise
+        entry['state'] = 'reserved'
+        atomic_json(ledger, data)
+        return {'reserved': used + (0 if previous else 1), 'limit': approval['maxRequests'], 'requestId': request_id,
+                'reservationId': fingerprint}

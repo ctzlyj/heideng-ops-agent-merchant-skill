@@ -172,6 +172,28 @@ def patch_product(product_id: int, url_map: dict[str, str], confirm: str, body_d
 
 
 def main() -> int:
+    if sys.argv[1:2] == ['replace-sku-images']:
+        from heideng_merchant.sku_image_edit import run, unique
+        parser = argparse.ArgumentParser(description='在原商品按 SKU 替换规格图')
+        parser.add_argument('--profile', required=True)
+        parser.add_argument('--store-config', type=Path, default=cli.STORE_CONFIG)
+        parser.add_argument('--product-id', type=int, required=True)
+        parser.add_argument('--package', type=Path, help='原发布包；省略时读取本商品实时编辑模板')
+        parser.add_argument('--images', type=Path, help='SKU ID 到本地图片路径的 JSON 映射')
+        mode = parser.add_mutually_exclusive_group(required=True)
+        mode.add_argument('--check-only', action='store_true')
+        mode.add_argument('--reconcile', action='store_true')
+        mode.add_argument('--confirm', choices=['REPLACE_SKU_IMAGES'])
+        args = parser.parse_args(sys.argv[2:])
+        mapping = {}
+        if args.images is not None:
+            values = json.loads(args.images.read_text(encoding='utf-8-sig'), object_pairs_hook=unique)
+            mapping = {key: args.images.parent / path for key, path in values.items()}
+        identity = cli.verify_configured_store_identity(args.store_config, args.profile)
+        result = run(cli, apply_detail, identity, args.product_id, mapping, args.package,
+                     check_only=args.check_only, reconcile=args.reconcile)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result['status'] in ('verified', 'eligible') else 2
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", required=True)
     parser.add_argument("--store-config", type=Path, default=cli.STORE_CONFIG)

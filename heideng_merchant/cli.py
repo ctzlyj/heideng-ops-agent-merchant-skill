@@ -26,6 +26,15 @@ def build_parser():
     task.add_argument('--shop-id', required=True)
     task.add_argument('--vender-id', required=True)
     task.add_argument('--task-id')
+    fee = sub.add_parser('confirm-image-fee', help='商家一次确认本次图片费用与计费请求上限')
+    fee.add_argument('--quote', type=Path, required=True)
+    fee.add_argument('--output', type=Path, required=True)
+    fee.add_argument('--max-requests', type=int, required=True)
+    fee.add_argument('--billing', choices=['requests','amount'], required=True)
+    fee.add_argument('--currency')
+    fee.add_argument('--max-amount')
+    fee.add_argument('--unit-price-upper-bound')
+    fee.add_argument('--price-evidence')
     evidence = sub.add_parser('compare-evidence', help='同店同商品广告、成交、客服、退货两期汇总核对')
     evidence.add_argument('--shop-id', required=True)
     evidence.add_argument('--vender-id', required=True)
@@ -42,6 +51,19 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         state = args.state or installed_state(Path(__file__).resolve().parents[1])
+        if args.command == 'confirm-image-fee':
+            from .fee_consent import confirm_fee
+            try:
+                price = dict(currency=args.currency, maxAmount=args.max_amount,
+                             unitPriceUpperBound=args.unit_price_upper_bound, priceEvidence=args.price_evidence)
+                if args.output.resolve() == args.quote.resolve():
+                    raise ValueError('报价与费用回执需保存在两个文件')
+                approval = confirm_fee(json.loads(args.quote.read_text(encoding='utf-8-sig')), state, args.output,
+                    max_requests=args.max_requests, billing=args.billing, price=price if args.billing=='amount' else None)
+            except (ValueError, OSError, TypeError) as error:
+                raise SafetyError(str(error)) from None
+            print(json.dumps({'status':'approved','approvalRef':approval['approvalRef'],'output':str(args.output)},ensure_ascii=False))
+            return 0
         if args.command == 'compare-evidence':
             from .commerce_evidence import compare_evidence
             if not all(key.isdecimal() for key in (args.shop_id, args.vender_id, args.spu_id)):

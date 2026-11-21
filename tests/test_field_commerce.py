@@ -1,4 +1,5 @@
 """Offline acceptance for a nickname, cross-domain evidence and a paid request cap."""
+from tests.fee_consent import isolated_fees, signed_fixture
 import concurrent.futures
 import importlib.util
 import json
@@ -14,12 +15,13 @@ from heideng_merchant.image_budget import reserve_request, validate_approval
 
 
 class CommerceTests(unittest.TestCase):
+    @isolated_fees
     def test_amount_and_concurrent_last_request(self):
         scope = {'shop': '101', 'task': 'revision'}
         units = ['main-1', 'main-2']
-        approval = dict(scope=scope, units=units, approvalRef='message-8', billing='amount',
+        approval = signed_fixture(dict(scope=scope, units=units, approvalRef='message-8', billing='amount',
                         maxRequests=1, unitPriceUpperBound='0.75', maxAmount='0.75',
-                        priceEvidence='fixture rate', currency='CNY')
+                        priceEvidence='fixture rate', currency='CNY'))
         with self.assertRaises(ValueError):
             validate_approval(dict(approval, maxAmount='0.74'), scope=scope, units=units)
         with tempfile.TemporaryDirectory() as tmp:
@@ -34,7 +36,7 @@ class CommerceTests(unittest.TestCase):
             self.assertEqual(sum(results), 1)
             used = units[results.index(True)]
             with self.assertRaisesRegex(ValueError, '原生图请求'):
-                reserve_request(tmp, dict(approval, approvalRef='new-message'), scope=scope,
+                reserve_request(tmp, signed_fixture(dict(approval, approvalRef='new-message')), scope=scope,
                                 units=units, request_id=used)
 
     def test_aligned_funnel_and_incomplete_sources(self):

@@ -1,10 +1,12 @@
 """Frozen task handoff tests exercise real plan validation, never shop calls."""
+from tests.fee_consent import isolated_fees, signed_fixture
 import json,os,tempfile,unittest
 from argparse import Namespace
 from unittest.mock import Mock,patch
 from pathlib import Path
 import tests.test_mature_materials as helpers
 
+@isolated_fees
 def run_approved_repair(args, agent):
     import pop_repair
     result = pop_repair.run_rejected_repairs(args, agent)
@@ -12,8 +14,8 @@ def run_approved_repair(args, agent):
         return result
     quote = result['feeQuote']
     args.fee_approval_file = Path(args.output_dir) / 'fixture-fee.json'
-    args.fee_approval_file.write_text(json.dumps({**quote, 'billing':'requests',
-        'maxRequests':1, 'approvalRef':'synthetic-merchant-message'}), encoding='utf-8')
+    args.fee_approval_file.write_text(json.dumps(signed_fixture({**quote, 'billing':'requests',
+        'maxRequests':1, 'approvalRef':'synthetic-merchant-message'})), encoding='utf-8')
     return pop_repair.run_rejected_repairs(args, agent)
 
 
