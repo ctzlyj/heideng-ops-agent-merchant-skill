@@ -103,5 +103,5 @@ jd-material-pop-skill 2026.11.207 / b56b223；[导入说明](../mature/materials
 - 向商家报告 `coverage.inventory` 里的盘点对象数、实际查槽 SKU 数和各状态槽数，另报候选 SPU/SKU 数。属性只报该次属性回执覆盖的商品。旧冻结计划缺覆盖信息时先从已核店运行只读 `audit-pop-coverage`，有差异时保留原回执，用新目录重建计划。
 - 同一 SPU 各 SKU 可以有不同的已通过图或文案。只补有缺口的 SKU 槽；待审保留，驳回按平台原因另修。遇到整批查询不完整或未识别状态，先回查事实。
 - 产生新费用前，把 `feeQuote` 中的店铺、图型、新增张数、覆盖对象与计费条件告诉商家。同时执行已授权独立 workItems，短标题可在等待生图答复时用 `maintain-short-titles` 取得原回执。属性分支按单独范围取数。共享浏览器或同一个写入目标时顺序提交。
-- 普通新素材与修复分别报价。只有对应报价已获商家批准，宿主才从批准消息生成 JSON，复制原 `scope` 和 `units`，记录 `approvalRef` 和含重试的 `maxRequests`。金额可核时用 `billing: amount`、`currency`、`unitPriceUpperBound`、`maxAmount`、`priceEvidence`；费率未知时说明金额未知，由商家明确接受 `billing: requests`。向直接生成或修复入口传 `--fee-approval-file`，内嵌驳回修复传 `--repair-fee-approval-file`。新图和维修的批准范围须与各自报价匹配。
+- 普通新素材和维修分别用原报价调用 `confirm-image-fee`。宿主把生成的回执传给 `--fee-approval-file` 或内嵌维修的 `--repair-fee-approval-file`。计价方式见[执行策略](execution-policy.md)。
 - 新聊天先按本店两个官方身份字段查 `task-context`。独立修图任务提供 `originalScope`、原维修结果和只读 `check-repair-status` 命令。旧任务缺 Profile 时补入当前核验的本店 Profile。汇报上传、提交、待审、已生效与结果未知的单位及检查时间；未知项先查原回执。

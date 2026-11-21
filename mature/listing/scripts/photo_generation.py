@@ -94,13 +94,88 @@ def pending_ids(tasks, out, redo=()):
             (t['id'] in redo or (ledger.get(t['id']) or {}).get('status') != 'SUCCEEDED')]
 
 
-def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=None):
+def inspect_attempts(tasks, out, scope, selected=None):
+    """A point-in-time, read-only reconciliation; repeat it under the writer lock before spending."""
+    from heideng_merchant.safety import read_json, safe_join
+    out = Path(out)
+    ledger = load(out/'generation.json', {})
+    receipts = load(out/'tasks.json', {})
+    budget = read_json(safe_join(out.parent, '.state/paid-image-budget.json'), {})
+    latest = {}
+    for reservation_id, request in budget.get('requests', {}).items():
+        if request.get('state') != 'reserving':
+            latest[request['unit']] = (reservation_id, request)
+    chosen = set(selected or ())
+    ids = [task['id'] for task in tasks if not task.get('reusePhoto')]
+    if chosen - set(ids):
+        raise ValueError('指定的图号未包含在原生成计划中')
+    rows = []
+    parents = {}
+    # Budget entries may predate generation.json if the process stopped between the two writes.
+    for task in tasks:
+        unit = task['id']
+        if task.get('reusePhoto') or (chosen and unit not in chosen):
+            continue
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,50}', unit):
+            raise ValueError('Invalid task id')
+        old = ledger.get(unit, {})
+        reservation_id, entry = latest.get(unit, (None, {}))
+        status = old.get('status') or 'NOT_STARTED'
+        linked = (old.get('reservationId') == reservation_id if old.get('reservationId')
+                  else bool(old.get('approvalRef')) and old['approvalRef'] == entry.get('approvalRef'))
+        if reservation_id and not linked:
+            status = 'RESERVED_WITHOUT_RECEIPT'
+        output = safe_join(out, f'generated/{unit}.jpg')
+        if status in ('STARTED', 'UNKNOWN') and output.is_file():
+            old_key = old.get('fingerprint') or receipts.get(unit)
+            # A filename alone cannot prove that bytes came from this attempt.
+            result = (read_json(safe_join(out, f'attempts/{reservation_id}.result.json'), {})
+                      if reservation_id else {})
+            if (old_key and result.get('fingerprint') == old_key and old_key == fingerprint(task)
+                    and result.get('sha256') == sha(output)):
+                try:
+                    image_bytes(output.read_bytes())
+                except (ValueError, OSError):
+                    pass
+                else:
+                    status = 'LOCAL_RESULT'
+        uncertain = status in ('STARTED', 'UNKNOWN', 'RESERVED_WITHOUT_RECEIPT')
+        if uncertain and reservation_id:
+            parents[unit] = reservation_id
+        rows.append({'unit':unit, 'status':status, 'reservationId':reservation_id,
+                     'chargeKnown':False, 'previousApprovalRef':entry.get('approvalRef'),
+                     'originalReceipt':str(out/'generation.json') if old else None})
+    quote = None
+    if parents and (not chosen or chosen == set(parents)):
+        quote = {'scope':dict(scope, possibleDuplicateCharge=True, unresolvedRequests=parents),
+                 'units':sorted(parents), 'maxRequests':len(parents), 'actualAmount':None,
+                 'pricing':'原请求仍可能计费；每张另发一次，需要商家批准本次额外费用。'}
+    return {'readOnly':True, 'submittedCount':0, 'providerChargeStatus':'unknown',
+            'rows':rows, 'replacementQuote':quote}
+
+
+def preserve_attempt(out, reservation_id, record):
+    """Never replace an archived receipt. A restarted projection can refer to it by ID."""
+    if not re.fullmatch(r'[a-f0-9]{64}', reservation_id or ''):
+        raise ValueError('原请求缺少有效预占编号')
+    path = out/'attempts'/(reservation_id + '.json')
+    if path.exists():
+        if load(path) != record:
+            raise GenerationUnknown('历史请求回执不一致，请核对原任务')
+    else:
+        atomic_json(path, record)
+
+
+def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=None, replace_unknown=()):
     from heideng_merchant.state import FileLock
     from heideng_merchant.image_budget import validate_approval, reserve_request
 
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     redo = set(redo or [])
+    replacements = set(replace_unknown)
+    if replacements and redo:
+        raise ValueError('未知请求追加与已完成图重做需要分别核对')
     tasks = [task for task in tasks if not task.get('reusePhoto')]
     ids = [task['id'] for task in tasks]
     if len(ids) != len(set(ids)) or not redo.issubset(ids):
@@ -116,17 +191,34 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
         todo = []
         lock = threading.Lock()
         began = time.monotonic()
+        evidence = inspect_attempts(tasks, out, scope or {}, replacements)
+        states = {row['unit']: row for row in evidence['rows']}
+        parents = {}
+        if replacements:
+            quote = evidence['replacementQuote']
+            if not quote:
+                raise GenerationUnknown('所选图片不全是可核对的未知请求，请重新 reconcile-images')
+            scope = quote['scope']
+            parents = scope['unresolvedRequests']
         for task in tasks:
             name = task['id']
+            if replacements and name not in replacements:
+                continue
             current = fingerprint(task)
             old = ledger.get(name) or {}
             status = old.get('status')
             old_key = old.get('fingerprint') or receipts.get(name)
             path = out/'generated'/f'{name}.jpg'
+            if name in parents:
+                todo.append((task, current))
+                continue
+            if states[name]['status'] == 'RESERVED_WITHOUT_RECEIPT':
+                raise GenerationUnknown(f'{name} 的原请求已预占，请先 reconcile-images')
             if status in ('STARTED', 'UNKNOWN'):
-                if name in redo or current != old_key or not path.is_file():
+                if name in redo or states[name]['status'] != 'LOCAL_RESULT':
                     raise GenerationUnknown(f'{name} 的上次生成结果待核对，请先查原回执')
-                image_bytes(path.read_bytes())
+                if states[name]['reservationId']:
+                    preserve_attempt(out, states[name]['reservationId'], old)
                 ledger[name] = dict(old, status='SUCCEEDED', sha256=sha(path),
                                     localPath=str(path.relative_to(out)), recovered=True)
                 atomic_json(ledger_path, ledger)
@@ -146,6 +238,9 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
             if not isinstance(units, list) or not needed.issubset(units) or not set(units).issubset(ids):
                 raise ValueError('付费图片需要与当前商品、素材范围和新增请求数一致的商家批准')
             validate_approval(approval, scope=scope, units=units)
+            if replacements and (set(units) != replacements or any(
+                    states[unit]['previousApprovalRef'] == approval['approvalRef'] for unit in replacements)):
+                raise ValueError('未知费用需要对应本次所选图片的新批准')
             if approval['maxRequests'] < len(needed):
                 raise ValueError('新增图片数超过请求上限，请按已批准张数调整计划')
             if client is None:
@@ -159,17 +254,27 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
             with lock:
                 old = ledger.get(name) or {}
                 prior = None
+                parent = parents.get(name)
+                if parent:
+                    original = old if states[name]['status'] != 'RESERVED_WITHOUT_RECEIPT' else {
+                        'status':'RESERVED_WITHOUT_RECEIPT', 'reservationId':parent,
+                        'approvalRef':states[name]['previousApprovalRef']}
+                    preserve_attempt(out, parent, original)
                 if name in redo and old.get('status') == 'SUCCEEDED':
                     prior = {'status':'SUCCEEDED', 'sha256':old['sha256'],
                              'receiptHash': hashlib.sha256(json.dumps(old,sort_keys=True).encode()).hexdigest()}
-                reserve_request(out.parent, approval, scope=scope, units=units,
-                                request_id=name, previous_receipt=prior)
-                if name in redo and path.exists():
+                reservation = reserve_request(out.parent, approval, scope=scope, units=units,
+                                              request_id=name, previous_receipt=prior,
+                                              unresolved_reservation=parent)
+                if (name in redo or parent) and path.exists():
                     archive = out/'history'
                     archive.mkdir(exist_ok=True)
                     os.replace(path, archive/f'{name}-{time.time_ns()}.jpg')
                 record = {'status':'STARTED', 'model':model, 'fingerprint':current,
+                          'reservationId':reservation['reservationId'],
                           'approvalRef':approval['approvalRef'], 'previousReceipt':prior, 'attempts':[]}
+                if parent:
+                    record['replacesUnknown'] = parent
                 ledger[name] = record
                 receipts[name] = current
                 atomic_json(ledger_path, ledger)
@@ -177,6 +282,8 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
             try:
                 raw = client.edit(model=model, prompt=task['prompt'], photos=task['photos'], size=task['size'])
                 data = image_bytes(raw)
+                atomic_json(out/'attempts'/(record['reservationId']+'.result.json'),
+                            {'fingerprint':current, 'sha256':hashlib.sha256(data).hexdigest()})
                 path.parent.mkdir(exist_ok=True)
                 tmp = path.with_suffix('.tmp')
                 tmp.write_bytes(data)
@@ -195,12 +302,14 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
                 futures = [pool.submit(work, task, current) for task, current in todo]
                 for future in as_completed(futures):
                     future.result()
-        selected = [ledger[name] for name in ids]
-        report = {'successCount':sum(r['status']=='SUCCEEDED' for r in selected),
-                  'unknownCount':sum(r['status']=='UNKNOWN' for r in selected),
-                  'failedCount':sum(r['status']=='REJECTED' for r in selected),
+        selected = [ledger.get(name, {}) for name in ids]
+        report = {'successCount':sum(r.get('status')=='SUCCEEDED' for r in selected),
+                  'unknownCount':sum(r.get('status') in ('UNKNOWN','STARTED') for r in selected),
+                  'failedCount':sum(r.get('status')=='REJECTED' for r in selected),
                   'seconds':round(time.monotonic()-began,2),
                   'modelsUsed':sorted({r['model'] for r in selected if r.get('model')}),
                   'ledger':ledger, 'submittedCount':len(todo), 'modelsSubmitted':list(MODELS) if todo else []}
+        if report['unknownCount']:
+            report['nextAction'] = '运行 reconcile-images 核对原图及请求；保存本次回执和预算预占。'
         atomic_json(out/'generation-result.json', report)
         return report

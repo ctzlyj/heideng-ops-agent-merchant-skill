@@ -33,7 +33,7 @@
 
 ## 模型与私人数据
 
-先计算并展示免费复用后的新增图片和具体覆盖范围，报价给出额外重试是否计费。只在本次费用批准范围内发送请求，预算依据随任务保存在本机。批准记录使用 `approvalRef` 引用商家原话、`scope` 与 `units` 对应报价原值、`maxRequests` 为计费请求上限。按金额封顶时记录 `billing: amount`、币种 `currency`、单次最高价 `unitPriceUpperBound`、总额上限 `maxAmount` 和价格凭据 `priceEvidence`。价格无法核验时，如商家明确接受按请求数封顶，记 `billing: requests` 并报告实际金额未知。已存 Key、同意直接上架、接受技术方案各自只证明对应事项。费用记录不能由宿主凭空代签。原范围内已批准的免费操作可同时进行。
+有新增费用时，宿主用原报价打开一次本机确认窗口：`scripts/merchant.py confirm-image-fee --quote <报价.json> --output <费用回执.json> --billing requests --max-requests N`。确认窗口供商家查看商品范围、图位、请求上限（含返工）及计价条件；金额可核时用 `--billing amount --currency CNY --max-amount ... --unit-price-upper-bound ... --price-evidence ...`。只接受商家在本机同意后保存的回执；同一批准和剩余额度继续使用。历史聊天文字及宿主手写文件不能授权新扣费。宿主直接打开窗口，商家一次确认即可。未知旧请求可能重复计费时使用原任务的追加报价。
 
 已有 LTS4AI / gpt-image-2.5 配置、用户选择的平台/费用/预算不会因为开放执行而变化。商家 Key 不落聊天、日志、源码或截图；不使用公司 Key/额度/模型回退。外部 AI 视频尚未配置，不假装已经替换；已有视频交接仍可按原条件进行。
 

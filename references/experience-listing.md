@@ -20,9 +20,15 @@
 
 宿主查看实图、SKU 和已验证卖点，决定每张图的经营目的、版式、文案和商品事实。先做 `refresh`、`set-facts`、`questions`，核对标题 60 单位、包装三边、毛重和类目事实。缺实测包装数据时一次问清楚。复刻同一商品时先核对是否可以沿用已有 SKU 图和详情图。
 
+商家说“第一张图”时，先核对其打开的 SKU 链接和选中的规格。对于本店复刻，`.reference-cache/assets.json` 的 `sourceSkus[源SKU编号]` 会列出该规格的候选首图 `firstImageCandidates`，包括后台规格图、对应销售属性组的轮播首图；无专属图时使用共享轮播候选。读 `entries` 可看后续轮播、用途、顺序和来源。实际打开消费者页面并核实选中规格后，可用 `record-first-view --package <包> --source-sku <编号> --url <SKU页> --product-photo <候选的productPhoto> --screenshot <首屏截图>` 保存证据。页面打不开时标明“后台候选，消费者页待核”。买家端显示顺序随商品、规格和页面而定。
+
+在新采集的本店复刻包中，为 SKU 设计指定 `skuKey` 和原商品的 `sourceSkuId`，在 `firstImageReference` 填已比对的该原规格首图路径。通过 `photos` 选择所有能证明本图事实的实拍和同款图片，在 `identityChecks` 写可观察的身份核对要点。选择依据随商品改变，例如面料纹理与版型、印刷版本与装帧、部件组合与数量。单图已充分时可只用一张；遮挡、背面或搭配难辨时应选多角度。未能核对的细节先不作展示承诺。图位、背景、图数与文案由宿主按商品决定。
+
+“先出一张我看看”走 `make-sample --package <原包> --image-id <图号> --image-prompts-file <设计>`。宿主挑用户指定的规格或有代表性的差异款，只为这一张报价。用返回的 `samplePackage` 走既有 `generate` 和 `review`，把回执 `sampleReview.comparison` 里的源图和样张并排交给商家。商家认可后用 `accept-sample --package <原包> --image-id <图号> --evidence <本次答复引用>`，在本规格的大货设计中填返回的 `reusePhoto`。后续报价只算还要做的图。看样过程独立保存，大货包的原计划、已发布状态和图片继续可用。
+
 `make-plan --package <任务包> --image-prompts-file <设计.json>` 读取宿主设计。JSON 对象含 `styleObservations`（有参考时记录实际观察）和有序 `images`。每张有唯一 `id` 和 `role`（main、sku 或 detail）。要生成的图给 `prompt` 和 `photos`（包内 `sourcePhotos` 的子集），复用时给 `reusePhoto` 指向已有图片。SKU 图带 `skuKey`；详情图可带 `kind`、`skuKeys` 和 `exactVisibleText`。宿主对图片及可见文字的核对和设计由本次商品决定。工具按角色校验、保存来源与设计，将完整提示词原样交给模型。信息不全但商家只需独立主图打样时，可用 `--preview`。已上架仅修详情用 `--only detail`。
 
-将报价文件 `image-quote.json` 中的增量张数、用途、范围、请求上限及计价情况告诉商家。只有同范围费用已经批准才执行 `generate --approval-file <批准.json>`。批准文件引用报价的 `scope`、`units` 及商家认可的 `maxRequests`，写 `approvalRef`。按金额封顶还需 `billing=amount`、`unitPriceUpperBound`、`currency`、`priceEvidence`、`maxAmount`；金额无法核实时，须获准按请求数控制再写 `billing=requests`。明确重做已成功图片时，核算新请求并传 `--redo <图片id>`。保留旧版成功图片、未知请求和平台发布回执。
+宿主用 `image-quote.json` 打开 `confirm-image-fee`；商家确认一次，由宿主把返回的回执传给 `generate --approval-file`。已有图片需重做时按报价传对应的 `--redo <图片id>`。已批准范围内继续使用剩余额度。
 
 `accept-images` 默认记录宿主质检。商家确实审过当前预览时才用 `--reviewer merchant --evidence <商家答复引用>`。以 `verify` 的 `consumerLinks` 交付各规格商品链接；商品后台状态、消费者页面能否打开及是否有报价分别报告。
 
@@ -40,6 +46,8 @@
 - 新资料/分析/局部脚本放商家任务目录，不写入 mature 快照。官方目录外能力仍可按 [环境](merchant-cli-environment.md) 调用。
 
 ## 完成证据与来源
+
+生图请求结果未知时，沿原任务包执行 `reconcile-images --package <原包> [--units <图号...>]`。只读结果列出每张图的原预占、关联回执和本地产物。供应商账单缺失时显示金额未知；看到 `LOCAL_RESULT` 后用原 `generate` 恢复本地产物。确实缺图时，向商家说明哪些旧请求仍可能计费，以及追加这些图的次数与金额上限。将返回的 `replacementQuote` 交给本地费用确认入口，商家同意后由宿主执行 `generate --package <原包> --replace-unknown <获批图号...> --approval-file <新批准文件>`。每个新尝试关联原预占，历史回执归档在任务包的 `.generation/attempts/`。若新尝试也结果未知，重新从原包对账。
 
 分别交代已生成素材/草稿、平台校验、productId/applyId、审核状态、线上SKU图片/价格/库存与关联结果。提交成功不自动算线上生效，源视频另按 [视频](experience-video.md) 处理。
 

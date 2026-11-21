@@ -37,24 +37,59 @@ def option_valid(component,values):
  available={str(v['value']) for v in component.get('optionsValueList') or []}
  return bool(values) and (not available or set(map(str,values)).issubset(available))
 
+# The two observed platform rejections apply only to their original JD category.
+# New categories obtain bounds from their own current schema.
+OBSERVED_LOGISTICS_RULES = {
+ '53207': {
+    'WareWeight': ('0.001', '10000', '1010300506 重量必填'),
+    'WareWide': ('0', '100000', '1010300506 宽度必填'),
+ },
+}
+
+
+def missing_logistics(facts, reference):
+ components = {c['componentCode']:c for c in reference.get('componentCatalog', [])}
+ components.update({c['componentCode']:c for c in walk_components(reference.get('schema') or {})})
+ observed = OBSERVED_LOGISTICS_RULES.get(str(facts.get('categoryId')), {})
+ missing = []
+ for field, code in [('weightKg','WareWeight'), ('packageWidthMm','WareWide'),
+                     ('packageLengthMm','WareLength'), ('packageHeightMm','WareHeight')]:
+  value = facts.get(field)
+  component = components.get(code, {})
+  if value in (None, ''):
+   if required(component) or component.get('required') is True or code in observed:
+    missing.append(field)
+   continue
+  try:
+   value = Decimal(str(value))
+   if not value.is_finite() or value < 0:
+    missing.append(field)
+    continue
+   if code in observed:
+    low, high, _ = observed[code]
+    if not Decimal(low) < value < Decimal(high):
+     missing.append(field)
+     continue
+   for rule in component.get('validateRule') or []:
+    kind = rule.get('validateType')
+    if kind in ('minimum','maximum'):
+     bound = Decimal(str(rule['validateRule']))
+     if (kind == 'minimum' and value < bound) or (kind == 'maximum' and value > bound):
+      missing.append(field)
+      break
+  except (InvalidOperation, ValueError):
+   missing.append(field)
+ return missing
+
+
 def missing_information(facts,reference):
  missing=[]
- for field in ('confirmed','title','categoryId','brandId','skus','packageLengthMm','packageWidthMm','packageHeightMm','weightKg','freightTemplateId','sevenDayReturnCode'):
+ for field in ('confirmed','title','categoryId','brandId','skus','freightTemplateId','sevenDayReturnCode'):
   value=facts.get(field)
   if value is None or value=='' or (field in ('confirmed','skus') and not value):missing.append(field)
  if jd_title_units(str(facts.get('title') or '')) > 60:
   missing.append('title-exceeds-60-units')
- for field in ('weightKg', 'packageWidthMm', 'packageLengthMm', 'packageHeightMm'):
-  try:
-   value=Decimal(str(facts.get(field)))
-   lower, upper=(Decimal('0.001'), Decimal('10000')) if field=='weightKg' else (0,100000)
-   if not value.is_finite() or value < 0:
-    missing.append(field)
-   # Live validation for the bedside commode category rejects zero logistics values.
-   # Other categories retain their own schema and existing optional-field behavior.
-   elif str(facts.get('categoryId')) == '53207' and not lower < value < upper:
-    missing.append(field)
-  except (InvalidOperation, ValueError):missing.append(field)
+ missing.extend(missing_logistics(facts,reference))
  if facts.get('confirmed') is not True and 'confirmed' not in missing:missing.append('confirmed')
  if int(facts.get('categoryId') or 0)!=int((reference.get('category') or {}).get('id') or 0):missing.append('category-template-mismatch')
  if facts.get('brandId') is not None:

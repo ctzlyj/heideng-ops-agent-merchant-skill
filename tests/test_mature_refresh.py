@@ -1,4 +1,5 @@
 """Whole-shop refresh source and external-boundary tests; no live writes/model calls."""
+from tests.fee_consent import isolated_fees, signed_fixture
 import importlib.util,json,os,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -38,6 +39,7 @@ class MatureRefreshTests(unittest.TestCase):
    with patch.object(MerchantImageClient,'edit',side_effect=SafetyError('unknown-image-response')) as edit:
     status,model,data,detail=gen.probe_task(['gpt-image-2.5'],{'key':'fixture','prompt':'fixture'},sources,'1024x1024','offline-fixture-not-a-secret')
   self.assertEqual(edit.call_count,1);self.assertEqual(status,'error')
+ @isolated_fees
  def test_unknown_first_image_keeps_existing_ledger_and_is_not_replayed(self):
   common=load('_common',SOURCE/'scripts/_common.py');gen=load('merchant_refresh_generate',SOURCE/'scripts/generate.py')
   with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_LTS4AI_API_KEY':'offline-fixture-not-a-secret'}):
@@ -48,7 +50,7 @@ class MatureRefreshTests(unittest.TestCase):
    gen.main(['generate.py',str(root),'--quote-only'])
    quote=common.load_json(root/'image-quote.json')
    self.assertEqual(quote['designs']['fixture']['prompt'],'逐图设计')
-   common.save_json(root/'fee-approval.json',{**quote,'approvalRef':'test-message','billing':'requests','maxRequests':1})
+   common.save_json(root/'fee-approval.json',signed_fixture({**quote,'approvalRef':'test-message','billing':'requests','maxRequests':1}))
    with patch.object(gen,'probe_task',return_value=('error','',b'','unknown-first-output')) as probe:
     with self.assertRaises(SystemExit):gen.main(['generate.py',str(root)])
     self.assertEqual(common.load_json(root/'internal-generation.json')['fixture']['status'],'unknown')

@@ -47,17 +47,17 @@
     },
     "scripts/photo_listing.py": {
       "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
-      "sha256": "5913d025264603690910472b7b70d9351b6340310c470fdb33edcee444a246fa",
+      "sha256": "4034b06a08b1e01a01dbe996ec1bc1da2c87fd1b3d17dc07acb9521c8a0d8363",
       "adapted": true
     },
     "scripts/photo_contract.py": {
       "upstreamSha256": "053d351a11a3045ba7958eb58d9bb32ad52ed96398c674078f9eba3a832943f1",
-      "sha256": "46b78ac83b72d2119a6409b6883d13f046b0c4d45170df46ac429f1147e24ee7",
+      "sha256": "d26a99985235e780d15d72b634f3e03452a9b36b63fe7e76f83d5e0ccd94f554",
       "adapted": true
     },
     "scripts/photo_generation.py": {
       "upstreamSha256": "892e17c68cd038e2c0d3bdb0d84e31da983e2e4a5c9f69698cc14ab6c1a2ce50",
-      "sha256": "1f23b775dde61db1a46ebe48aee9eafb318cf1f0ec594369aee3598d3717b7db",
+      "sha256": "974508c0139da16fadc41b1504ca499902fc202d6aee3fd65e8853c33143fa17",
       "adapted": true
     },
     "scripts/company_jpeg_edits.py": {
@@ -67,7 +67,7 @@
     },
     "scripts/image_patch_update.py": {
       "upstreamSha256": "aac02e6aa506cfca07a049c88739c55be97aa6ead4b6b6320cea3d8a3bb12056",
-      "sha256": "b0d98c86bc8eca2c8a927ebe6836419e4cdd928b71bda0dce92a9da3d3e9cde9",
+      "sha256": "1bd9a0e87e11f873668fbba9cb5a5919b59638e90b23abfc6301c8f01468171d",
       "adapted": true
     },
     "scripts/detail_pages.py": {

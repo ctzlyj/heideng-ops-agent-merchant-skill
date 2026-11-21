@@ -6,6 +6,14 @@
 
 ## 判断与建议路径
 
+### 更新原链接的规格图
+
+商家说“把这几个规格的图换掉”时，宿主直接使用 `run images -- replace-sku-images --profile <本店> --store-config <本店配置> --product-id <原SPU> --check-only`。先只读核店、检查商品当前的完整编辑模板与全部 SKU，再为需要的规格准备图片。若有原发布包可加 `--package <原包>`；只有原始成功提交和当前商品状态仍一致时才复用。原模板缺少已有商品的实际字段或真实 SKU 对应关系时，先取得完整官方编辑数据，再安排付费工作。
+
+宿主按真实 SKU ID 生成 `{"SKU_ID":"样张或成图.jpg"}` 映射，路径相对映射文件。商家已交办更新后，用 `--images <映射.json> --confirm REPLACE_SKU_IMAGES` 替换 `--check-only`。同一文件在本店本商品按内容复用。编辑后用原 SKU ID 核对各自的目标图、未改规格，以及商品与规格的其他经营字段。平台审核或响应未明时，用同店同 SPU 的 `--reconcile` 只读恢复。后台回读与买家端实开结果分别交付。
+
+这个入口绑定京东 POP 的 SkuGgtImage，原工具已核实的规格为 1:1、480–1500 像素；其他图位沿用各自的图位要求。[原规格图组件说明](../mature/listing/references/sku-image-group-binding.md)
+
 - 建议先区分“图片内容不合格”与“绑定位置不对”。后者优先用成熟更新/整版编辑，不为换落位重新出全套图或重发商品。
 - 有合格本地图，可先使用原 upload/patch/verify；没有新图且任务只做审查，不要求生图Key。
 - 单商品/少量槽位用 mover 的 image_patch_update/detail_repair；整店已确认范围可用原 refresh 任务链。刷新参考序列是 build_plan→download_sources→generate（确需时）→upload→patch→verify→report，不是所有任务必须跑全部步骤。
@@ -18,7 +26,7 @@
 
 - 整店刷新从 `plan-batch.json` 读取图位、用途、商品及原图 URL。下载原图后，以图片 key 为键，将逐图提示词字符串写入任务目录 `host-prompts.json`。对同一张图在不同商品或主图、详情中的用途分别设计。执行 `generate.py <run> --quote-only` 可读取报价，也可用 `--image-prompts-file` 指定该 JSON。
 - 矩阵任务以 `matrix_listing.py snapshot` 取得真实 `material.mainImages`。将沿用的 stem 放入 `variants.json` 的 `keep` 数组，将要生成的逐图设计写为 `variants.<variant>.prompts.<stem>`。运行 `generate --run <run> --variant <v> --quote-only` 查看增量。复刻上新使用 [复刻模式](../mature/listing/references/jd-hot-replica-mode.md) 的来源清单。
-- 读取 `image-quote.json`，向商家说明哪些商品和图位需要新增、预计张数、计费请求上限和金额依据。没有单价时取得其按请求数控制的明确答复。宿主按原答复保留 `scope`、`units`、`maxRequests`、`approvalRef`、`billing`，按金额时另记币种、最高单价和价格依据。将记录通过 `--fee-approval-file` 传入，或使用报价同目录的 `fee-approval.json`。恢复沿用原目录、冻结的图号和业务回执。
+- 用 `image-quote.json` 打开本机 `confirm-image-fee`，商家查看张数、用途、次数及费用上限后确认。宿主把输出传给 `--fee-approval-file`；继续原进度时复用对应回执。详见[执行策略](execution-policy.md)。
 
 ## 经验与接口限制要分开
 
