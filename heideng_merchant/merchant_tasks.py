@@ -98,7 +98,7 @@ def _legacy_repair_directories(state):
             children.clear()
 
 
-def task_context(state, shop_id, vender_id, task_id=None):
+def task_context(state, shop_id, vender_id, task_id=None, *, goal=None, product_id=None, source_product_id=None):
     """Return a scoped handoff; never infer that a local process is still running."""
     index = Path(state) / 'merchant-tasks'
     matches = []
@@ -157,5 +157,12 @@ def task_context(state, shop_id, vender_id, task_id=None):
         entry = _repair_context(state, directory, (shop_id, vender_id))
         if entry and (not task_id or task_id == entry['taskId']):
             matches.append(entry)
+    from .commercial_tasks import commercial_tasks
+    matches.extend(commercial_tasks(state, shop_id, vender_id))
+    matches = [entry for entry in matches if (not task_id or entry['taskId'] == task_id)
+               and (not goal or goal == entry.get('kind', 'materials'))
+               and (not product_id or product_id == entry.get('productId') or product_id in entry.get('productIds', []))
+               and (not source_product_id or source_product_id == entry.get('sourceProductId'))]
     matches.sort(key=lambda item:item['updatedAt'],reverse=True)
-    return {'shopId':shop_id,'venderId':vender_id,'tasks':matches}
+    selection = 'ambiguous' if len(matches) > 1 else 'matched' if matches else 'not-found'
+    return {'shopId':shop_id,'venderId':vender_id,'tasks':matches,'selection':selection}

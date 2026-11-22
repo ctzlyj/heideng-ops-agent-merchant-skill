@@ -64,7 +64,7 @@ def _ask_merchant(message):
         root.destroy()
 
 
-def confirm_fee(quote, state, output, *, max_requests, billing='requests', price=None):
+def confirm_fee(quote, state, output, *, max_requests, billing='requests', price=None, selected_units=None):
     from .image_budget import validate_terms
 
     if not isinstance(quote, dict):
@@ -72,6 +72,25 @@ def confirm_fee(quote, state, output, *, max_requests, billing='requests', price
     quote = quote.get('replacementQuote') or quote.get('feeQuote') or quote
     units = quote.get('units')
     scope = quote.get('scope')
+    pending = quote.get('pendingUnits', units)
+    if (not isinstance(units, list) or not isinstance(pending, list) or
+            not all(isinstance(k, str) and k for k in units + pending) or
+            len(set(pending)) != len(pending) or not set(pending).issubset(units)):
+        raise ValueError('报价图位不在任务范围内')
+    if not pending:
+        raise ValueError('没有待生成图片，可直接复用原素材和回执')
+    deferred = []
+    if selected_units is not None:
+        if quote.get('canSelectUnits') is not True:
+            raise ValueError('该报价须按完整范围执行，请从原任务重新生成所选图位的报价')
+        if (not isinstance(selected_units, (list, tuple)) or not selected_units or
+                not all(isinstance(k, str) for k in selected_units) or len(set(selected_units)) != len(selected_units)
+                or not set(selected_units).issubset(pending)):
+            raise ValueError('请从原报价待做图位中选择具体图号')
+        deferred = [key for key in pending if key not in selected_units]
+        units = pending = list(selected_units)
+    if type(max_requests) is int and len(pending) > max_requests:
+        raise ValueError(f'当前待做 {len(pending)} 张，超过请求上限 {max_requests}；请先明确优先图位或安排复用，再确认费用')
     approval = dict(scope=scope, units=units, maxRequests=max_requests, billing=billing,
                     approvalRef='fee-' + uuid.uuid4().hex)
     if price:
@@ -86,9 +105,6 @@ def confirm_fee(quote, state, output, *, max_requests, billing='requests', price
             k:v for k,v in approval.items() if k != 'approvalRef'}:
         verified_receipt(existing, state)
         return existing
-    pending = quote.get('pendingUnits', units)
-    if not isinstance(pending, list) or not set(pending).issubset(units):
-        raise ValueError('报价图位不在任务范围内')
     identity = scope.get('shopIdentity') or {}
     shop = identity.get('shopName') or scope.get('shopName') or scope.get('shop') or scope.get('venderId') or scope.get('profile')
     if isinstance(shop, dict):
@@ -107,6 +123,8 @@ def confirm_fee(quote, state, output, *, max_requests, billing='requests', price
     products = scope.get('products') or scope.get('sourceProduct')
     if products:
         lines.insert(1, '商品：' + str(products)[:240])
+    if deferred:
+        lines.append(f'其余 {len(deferred)} 张暂缓。若交付需整套图片，须补齐或复用后才能发布。')
     if scope.get('possibleDuplicateCharge'):
         lines.append('原请求结果仍未知，可能已经扣费。本次将另发请求，可能再次计费。')
     if billing == 'amount':

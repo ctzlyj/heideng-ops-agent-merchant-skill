@@ -17,7 +17,7 @@
     },
     "scripts/jdo_listing_mvp.py": {
       "upstreamSha256": "42281253267957388ed5e3cd111889898b3a4ac61952bb89c509f10d669b0a1e",
-      "sha256": "62a7ae7e4ce1bb446fa3c6a7d276fbe881ae05ab0cb6ff7dfb7cd8b0169419ed",
+      "sha256": "73bb29ca5216a3b4cc67480d8bd9450a598fa0bef883c2597e581ae1cc39d35d",
       "adapted": true
     },
     "scripts/jd_product_mover.py": {
@@ -47,7 +47,7 @@
     },
     "scripts/photo_listing.py": {
       "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
-      "sha256": "4034b06a08b1e01a01dbe996ec1bc1da2c87fd1b3d17dc07acb9521c8a0d8363",
+      "sha256": "b26a5e7b61bbc9ec30a3712a83f5b13490151358c3c3ce52d774cb04c1c93b0a",
       "adapted": true
     },
     "scripts/photo_contract.py": {
@@ -57,12 +57,12 @@
     },
     "scripts/photo_generation.py": {
       "upstreamSha256": "892e17c68cd038e2c0d3bdb0d84e31da983e2e4a5c9f69698cc14ab6c1a2ce50",
-      "sha256": "974508c0139da16fadc41b1504ca499902fc202d6aee3fd65e8853c33143fa17",
+      "sha256": "83dcad756a8d26d4955fb056ca16980561770ac5a5272bf26b4b7c0765cf85e1",
       "adapted": true
     },
     "scripts/company_jpeg_edits.py": {
       "upstreamSha256": "4e044efd666bea87b45976aa6fe39614eaacec4ef34a3c59a06f7d9f22f07b93",
-      "sha256": "a025f54f83c2390250445857e99923ec3358d3d6d3eceaeca9b817da5accc73c",
+      "sha256": "d888c4861b3958e3b4f2c2aed82acfe562b5190746d2ea42a230437ccdd83e0a",
       "adapted": true
     },
     "scripts/image_patch_update.py": {
@@ -72,7 +72,7 @@
     },
     "scripts/detail_pages.py": {
       "upstreamSha256": "7919735fb715de051642399d2c92fa3c7eb61645ff3dca9842e5d6bd62d7ffa1",
-      "sha256": "5d5805901a5b7ed1e3115a44d8ff093f5b2dbf995257e8e0d686f3c2f7a41ca6",
+      "sha256": "a42ae850b2a3f55dab39fdd1fa1fea81373e530949dd0ee59faaf4dcd418dbe4",
       "adapted": true
     },
     "scripts/detail_repair.py": {
@@ -97,7 +97,7 @@
     },
     "scripts/matrix_listing.py": {
       "upstreamSha256": "5f61e01259471244a4465fbf4be6f79bee573892c41a5d248cc3164d37917840",
-      "sha256": "2f852fcdf6073fcf956c780715d707767ed679e41e3d038f73f7c4d207d0b7e6",
+      "sha256": "b0f27d9d2ba3c21cef02e60827eb0dabaf2b246d66ff6458eaf72855c06258e4",
       "adapted": true
     },
     "scripts/set_product_brand.py": {
@@ -167,7 +167,7 @@
     },
     "references/detail-pages.md": {
       "upstreamSha256": "4fb93c1caf358a0d31175435e0cdfcb47f8adb564ad031869639b88e9dcfa24e",
-      "sha256": "069a3c0a6bffc9f845489d651aa6ff2c754fd2dafb9a3d2aa47209b7207ad864",
+      "sha256": "0d3906b7f926eef7efaa4003158b97957e9bf7d93a9ac83a17b41f3cb7c63f5c",
       "adapted": true
     },
     "references/image-upload-names.md": {

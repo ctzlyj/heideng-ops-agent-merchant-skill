@@ -552,7 +552,7 @@ def multi_set_manifest_errors(manifest: dict[str, Any]) -> list[str]:
     return errors
 
 
-def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str, Any]) -> tuple[list[str], list[str]]:
+def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str, Any], *, planned=False) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     manifest_category_id = int((manifest.get("category") or {}).get("id") or 0)
@@ -719,11 +719,13 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
             size_orders[size_alias] = int(sku.get("sizeOrder") or 0)
         except (TypeError, ValueError):
             errors.append(f"SKU第{index}行款式或尺寸顺序不是整数")
-        combination = (
-            (style_alias, size_alias)
-            if include_size_sale_attribute
-            else (style_alias,)
-        )
+        combination = tuple(expected_sale_aliases(product, sku))
+        if "saleValues" in sku:
+            codes = [v["componentCode"] for v in sku["saleValues"]]
+            if codes != product.get("saleDimensionCodes") or len(set(codes)) != len(codes):
+                errors.append(f"SKU第{index}行的销售维度与当前计划不一致")
+            if any(not alias or weighted_text_length(alias) > 50 for alias in combination):
+                errors.append(f"SKU第{index}行的销售属性空缺或超过长度")
         if combination in combinations:
             rendered_combination = " / ".join(combination)
             errors.append(f"销售属性组合重复：{rendered_combination}")
@@ -785,7 +787,7 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
                     )
             except (KeyError, InvalidOperation, TypeError, ValueError):
                 errors.append(f"SKU第{index}行缺少有效同行售价，禁止自动上架")
-    if product.get("vendorSkuPrefix") or any(str(sku.get("vendorSku") or "").strip() for sku in skus):
+    if "saleDimensionCodes" not in product and (product.get("vendorSkuPrefix") or any(str(sku.get("vendorSku") or "").strip() for sku in skus)):
         expected_style_orders = set(range(1, len(style_orders) + 1))
         if set(style_orders.values()) != expected_style_orders:
             errors.append("款式顺序必须从1开始连续递增，才能生成10000、10001……商家编码")
@@ -842,6 +844,8 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
         category_id = item.get("mediaCategoryId") or reference["media"]["defaultCategoryId"]
         if str(category_id) not in valid_media_ids:
             errors.append(f"图片第{index}行素材分类ID无效：{category_id}")
+        if planned:
+            continue  # Encoded pixels will be checked after generation at the same entry.
         image_errors, image_warnings = validate_image(item, resolve_path(path, local_path))
         errors += image_errors
         warnings += image_warnings
@@ -869,9 +873,30 @@ def property_item(key: str, value: Any) -> dict[str, Any]:
     return {"key": key, "value": value}
 
 
+def expected_sale_aliases(product, sku):
+    if 'saleValues' in sku:
+        return [value['alias'] for value in sku['saleValues']]
+    aliases = [sku['styleAlias']]
+    if product.get('includeSizeSaleAttribute', True):
+        aliases.append(sku['sizeAlias'])
+    return aliases
+
+
 def sale_attribute_components(
     sku: dict[str, Any], include_size: bool, definitions: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    if 'saleValues' in sku:
+        components = []
+        for value in sku['saleValues']:
+            fields = [property_item('attrValueAlias', '['+value['alias']+']'),
+                      property_item('attrName', value['name']),
+                      property_item('mappingId', value['mappingId']),
+                      property_item('index', str(value['dim'])),
+                      property_item('attrValuesSeqNo', value['order'])]
+            if value.get('templateSkuProps'):
+                fields.append(property_item('templateSkuProps', json.dumps(value['templateSkuProps'],ensure_ascii=False,separators=(',',':'))))
+            components.append({'componentCode':value['componentCode'],'properties':fields})
+        return components
     definitions = definitions or {
         "style": {"componentCode": "sale-prop-1001080021", "attrName": "颜色"},
         "size": {"componentCode": "sale-prop-1001080022", "attrName": "尺寸"},
@@ -1558,6 +1583,8 @@ def shared_image_audit(manifest: dict[str, Any], detail: dict[str, Any]) -> dict
         for sku in manifest.get("skus") or []
     }
     online_ids = online_style_color_ids(detail, style_sale_attribute_id(manifest))
+    if (manifest.get('product') or {}).get('saleDimensionCodes') == []:
+        online_ids = {alias:'0000000000' for alias in style_aliases}
     groups = {
         str(group.get("uuid")): group.get("imageInfoList") or []
         for group in (detail.get("material") or {}).get("mainImages") or []
@@ -1666,16 +1693,9 @@ def command_verify_product(args: argparse.Namespace) -> int:
     }
     style_attr_id = str((sale_definitions.get("style") or {}).get("componentCode") or "").removeprefix("sale-prop-")
     size_attr_id = str((sale_definitions.get("size") or {}).get("componentCode") or "").removeprefix("sale-prop-")
-    expected = {
-        (
-            normalized_sale_alias(str(sku["styleAlias"])),
-            *(
-                [normalized_sale_alias(str(sku["sizeAlias"]))]
-                if include_size_sale_attribute else []
-            ),
-        ): sku
-        for sku in manifest.get("skus") or []
-    }
+    attr_ids = [code.removeprefix('sale-prop-') for code in manifest['product']['saleDimensionCodes']] if 'saleDimensionCodes' in manifest['product'] else [style_attr_id]+([size_attr_id] if include_size_sale_attribute else [])
+    expected = {tuple(normalized_sale_alias(alias) for alias in expected_sale_aliases(manifest['product'],sku)):sku
+                for sku in manifest.get('skus') or []}
     detail = get(
         "jdo-product-status",
         "/rest/sp-product/v0/products/{productId}",
@@ -1691,13 +1711,9 @@ def command_verify_product(args: argparse.Namespace) -> int:
     actual_by_combination: dict[tuple[str, ...], dict[str, Any]] = {}
     for item in actual_skus:
         aliases = sale_aliases(item)
-        combination = (
-            normalized_sale_alias(aliases.get(style_attr_id, "")),
-            *(
-                [normalized_sale_alias(aliases.get(size_attr_id, ""))]
-                if include_size_sale_attribute else []
-            ),
-        )
+        combination = tuple(normalized_sale_alias(aliases.get(attr,'')) for attr in attr_ids)
+        if 'saleDimensionCodes' in manifest['product'] and set(aliases) != set(attr_ids):
+            errors.append('线上 SKU 销售维度与计划不一致')
         actual_by_combination[combination] = item
     missing = sorted(set(expected) - set(actual_by_combination))
     unexpected = sorted(set(actual_by_combination) - set(expected))
@@ -1727,7 +1743,7 @@ def command_verify_product(args: argparse.Namespace) -> int:
         if vendor_sku_mismatches:
             errors.append(f"{len(vendor_sku_mismatches)}个SKU商家编码不一致")
     status_counts = Counter(
-        int((item.get("skuStatus") or {}).get("onOffShelfStatus") or 0)
+        int((item.get("skuStats") or item.get("skuStatus") or {}).get("onOffShelfStatus") or 0)
         for item in actual_skus
     )
     if set(status_counts) != {1}:
@@ -1739,8 +1755,11 @@ def command_verify_product(args: argparse.Namespace) -> int:
     stock_counts = Counter(int(item.get("stockNum") or 0) for item in stock_rows)
     if len(stock_rows) != len(actual_skus):
         errors.append(f"库存接口返回SKU数量不一致：{len(stock_rows)}，预期{len(actual_skus)}")
-    if set(stock_counts) != {10000}:
-        errors.append(f"SKU库存并非全部为10000：{dict(stock_counts)}")
+    stock_by_id = {str(row.get('skuId')): row.get('stockNum') for row in stock_rows}
+    for combination in set(expected) & set(actual_by_combination):
+        stock = stock_by_id.get(str(actual_by_combination[combination].get('skuId')))
+        if stock is None or int(stock) != int(expected[combination]['stock']):
+            errors.append('SKU 库存与发布清单不一致：' + str(expected[combination]['skuKey']))
     product_status = int((product_info.get("productStatus") or {}).get("productStatusNew") or 0)
     if product_status != 103:
         errors.append(f"商品未处于POP上架状态：{product_status}")
@@ -1761,7 +1780,7 @@ def command_verify_product(args: argparse.Namespace) -> int:
         "discountExecution": pricing.get("discountExecution"),
         "actualArrivalPriceVerificationRequired": bool(pricing.get("requiresPostPromotionVerification", False)),
     }
-    if component_mode(pricing):
+    if pricing and component_mode(pricing):
         formula_rows = []
         for combination in sorted(set(expected) & set(actual_by_combination)):
             expected_sku = expected[combination]
@@ -1798,7 +1817,7 @@ def command_verify_product(args: argparse.Namespace) -> int:
         "expectedSkuCount": len(expected),
         "actualSkuCount": len(actual_skus),
         "combinationCount": len(actual_by_combination),
-        "styleCount": len({combination[0] for combination in actual_by_combination}),
+        "styleCount": len({combination[0] for combination in actual_by_combination if combination}),
         "sizeCount": (
             len({combination[1] for combination in actual_by_combination})
             if include_size_sale_attribute else 0

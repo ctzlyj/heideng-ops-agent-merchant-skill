@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from PIL import Image
 
-MIN_MODULES = 6
+MIN_MODULES = 1
 DEFAULT_MAX_MODULES = 8
 SKUS_PER_MODULE = 4
 OUTPUT_WIDTH = 790
@@ -116,6 +116,24 @@ def exemption(manifest):
     return None
 
 
+def detail_minimum(manifest):
+    return (exemption(manifest) or {}).get('minimum', MIN_MODULES)
+
+
+def detail_coverage_problems(facts, modules):
+    """The host records specific buyer questions and where the design answers them."""
+    required = facts.get('requiredDetailTopics') or []
+    if not isinstance(required, list) or not all(isinstance(v,str) and v.strip() for v in required):
+        return ['requiredDetailTopics 需要逐项列出商品待说明的事项']
+    covered = set()
+    for module in modules:
+        topics = module.get('covers', [])
+        if not isinstance(topics,list) or not all(isinstance(v,str) for v in topics):
+            return ['详情图 covers 需要逐项记录覆盖的事项']
+        covered.update(topics)
+    return ['详情页还需说明：'+topic for topic in required if topic not in covered]
+
+
 def check_detail_set(manifest, root, plan=None):
     """Hard pre-publish gate for the photo route. Returns {'ok','problems','modules',...}."""
     from image_quality_gate import duplicate_details
@@ -124,9 +142,11 @@ def check_detail_set(manifest, root, plan=None):
     items = manifest.get('detailImages') or []
     exempt = exemption(manifest)
     plan = plan if plan is not None else _load_plan(root)
-    minimum = exempt['minimum'] if exempt else MIN_MODULES
+    minimum = detail_minimum(manifest)
     if len(items) < minimum:
-        problems.append(f'详情图只有{len(items)}张，默认至少{MIN_MODULES}张（用户明确只要少量或平台限制需在 facts.detailPolicy 写明原因）')
+        problems.append(f'详情交付需要至少{minimum}张，当前{len(items)}张')
+    if plan:
+        problems.extend(detail_coverage_problems(manifest.get('facts') or {},plan.get('modules') or []))
     if not exempt:
         if not plan:
             problems.append('缺少 detail-plan.json，请先 make-plan')
@@ -200,9 +220,9 @@ def listing_detail_errors(images, product):
         return []
     policy = product.get('detailPolicy')
     if policy in EXEMPT_POLICIES:
-        return [] if str(product.get('detailExemptionReason') or '').strip() else ['详情页例外必须写明 detailExemptionReason']
+        if not str(product.get('detailExemptionReason') or '').strip():return ['详情页例外必须写明 detailExemptionReason']
     if len(detail) < MIN_MODULES:
-        return [f'详情图只有{len(detail)}张，默认至少{MIN_MODULES}张；请补齐完整详情页，或由用户明确只要少量并记录 detailPolicy/detailExemptionReason']
+        return ['缺少可交付的详情图']
     return []
 
 
@@ -286,7 +306,7 @@ def source_detail_problems(product_detail_desc, exemption_reason=''):
         return []
     problems = []
     if len(pc) < MIN_MODULES:
-        problems.append(f'源商品详情页只有{len(pc)}张图，低于{MIN_MODULES}张：复制出的新商品也会不完整；请先用 detail-repair 补齐，或由用户明确只要少量并记录原因')
+        problems.append('源商品没有可核验的详情图，请先补充详情素材')
     if mobile and mobile != pc:
         problems.append('源商品 PC 与手机端详情图数量/顺序不一致，先修复源详情页')
     return problems

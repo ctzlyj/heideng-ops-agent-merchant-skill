@@ -4,6 +4,7 @@
     "heideng_merchant/__init__.py",
     "heideng_merchant/cli.py",
     "heideng_merchant/merchant_tasks.py",
+    "heideng_merchant/commercial_tasks.py",
     "heideng_merchant/distribution.py",
     "heideng_merchant/safety.py",
     "heideng_merchant/state.py",

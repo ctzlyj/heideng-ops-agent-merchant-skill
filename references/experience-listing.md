@@ -52,3 +52,9 @@
 分别交代已生成素材/草稿、平台校验、productId/applyId、审核状态、线上SKU图片/价格/库存与关联结果。提交成功不自动算线上生效，源视频另按 [视频](experience-video.md) 处理。
 
 来源 jingmai-hot-product-mover-skill 1.2.6 / 3ee08af；[销售属性](../mature/listing/references/structured-sale-attributes.md)、[SKU图绑定](../mature/listing/references/sku-image-group-binding.md)、[复刻经验](../mature/listing/references/jd-hot-replica-mode.md)。原历史店铺/固定日期案例只是已知条件，不能当本店数据。当前外部视频生成未配置，但不妨碍不需要AI视频的商品准备或已批准上新。
+
+## 报价前核验能否按原规格上架
+
+整套上新先填写当前商品的真实类目和媒体分类、各 SKU 的价格库存、属性和销售维度。宿主以 `facts.saleDimensions` 指定实际维度名称或 `sale-prop-…` 组件，`skus[].attributes` 按名称或组件编码记录逐项取值。结构化维度可逐项写 `templateValuesByAttr` 并用原 `apply-sale-templates` 组装，或使用已经核验的 `saleTemplateProps`。无销售维度商品可用一个 SKU 和空维度数组。主图同一销售属性组应复用同一组首图。
+
+全套 `make-plan` 与发布沿用相同的商品构造和本地预检；资料或本地能力不足时先补齐，再报新增生图费用。独立打样、已有商品详情改图仍可单独交付。详情数量依本商品要说明的事实决定，可通过 `facts.requiredDetailTopics` 和逐图 `covers` 核查。平台有明确张数限制时保留相应依据。

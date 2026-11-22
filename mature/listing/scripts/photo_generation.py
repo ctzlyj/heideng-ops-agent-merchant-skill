@@ -200,6 +200,13 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
                 raise GenerationUnknown('所选图片不全是可核对的未知请求，请重新 reconcile-images')
             scope = quote['scope']
             parents = scope['unresolvedRequests']
+        units = approval.get('units') if isinstance(approval, dict) else None
+        if approval is not None:
+            if not isinstance(units, list) or not set(units).issubset(ids):
+                raise ValueError('批准的图号超出原计划，请核对商家选定的图位')
+            validate_approval(approval, scope=scope, units=units)
+            if not redo.issubset(units):
+                raise ValueError('重做范围超出本次批准的图位')
         for task in tasks:
             name = task['id']
             if replacements and name not in replacements:
@@ -207,6 +214,8 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
             current = fingerprint(task)
             old = ledger.get(name) or {}
             status = old.get('status')
+            if units is not None and name not in units and status != 'SUCCEEDED':
+                continue
             old_key = old.get('fingerprint') or receipts.get(name)
             path = out/'generated'/f'{name}.jpg'
             if name in parents:
@@ -233,11 +242,9 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
             todo.append((task, current))
 
         if todo:
-            units = approval.get('units') if isinstance(approval, dict) else None
             needed = {task['id'] for task, _ in todo}
             if not isinstance(units, list) or not needed.issubset(units) or not set(units).issubset(ids):
                 raise ValueError('付费图片需要与当前商品、素材范围和新增请求数一致的商家批准')
-            validate_approval(approval, scope=scope, units=units)
             if replacements and (set(units) != replacements or any(
                     states[unit]['previousApprovalRef'] == approval['approvalRef'] for unit in replacements)):
                 raise ValueError('未知费用需要对应本次所选图片的新批准')
@@ -309,6 +316,11 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
                   'seconds':round(time.monotonic()-began,2),
                   'modelsUsed':sorted({r['model'] for r in selected if r.get('model')}),
                   'ledger':ledger, 'submittedCount':len(todo), 'modelsSubmitted':list(MODELS) if todo else []}
+        report['selectedUnits'] = sorted(units or ())
+        report['deferredUnits'] = [name for name in ids if name not in (units or ())
+                                   and name not in ledger and states.get(name, {}).get('status') != 'RESERVED_WITHOUT_RECEIPT']
+        if report['deferredUnits']:
+            report['nextAction'] = '已交付本次选定图位。整套发布前请复用已有合格图片，或按剩余图位报价继续。'
         if report['unknownCount']:
             report['nextAction'] = '运行 reconcile-images 核对原图及请求；保存本次回执和预算预占。'
         atomic_json(out/'generation-result.json', report)

@@ -9,6 +9,8 @@ MODULES += ['test_connection_single_flow', 'test_field_9mv_connection', 'test_au
 
 MODULES += ['test_category_gallery', 'test_category_image_recovery', 'test_category_sku_edit', 'test_category_fees']
 
+MODULES += ['test_listing_feasibility', 'test_commercial_task_context', 'test_executable_budget']
+
 def main():
     with tempfile.TemporaryDirectory(prefix='merchant-mature-offline-') as home:
         env=clean_environment(Path(home));env['PYTHONIOENCODING']='utf-8'

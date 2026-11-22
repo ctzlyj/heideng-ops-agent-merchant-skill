@@ -537,6 +537,10 @@ def generate_variant(args, run):
         print(json.dumps(order.quote, ensure_ascii=False))
         return 0
     order.check()
+    todo = [item for item in todo if item['stem'] in order.selected]
+    if not todo:
+        print(json.dumps({'selectedUnits':[], 'deferredUnits':order.deferred}, ensure_ascii=False))
+        return 0
     key = resolve_api_key()
     if not key:
         raise MatrixError("Missing HEIDENG_MERCHANT_LTS4AI_API_KEY; no alternate provider")
@@ -577,7 +581,7 @@ def generate_variant(args, run):
                 save_json_atomic(ledger_path, ledger)
             print(stem, json.dumps(record, ensure_ascii=False), flush=True)
     failed = sorted(stem for stem, record in ledger.items() if record.get("status") != "ok")
-    print(json.dumps({"ok": len(ledger) - len(failed), "failed": failed}, ensure_ascii=False))
+    print(json.dumps({"ok": len(ledger) - len(failed), "failed": failed, "deferredUnits":order.deferred}, ensure_ascii=False))
     return 0 if not failed else 2
 
 

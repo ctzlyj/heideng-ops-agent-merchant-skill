@@ -38,7 +38,7 @@
     },
     "scripts/generate.py": {
       "upstreamSha256": "091eb311fcc7a3637f8a5874e224528f99c636e770ab0718b15296c0b6d72c2b",
-      "sha256": "1ff8853e77f435a9e2898774ff8db30d415b24ac41c1259e66b93e55df7faa8b",
+      "sha256": "47745b039154e2c7d598c4ce502a63b80f91abc7029455b21e8e63124f36f501",
       "adapted": true
     },
     "scripts/image_patch_update.py": {

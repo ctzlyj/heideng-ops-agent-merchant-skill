@@ -146,7 +146,10 @@ def _generate_plan(plan, run, client, approval_file, quote_only):
         return
     if todo:
         order.check()
-        client = client or CompanyClient(resolve_api_key())
+        selected = set(order.selected)
+        todo = [source for source in todo if source['imageKey'] in selected]
+        if todo:
+            client = client or CompanyClient(resolve_api_key())
         (run / "generated").mkdir(exist_ok=True)
         lock = threading.Lock()
 
@@ -172,8 +175,13 @@ def _generate_plan(plan, run, client, approval_file, quote_only):
         with ThreadPoolExecutor(max_workers=4) as pool:
             for future in as_completed([pool.submit(one, source) for source in todo]):
                 future.result()
-    if any(ledger[key]["status"] != "succeeded" for key in designs):
+    if any(ledger[key]['status'] != "succeeded" for key in designs if key in ledger):
         raise RuntimeError("Generation incomplete; reconcile original receipts")
+    if getattr(order, 'deferred', []):
+        result = {'selectedUnits': order.selected, 'deferredUnits':order.deferred,
+                  'nextAction':'本次选定图位已就绪；其余图位需复用或另行批准后完成整套复刻。'}
+        print(json.dumps(result, ensure_ascii=False))
+        return result
     print("GENERATION COMPLETE", len(sources), flush=True)
 
 
@@ -210,9 +218,11 @@ def main():
     if not plan.get("sources"):
         parser.error("Missing sources")
     args.output.mkdir(parents=True, exist_ok=True)
-    generate_plan(plan, args.output, approval_file=args.fee_approval_file, quote_only=args.dry_run)
+    result = generate_plan(plan, args.output, approval_file=args.fee_approval_file, quote_only=args.dry_run)
     if args.draft and not args.dry_run:
         for source in plan["sources"]:
+            if result and source['imageKey'] in result.get('deferredUnits', []):
+                continue
             target = safe_join(args.draft, source["output"])
             if not Path(source["output"]).parts or Path(source["output"]).parts[0] != "重制-固定":
                 raise ValueError("Unexpected remake output path")

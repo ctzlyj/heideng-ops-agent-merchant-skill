@@ -348,7 +348,8 @@ def run(api, get_detail, identity, pid, images, package=None, *, check_only=Fals
             return {'status':'rejected','productId':pid,'platformCode':prior.get('platformCode'),
                     'originalEdit':prior['directory'],'replayed':False}
         atomic_json(work/'edit-body.json', body)
-        record = {'status':'submitting','inputs':inputs,'beforeOnlineBusiness':digest(business_state(online, pid)),
+        record = {'status':'submitting','inputs':inputs,'shopIdentity':{k:identity[k] for k in
+                  ('shopId','venderId','shopName','profile') if k in identity},'beforeOnlineBusiness':digest(business_state(online, pid)),
                   'bodySha256':file_sha(work/'edit-body.json'), 'businessRequestHash':digest(body),
                   'expected':expected,'directory':str(work),'productId':pid}
         atomic_json(work/'intent.json', record)

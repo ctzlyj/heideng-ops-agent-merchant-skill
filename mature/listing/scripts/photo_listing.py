@@ -13,7 +13,7 @@ import jd_product_pipeline as pipeline
 import detail_pages as dp
 import sale_attr_templates as sat
 from jd_product_mover import HttpClient,MoverError,parse_mobile_page,parse_detail_urls
-from photo_contract import (SCHEMA_VERSION,ReconcileRequired,check_store,initial_manifest,join_detail_panels,media_entries,missing_information,package_path,review_digest,walk_components)
+from photo_contract import (SCHEMA_VERSION,ReconcileRequired,check_store,initial_manifest,join_detail_panels,media_entries,missing_information,package_path,review_digest,walk_components,required)
 from photo_generation import GenerationUnknown,atomic_json,generate_tasks,load,sha
 from skill_paths import installed_skill_dir
 
@@ -33,7 +33,7 @@ def ensure_shop(shop):
         raise ValueError('连接器没有返回可核验的店铺身份，请用连接入口核对') from None
     if data.get('status') != 'ready':
         raise ValueError('请由宿主先完成目标店连接：' + str(data.get('reason') or data.get('status')))
-    return check_store({k: data[k] for k in ('profile', 'venderId', 'shopName')})
+    return check_store({k: data[k] for k in ('profile', 'venderId', 'shopName', 'shopId') if k in data})
 
 
 def verify_store(store):
@@ -73,7 +73,10 @@ def create_package(root,store,photos,title,reference_url=None,reference_answered
   destination=root/'实拍图'/f'photo-{i:02d}{source.suffix.lower()}';destination.parent.mkdir(exist_ok=True);shutil.copy2(source,destination);copied.append(str(destination.relative_to(root)))
  if not copied:raise ValueError('请提供真实商品照片')
  m=initial_manifest(store,copied,title,clean_reference_url(reference_url));m['packageId']=uuid.uuid4().hex;m['facts']['title']=title
- atomic_json(root/'manifest.json',m);atomic_json(root/'state.json',{'status':'INFORMATION_PENDING'});return m
+ atomic_json(root/'manifest.json',m);atomic_json(root/'state.json',{'status':'INFORMATION_PENDING'})
+ from heideng_merchant.commercial_tasks import register
+ register('listing', root, store, m['packageId'])
+ return m
 
 def read_manifest(root):
  root=Path(root);m=load(root/'manifest.json')
@@ -324,9 +327,13 @@ def prepare_creative_plan(manifest, root, reference, design, *, preview=False, o
     if not preview and not only and (set(planned_skus) != sku_keys or len(planned_skus) != len(sku_keys)):
         raise ValueError('请为每个实际 SKU 提供一张设计图或可复用规格图')
     if not preview:
-        minimum = (dp.exemption(manifest) or {}).get('minimum', dp.MIN_MODULES)
+        gaps=dp.detail_coverage_problems(facts,modules)
+        if gaps:raise ValueError('；'.join(gaps))
+        minimum = dp.detail_minimum(manifest)
         if len(modules) < minimum:
             raise ValueError(f'详情交付需要至少 {minimum} 张合格图，可选择已有图片复用')
+    if not preview and not only:
+        build_listing(manifest,root,reference,planned_tasks=tasks)
     return tasks, modules
 
 
@@ -348,7 +355,7 @@ def generation_quote(root, manifest, tasks, redo=()):
     from photo_generation import generation_scope, pending_ids
     scope = generation_scope(manifest, tasks)
     units = pending_ids(tasks, root/'.generation', redo)
-    return {'scope': scope, 'units': units, 'estimatedPaidImageCount': len(units),
+    return {'scope': scope, 'units': units, 'canSelectUnits': True, 'estimatedPaidImageCount': len(units),
             'reusedImageCount': len(tasks) - len(units), 'maxRequests': len(units),
             'actualAmount': None, 'pricing': '按本账户有效报价计算金额上限，或经商家明确同意按请求数封顶'}
 
@@ -457,6 +464,7 @@ def generate_plan(root, *, approval=None, redo=(), replace_unknown=()):
     result = generate_tasks(plan, root/'.generation', redo=redo, approval=approval, scope=quote['scope'],
                             replace_unknown=replace_unknown)
     materialize_generated(root, plan, result)
+    atomic_json(root/'image-quote.json', generation_quote(root, m, plan))
     return result
 
 
@@ -479,6 +487,7 @@ def materialize_generated(root,plan,result):
  m.setdefault('timings',{})['generationSeconds']=result['seconds'];m['generationModels']=result['modelsUsed']
  m.pop('review',None);m.pop('imageReview',None)
  complete=result['successCount']+sum(bool(t.get('reusePhoto')) for t in plan)==len(plan)
+ m['deferredUnits']=result.get('deferredUnits',[])
  if m.get('sampleOf') and complete:m['samplePlanSha256']=sha(root/'plan.json')
  if not detail_only:m['status']='MATERIAL_PREVIEW' if any(t.get('previewOnly') for t in plan) else ('MATERIAL_REVIEW_PENDING' if complete else 'MATERIAL_INCOMPLETE')
  atomic_json(root/'manifest.json',m);return m
@@ -506,51 +515,111 @@ def apply_sale_templates(root):
  """Build templateSkuProps from the user's own per-SKU values (facts.skus[].templateValues); nothing is invented."""
  root=Path(root);m=read_manifest(root);data=load(root/'sale-attr-templates.json',{}) or {};templates=data.get('templates') or {}
  if not templates:raise ValueError('No structured sale-attribute template recorded; run discover-sale-templates first')
- template=next(iter(templates.values()));aliases={}
+ aliases={}
  for sku in m['facts'].get('skus') or []:
-  values=sku.get('templateValues')
-  if not values:raise ValueError('SKU '+str(sku.get('key'))+' needs templateValues for the structured sale attribute (one value per input box)')
-  props,alias=sat.build_props(template,values);sku['styleTemplateSkuProps']=props;sku['spec']=alias;sku.setdefault('attributes',{})[(m['facts'].get('saleDimensions') or ['规格'])[0]]=alias;aliases[sku['key']]=alias
+  by_attr=sku.get('templateValuesByAttr') or {}
+  resolved={}
+  for attr_id,template in templates.items():
+   code='sale-prop-'+str(attr_id)
+   values=by_attr.get(code) or (sku.get('templateValues') if len(templates)==1 else None)
+   if not values:
+    raise ValueError(f"SKU {sku.get('key')} 缺少 {code} 的结构化输入框取值")
+   props,alias=sat.build_props(template,values)
+   sku.setdefault('saleTemplateProps',{})[code]=props
+   sku.setdefault('attributes',{})[code]=alias
+   resolved[code]=alias
+  aliases[sku['key']]=resolved
  m.pop('review',None);m.pop('imageReview',None);atomic_json(root/'manifest.json',m);return {'aliases':aliases,'source':{a:t['source'] for a,t in templates.items()}}
 
-def build_listing(m,root,reference):
+def sale_layout(facts,reference):
+    if not isinstance(reference.get('schema'),dict) or not reference['schema']:
+        raise ValueError('缺少当前类目的发品 schema，先刷新参考再核对规格')
+    fields=sorted((c for c in walk_components(reference.get('schema') or {})
+                   if c['componentCode'].startswith('sale-prop-')),
+                  key=lambda c:int((c.get('extra') or {}).get('dim') or 1))
+    names=facts.get('saleDimensions')
+    if names is None:
+        names=[c.get('componentTitle') or c['componentCode'] for c in fields]
+    if not isinstance(names,list) or len(set(names)) != len(names):
+        raise ValueError('销售维度应按真实 SKU 提供唯一名称或组件编码')
+    selected=[]
+    for name in names:
+        matches=[c for c in fields if name in (c['componentCode'],c.get('componentTitle'))]
+        if len(matches)!=1:
+            raise ValueError(f'类目销售维度无法唯一匹配：{name}')
+        selected.append(matches[0])
+    if len({c['componentCode'] for c in selected})!=len(names):
+        raise ValueError('同一销售属性组件被多次引用')
+    absent=[c['componentCode'] for c in fields if c not in selected and required(c)]
+    if absent:
+        raise ValueError('类目必填销售维度缺失：'+','.join(absent))
+    if not selected and len(facts['skus'])!=1:
+        raise ValueError('无销售维度的类目只能区分一个 SKU')
+    return [{**c,'componentTitle':c.get('componentTitle') or c['componentCode']} for c in fields if c in selected]
+
+
+def build_listing(m,root,reference,*,planned_tasks=None):
  root=Path(root);f=m.get('facts') or {};missing=missing_information(f,reference)
  if missing:raise ValueError('Missing verified facts: '+','.join(missing))
- if not m.get('mainImages') or not m.get('detailImages') or any(i.get('previewOnly') for i in m['mainImages']):raise ValueError('Full generated main/SKU/detail materials are required')
- gate=dp.check_detail_set(m,root)
- if not gate['ok']:raise ValueError('详情页未通过发布前检查，禁止发布：'+'；'.join(gate['problems']))
- fields=sorted([c for c in walk_components(reference.get('schema') or {}) if c['componentCode'].startswith('sale-prop-')],key=lambda c:int((c.get('extra') or {}).get('dim') or 1))
- dimensions=f.get('saleDimensions') or [fields[0].get('componentTitle','规格') if fields else '规格']
- if len(dimensions)>2 or len(fields)<len(dimensions):raise ValueError('Target live template cannot represent the provided sale dimensions; do not truncate SKUs')
- definitions={'style':{'componentCode':fields[0]['componentCode'],'attrName':dimensions[0]}}
- if len(dimensions)==2:definitions['size']={'componentCode':fields[1]['componentCode'],'attrName':dimensions[1]}
- structured=[c for c in fields if (c.get('extra') or {}).get('isStructure')][:len(dimensions)]
- for c,slot in zip(structured,('styleTemplateSkuProps','sizeTemplateSkuProps')):
-  absent=[s['key'] for s in f['skus'] if not s.get(slot)]
-  if absent:raise ValueError('销售属性「'+str(c.get('componentTitle') or c['componentCode'])+'」是结构化属性，SKU '+','.join(absent)+' 缺少 templateSkuProps；平台预校验通过不代表别名格式正确，真实提交才会报 1010300506。请先运行 discover-sale-templates / apply-sale-templates，或向用户索取该属性的填写框')
+ if planned_tasks is None:
+  if not m.get('mainImages') or not m.get('detailImages') or any(i.get('previewOnly') for i in m['mainImages']):raise ValueError('Full generated main/SKU/detail materials are required')
+  gate=dp.check_detail_set(m,root)
+  if not gate['ok']:raise ValueError('详情页未通过发布前检查，禁止发布：'+'；'.join(gate['problems']))
+ else:
+  m={**m,'mainImages':[],'variants':[],'detailImages':[]}
+  for task in planned_tasks:
+   path=task.get('reusePhoto') or ('待生成/'+task['id']+'.jpg')
+   item={'id':task['id'],'localPath':path}
+   if task['role']=='main':m['mainImages'].append(item)
+   elif task['role']=='detail':m['detailImages'].append(item)
+   else:m['variants'].append({'key':task['skuKey'],'skuImage':item})
+ if not reference.get('media',{}).get('defaultCategoryId'):
+  raise ValueError('缺少当前店铺素材分类，请先刷新发品参考')
+ specs = sale_layout(f,reference)
+ dimensions=[c['componentTitle'] for c in specs]
+ definitions={name:{'componentCode':c['componentCode'],'attrName':c['componentTitle']} for name,c in zip(('style','size'),specs)}
  key=m.get('packageId') or hashlib.sha256(json.dumps(m['store'],sort_keys=True).encode()).hexdigest()[:16]
  product={'productKey':'PN-'+key[:16],'title':f['title'],'brandId':f['brandId'],'itemNumber':'PN-'+key[:24],
           'sevenDayReturnCode':f['sevenDayReturnCode'],'freightTemplateId':f['freightTemplateId'],
-          'includeSizeSaleAttribute':len(dimensions)==2,'mainImageMode':'multi_set','detailMobile':True,**({'detailPolicy':dp.exemption(m)['type'],'detailExemptionReason':dp.exemption(m)['reason']} if dp.exemption(m) else {}),'saleAttributeComponents':definitions}
+          'saleDimensionCodes':[c['componentCode'] for c in specs],'includeSizeSaleAttribute':len(dimensions)>=2,'mainImageMode':'multi_set','detailMobile':True,**({'detailPolicy':dp.exemption(m)['type'],'detailExemptionReason':dp.exemption(m)['reason']} if dp.exemption(m) else {}),'saleAttributeComponents':definitions}
  for field in ('packageLengthMm','packageWidthMm','packageHeightMm','weightKg'):
   if f.get(field) not in (None,''):product[field]=f[field]
+ orders={c['componentCode']:{} for c in specs}
+ identical_sku_files={}
  skus=[];styles=[];sizes=[];images=[];sku_images={v['key']:v['skuImage'] for v in m['variants']}
  for i,item in enumerate(m['mainImages'],1):images.append({'imageKey':item.get('id') or f'M{i}','role':'spu_main','localPath':item['localPath'],'order':i,'mediaCategoryId':reference['media']['defaultCategoryId']})
  for i,s in enumerate(f['skus'],1):
-  values=s.get('attributes') or {};style=values.get(dimensions[0]) or s['spec'];size=values.get(dimensions[1]) if len(dimensions)==2 else s['spec']
-  if not size:raise ValueError('Missing explicit SKU dimension value')
+  attributes=s.get('attributes') or {}
+  sale=[]
+  for index,c in enumerate(specs):
+   code,name=c['componentCode'],c['componentTitle']
+   alias=attributes.get(code) or attributes.get(name) or (s.get('spec') if len(specs)==1 else '')
+   if not isinstance(alias,str) or not alias.strip():
+    raise ValueError(f"SKU {s['key']} 缺少销售属性 {name} ({code})")
+   known=orders[code]
+   if alias not in known: known[alias]=len(known)+1
+   mapping=hashlib.sha256((key+'|'+code+'|'+alias).encode()).hexdigest()[:32]
+   entry={'componentCode':code,'name':name,'alias':alias,'order':known[alias],'mappingId':mapping,'dim':int((c.get('extra') or {}).get('dim') or index+1)}
+   props=(s.get('saleTemplateProps') or {}).get(code)
+   if not props and index<2:props=s.get(('styleTemplateSkuProps','sizeTemplateSkuProps')[index])
+   if (c.get('extra') or {}).get('isStructure') and not props:
+    raise ValueError(f"SKU {s['key']} 的结构化属性 {name} 缺少 templateSkuProps")
+   if props:entry['templateSkuProps']=deepcopy(props)
+   sale.append(entry)
+  style=sale[0]['alias'] if sale else s['spec'];size=sale[1]['alias'] if len(sale)>1 else style
   if style not in styles:styles.append(style)
   if size not in sizes:sizes.append(size)
-  mapped=lambda field,value:hashlib.sha256((key+'|'+field+'|'+value).encode()).hexdigest()[:32]
   skus.append({'skuKey':s['key'],'jdPrice':str(s['jdPrice']),'stock':int(s['stock']),'enabled':True,'vendorSku':s.get('vendorSku') or f'PN-{key[:12]}-{i:03d}',
-               'styleAlias':style,'sizeAlias':size,'styleMappingId':mapped('style',style),'sizeMappingId':mapped('size',size),
+               'styleAlias':style,'sizeAlias':size,'saleValues':sale,'styleMappingId':sale[0]['mappingId'] if sale else '0000000000','sizeMappingId':sale[1]['mappingId'] if len(sale)>1 else '0000000000',
                'styleOrder':styles.index(style)+1,'sizeOrder':sizes.index(size)+1,'skuAttributes':deepcopy(s['skuAttributes']),**({'styleTemplateSkuProps':deepcopy(s['styleTemplateSkuProps'])} if s.get('styleTemplateSkuProps') else {}),**({'sizeTemplateSkuProps':deepcopy(s['sizeTemplateSkuProps'])} if s.get('sizeTemplateSkuProps') else {})})
   if s['key'] not in sku_images:raise ValueError('Missing generated SKU image')
   item=sku_images[s['key']];local=item['localPath'] if isinstance(item,dict) else item
+  if planned_tasks is None or not local.startswith('待生成/'):
+   local=identical_sku_files.setdefault((style,sha(package_path(root,local))), local)
   images.insert(len(m['mainImages'])+i-1,{'imageKey':f'SKU-{i:02d}','skuKey':s['key'],'role':'sku_main','localPath':local,'order':1,'mediaCategoryId':reference['media']['defaultCategoryId']})
  for i,item in enumerate(m['detailImages'],1):images.append({'imageKey':item.get('id') or f'D{i}','role':'detail','localPath':item['localPath'],'order':i,'mediaCategoryId':reference['media']['defaultCategoryId']})
- listing={'category':{'id':int(f['categoryId'])},'product':product,'categoryAttributes':deepcopy(f['categoryAttributes']),'skus':skus,'images':images}
- errors,warnings=cli.validate_manifest(root/'listing.json',listing,reference)
+ listing={'category':{'id':int(f['categoryId'])},'product':product,'categoryAttributes':deepcopy(f.get('categoryAttributes') or []),'skus':skus,'images':images}
+ errors,warnings=cli.validate_manifest(root/'listing.json',listing,reference,planned=planned_tasks is not None)
  if errors:raise ValueError('Local preflight failed: '+'; '.join(errors))
  return listing
 
@@ -611,6 +680,8 @@ def accept_images(root,digest,*,confirm,reviewer='host',evidence=None):
  if confirm!='PHOTOS_REVIEWED':raise ValueError('Only after user preview acceptance: --confirm PHOTOS_REVIEWED')
  if reviewer not in ('host','merchant') or (reviewer=='merchant' and not str(evidence or '').strip()):raise ValueError('商家亲审需要关联本次预览的明确答复')
  root=Path(root);m=check_review(root,digest)
+ if m.get('deferredUnits'):
+  raise ValueError('整套发布还缺这些图片，请继续完成或复用：'+'、'.join(m['deferredUnits']))
  if m.get('qualityProblems'):raise ValueError('Known image identity/text issues must be fixed and reviewed first')
  gate=dp.check_detail_set(m,root)
  if not gate['ok']:raise ValueError('详情页未通过发布前检查，先补生成：'+'；'.join(gate['problems']))
@@ -763,10 +834,19 @@ def verify_package(root,attempts=18,interval=10):
   actual_stock=stock.get('stockNum')
   if actual_stock is None or int(actual_stock)!=int(sku['stock']):problems.append('stock '+key)
   sale=remote.get('saleAttrs') or [];actual_aliases=[s.get('attrValueAlias') for s in sale]
-  wanted=[sku['styleAlias']]+([sku['sizeAlias']] if listing['product']['includeSizeSaleAttribute'] else [])
+  wanted=cli.expected_sale_aliases(listing['product'],sku)
+  if 'saleValues' in sku:
+   by_code={str(a.get('attrId')):a.get('attrValueAlias') for a in sale}
+   actual_aliases=[by_code.get(v['componentCode'].removeprefix('sale-prop-')) for v in sku['saleValues']] if len(sale)==len(wanted) else None
   if actual_aliases!=wanted:problems.append('sale specifications '+key)
   sku_urls=[i['upload']['imgUrl'] for i in listing['images'] if i['role']=='sku_main' and i['skuKey']==sku['skuKey']]+expected_main[1:]
-  if not sale or groups.get(str(sale[0].get('attrValues'))) != sku_urls:problems.append('SKU gallery '+key)
+  if wanted:
+   first=sale[0] if sale else {}
+   if sku.get('saleValues'):
+    attr_id=sku['saleValues'][0]['componentCode'].removeprefix('sale-prop-')
+    first=next((a for a in sale if str(a.get('attrId'))==attr_id),{})
+   if groups.get(str(first.get('attrValues'))) != sku_urls:problems.append('SKU gallery '+key)
+  if not wanted and remote.get('logo')!=sku_urls[0]:problems.append('SKU image '+key)
   for v in m['variants']:
    if v.get('vendorSku')==key:v['skuId']=int(remote['skuId'])
  details=[cli.detail_image_url(i['upload']['imgUrl']) for i in listing['images'] if i['role']=='detail']
