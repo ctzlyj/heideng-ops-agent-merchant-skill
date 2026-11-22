@@ -938,38 +938,52 @@ def _write_browser_shortcut(path, command, marker):
     if is_linked(path) or path.exists() and not path.is_file():
         raise FileExistsError(path)
     if os.name == 'nt':
+        # A small native WSH process handles the Shell Link COM object; do not launch a
+        # PowerShell runtime or interpolate shop names, paths, or arguments into script code.
         script = """
-$ErrorActionPreference = 'Stop'
-$shell = New-Object -ComObject WScript.Shell
-$exists = Test-Path -LiteralPath $env:JM_DESKTOP_LINK
-if ($exists) {
-    $old = $shell.CreateShortcut($env:JM_DESKTOP_LINK)
-    if ($old.Description -ne $env:JM_DESKTOP_OWNER) { exit 3 }
-    if ($old.TargetPath -eq $env:JM_DESKTOP_BROWSER -and $old.Arguments -ceq $env:JM_DESKTOP_ARGS) { exit 4 }
+var shell = new ActiveXObject("WScript.Shell");
+var env = shell.Environment("Process");
+if (env("JM_DESKTOP_EXISTING") == "existing") {
+    try {
+        var previous = shell.CreateShortcut(env("JM_DESKTOP_LINK"));
+        if (previous.Description != env("JM_DESKTOP_OWNER")) WScript.Quit(3);
+        if (previous.TargetPath.toLowerCase() == env("JM_DESKTOP_BROWSER").toLowerCase()
+            && previous.Arguments == env("JM_DESKTOP_ARGS")) WScript.Quit(4);
+    } catch (e) { WScript.Quit(3); }
 }
-$link = $shell.CreateShortcut($env:JM_DESKTOP_STAGE)
-$link.TargetPath = $env:JM_DESKTOP_BROWSER
-$link.Arguments = $env:JM_DESKTOP_ARGS
-$link.Description = $env:JM_DESKTOP_OWNER
-$link.Save()
-if ($exists) {
-    [IO.File]::Replace($env:JM_DESKTOP_STAGE, $env:JM_DESKTOP_LINK, [NullString]::Value)
-} else {
-    [IO.File]::Move($env:JM_DESKTOP_STAGE, $env:JM_DESKTOP_LINK)
-}
+var link = shell.CreateShortcut(env("JM_DESKTOP_STAGE"));
+link.TargetPath = env("JM_DESKTOP_BROWSER");
+link.Arguments = env("JM_DESKTOP_ARGS");
+link.Description = env("JM_DESKTOP_OWNER");
+link.Save();
 """
+        existing = path.stat() if path.exists() else None
+        executable = Path(os.environ['SystemRoot']) / 'System32' / 'cscript.exe'
         with tempfile.TemporaryDirectory(dir=path.parent, prefix='.heideng-shortcut-') as directory:
+            stage = Path(directory) / 'stage.lnk'
+            helper = Path(directory) / 'shortcut.js'
+            helper.write_text(script, encoding='ascii')
             env = dict(os.environ, JM_DESKTOP_LINK=str(path), JM_DESKTOP_OWNER=marker,
                        JM_DESKTOP_BROWSER=command[0], JM_DESKTOP_ARGS=subprocess.list2cmdline(command[1:]),
-                       JM_DESKTOP_STAGE=str(Path(directory) / 'stage.lnk'))
-            result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                       JM_DESKTOP_STAGE=str(stage), JM_DESKTOP_EXISTING='existing' if existing else 'new')
+            result = subprocess.run([str(executable), '//Nologo', '//B', '//E:JScript', str(helper)],
                                     env=env, capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=30)
-        if result.returncode == 3:
-            raise FileExistsError(path)
-        if result.returncode == 4:
-            return 'existing'
-        if result.returncode != 0:
-            raise OSError('windows-shortcut-write-failed')
+            if result.returncode == 3:
+                raise FileExistsError(path)
+            if result.returncode not in (0, 4):
+                raise OSError('windows-shortcut-write-failed')
+            if existing:
+                current = path.stat()
+                if is_linked(path) or not os.path.samestat(existing, current) or (
+                        current.st_mtime_ns, current.st_size) != (existing.st_mtime_ns, existing.st_size):
+                    raise FileExistsError(path)
+            if result.returncode == 4:
+                return 'existing'
+            if existing:
+                stage.replace(path)
+            else:
+                # On Windows rename refuses to replace a file created concurrently.
+                stage.rename(path)
         return 'created'
 
     script = f'#!/bin/sh\n# {marker}\nexec {shlex.join(command)}\n'.encode('utf-8')
