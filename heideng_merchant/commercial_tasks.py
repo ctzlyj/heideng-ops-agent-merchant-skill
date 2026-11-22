@@ -121,7 +121,7 @@ def _generation(entry, directory, ledger_name, quote, grants):
         entry['nextAction'] = '核对原图位、已批准范围和剩余次数，只处理未交付项。'
 
 
-def _listing(directory, manifest, grants, parent=None):
+def _listing(directory, manifest, grants, parent=None, *, state_root=None, shop=None, vendor=None):
     receipt = safe_join(directory,'manifest.json')
     kind = 'sample' if parent else 'listing'
     entry = _entry(kind, directory, manifest['packageId'], receipt)
@@ -138,11 +138,15 @@ def _listing(directory, manifest, grants, parent=None):
         entry['quoteFile'] = str(quote_path)
         _generation(entry, directory, '.generation/generation.json', quote, grants)
     if parent:
-        accepted = parent.get('acceptedSamples', {})
-        image_id = entry['imageId']
-        entries = [v for k,v in accepted.items() if k == f"已接受样张/{image_id}-{v.get('sha256')}.jpg"]
-        if entries:
-            entry.update(state='sample-accepted', nextAction='沿父任务复用已验收样张，核对其余图位。')
+        from .sample_delivery import accepted_delivery
+        delivery = accepted_delivery(state_root, shop, vendor, directory.parent.parent, parent, directory, manifest)
+        if delivery:
+            entry['sampleDelivery'] = delivery
+            if delivery['status'] == 'accepted':
+                entry.update(state='sample-accepted', productId=delivery['productId'] or '',
+                             nextAction='向商家展示已接受原图、对应规格商品链接、上传状态及可核对的对比来源。')
+            else:
+                entry.update(state='sample-'+delivery['status'], nextAction='原样张有多个版本或文件待核对，请据原回执区分。')
         elif entry['state'] == 'MATERIAL_PREVIEW':
             entry['nextAction'] = '展示原样张与源图，已有成图可直接复用。'
         return entry
@@ -167,6 +171,61 @@ def _listing(directory, manifest, grants, parent=None):
     if any(item.get('status') in ('UNKNOWN','SUBMITTING') for item in uploads.values() if isinstance(item,dict)):
         entry.update(state='needs-reconciliation', nextAction='核对原图片空间上传回执，暂缓重复上传与发品。')
     return entry
+
+
+def _sample_entries(directory, manifest, grants, state, shop, vendor):
+    for file in safe_join(directory,'.samples').glob('*/manifest.json'):
+        if is_linked(file) or is_linked(file.parent):
+            continue
+        sample = read_json(file, {})
+        if (sample.get('sampleOf') == {'packageId':manifest['packageId'],'imageId':file.parent.name}
+                and sample.get('store') == manifest['store'] and sample.get('packageId')):
+            yield _listing(file.parent,sample,grants,parent=manifest,state_root=state,shop=shop,vendor=vendor)
+
+
+def accepted_sample_context(state, *, shop_id=None, vender_id=None, product_id=None, task_id=None, image_sha=None):
+    """Resolve an accepted sample from local receipts, even without a previous chat directory."""
+    state = Path(state).resolve()
+    profiles = read_json(safe_join(state,'linker/shops.json'), {}).get('profiles', {})
+    directories = {file.parent for file in _files(state/'work/listing', 'manifest.json')}
+    for _, record in _records(safe_join(state,'commercial-tasks'),'*.json'):
+        if record.get('kind') == 'listing' and isinstance(record.get('directory'),str):
+            path = Path(record['directory'])
+            if path.is_absolute() and not any(is_linked(p) for p in (path,*path.parents)):
+                directories.add(path)
+    matches = []
+    for directory in sorted(directories):
+        try:
+            manifest = read_json(safe_join(directory,'manifest.json'), {})
+            if manifest.get('mode') != 'photo-new-listing' or not manifest.get('acceptedSamples') or not manifest.get('packageId'):
+                continue
+            store = manifest['store']
+            verified = profiles.get(store.get('profile'), {})
+            shop, vendor = str(verified.get('shopId') or ''), str(verified.get('venderId') or '')
+            if (not verified.get('lastVerifiedAt') or not shop.isdecimal() or not vendor.isdecimal()
+                    or (shop_id and shop_id != shop) or (vender_id and vender_id != vendor)
+                    or not _matches(store,shop,vendor,profiles)):
+                continue
+            for task in _sample_entries(directory,manifest,[],state,shop,vendor):
+                delivery = task.get('sampleDelivery')
+                if not delivery or (task_id and task['taskId'] != task_id):
+                    continue
+                cards = delivery.get('versions') if delivery.get('status') == 'ambiguous' else None
+                for card in cards or [delivery]:
+                    if (product_id and str(card.get('productId') or task.get('productId')) != product_id
+                            or image_sha and card.get('imageSha256') != image_sha):
+                        continue
+                    matches.append({'taskId':task['taskId'], 'shopName':verified.get('shopName'),
+                                    'shopId':shop,'venderId':vendor,'title':manifest.get('title'),
+                                    'delivery':card})
+        except (KeyError, TypeError, ValueError, OSError, SafetyError):
+            continue
+    if len(matches) == 1:
+        verified = matches[0]['delivery']['status'] == 'accepted'
+        return {'selection':'matched' if verified else 'needs-verification', **matches[0], 'readOnly':True}
+    choices = [{**{k:v for k,v in m.items() if k!='delivery'},
+                **{k:m['delivery'].get(k) for k in ('imageId','spec','productId','skuId','imageSha256')}} for m in matches]
+    return {'selection':'ambiguous' if choices else 'not-found','choices':choices,'readOnly':True}
 
 
 def commercial_tasks(state, shop, vendor):
@@ -194,13 +253,7 @@ def commercial_tasks(state, shop, vendor):
                 if not _matches(m.get('store', {}),shop,vendor,profiles):
                     continue
                 entries.append(_listing(directory,m,grants))
-                for file in safe_join(directory,'.samples').glob('*/manifest.json'):
-                    if is_linked(file) or is_linked(file.parent):
-                        continue
-                    sample = read_json(file, {})
-                    if (sample.get('sampleOf') == {'packageId':package,'imageId':file.parent.name}
-                            and sample.get('store') == m['store'] and sample.get('packageId')):
-                        entries.append(_listing(file.parent,sample,grants,parent=m))
+                entries.extend(_sample_entries(directory,m,grants,state,shop,vendor))
             else:
                 path = safe_join(directory,'image-quote.json')
                 quote = read_json(path,{})

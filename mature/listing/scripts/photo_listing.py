@@ -263,6 +263,11 @@ def prepare_creative_plan(manifest, root, reference, design, *, preview=False, o
         task = {'id': key, 'role': role, 'photos': list(map(str, paths)),
                 'size': dp.MODULE_SIZE if role == 'detail' else '1024x1024',
                 'previewOnly': preview, 'promptSource': 'host', 'sourceSha256': [sha(p) for p in paths]}
+        if 'comparisonPhoto' in spec:
+            provided = spec['comparisonPhoto']
+            if not isinstance(provided,str) or provided not in source_photos or not package_path(root,provided).is_file():
+                raise ValueError('商家指定的对照图须来自已登记的本商品素材')
+            task['comparisonPhoto'] = provided
         accepted = manifest.get('acceptedSamples', {}).get(reuse) if reuse else None
         if accepted and (accepted['role'] != role or accepted.get('skuKey') != spec.get('skuKey')
                          or accepted['sha256'] != task['sourceSha256'][0]):
@@ -357,7 +362,9 @@ def generation_quote(root, manifest, tasks, redo=()):
     units = pending_ids(tasks, root/'.generation', redo)
     return {'scope': scope, 'units': units, 'canSelectUnits': True, 'estimatedPaidImageCount': len(units),
             'reusedImageCount': len(tasks) - len(units), 'maxRequests': len(units),
-            'actualAmount': None, 'pricing': '按本账户有效报价计算金额上限，或经商家明确同意按请求数封顶'}
+            'actualAmount': None, 'pricing': '按本账户有效报价计算金额上限，或经商家明确同意按请求数封顶',
+            'nextAction': ('已交办生成：简述本报价并立即打开本机费用确认窗口；商家只在窗口确认一次。只询价时仅展示报价。'
+                           if units else '新增计费请求为零，直接复用已有图片。')}
 
 
 def make_sample(root, design, image_id):
@@ -408,7 +415,76 @@ def make_sample(root, design, image_id):
     if checked[0]['sourceSha256'] != tasks[0]['sourceSha256']:
         raise ValueError('样张源图已变化，请另选新的样张编号')
     result = make_plan(sample, preview=True, design=selected)
-    return {'samplePackage': str(sample), 'imageId': image_id, 'quote': result['quote']}
+    output = {'samplePackage': str(sample), 'imageId': image_id, 'quote': result['quote']}
+    if tasks[0]['role'] == 'sku' and not tasks[0].get('comparisonPhoto') and not manifest.get('samplePlanSha256'):
+        from heideng_merchant.sample_delivery import target_sku
+        from heideng_merchant.sample_comparison import before_for_sku
+        target = target_sku(root,parent,tasks[0]['skuKey'])
+        if target.get('skuId'):
+            prior = load(sample/'.comparison/before.json',{}) or {}
+            if (prior.get('productId'),prior.get('skuId')) != (target['productId'],target['skuId']):
+                try:
+                    verify_store(parent['store'])
+                    detail = cli.get('jdo-product-status','/rest/sp-product/v0/products/{productId}',
+                                     {'productId':int(target['productId']),'scene':'pop'}).get('data') or {}
+                    before_for_sku(sample,detail,target,readback_source='official-product-detail')
+                    output['comparisonStatus'] = 'target-original-captured'
+                except (ValueError,OSError,cli.JdoError):
+                    output['comparisonStatus'] = 'target-original-unverified'
+    return output
+
+
+def recover_sample_comparison(root, image_id, detail_receipt=None):
+    """Match a local pre-revision original to an exact target SKU from a prior readback."""
+    from heideng_merchant.sample_delivery import target_sku
+    from heideng_merchant.sample_comparison import before_for_sku, read_comparison, write_comparison
+    from heideng_merchant.safety import safe_join, is_linked
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,50}',image_id):
+        raise ValueError('样张编号无效')
+    root = Path(root).resolve()
+    parent = read_manifest(root)
+    sample = safe_join(root,f'.samples/{image_id}')
+    manifest = read_manifest(sample)
+    if manifest.get('sampleOf') != {'packageId':parent['packageId'],'imageId':image_id} or manifest['store'] != parent['store']:
+        raise ValueError('样张不属于该商品任务')
+    accepted = [(path,row) for path,row in parent.get('acceptedSamples',{}).items()
+                if path == f"已接受样张/{image_id}-{row.get('sha256')}.jpg" and row.get('role') == 'sku']
+    if len(accepted) != 1:
+        raise ValueError('未找到唯一已接受的规格样张版本')
+    relative,row = accepted[0]
+    accepted_path = safe_join(root,relative)
+    if sha(accepted_path) != row['sha256']:
+        raise ValueError('已接受样张与原回执不一致')
+    target = target_sku(root,parent,row['skuKey'])
+    if not target.get('skuId'):
+        raise ValueError('没有唯一可核验的目标商品与规格')
+    previous = read_comparison(sample,sample_sha=row['sha256'],target_product_id=target['productId'],target_sku_id=target['skuId'])
+    if previous['kind'] == 'target-sku' and previous['status'] == 'verified':
+        return previous
+    candidates = {sha(p) for p in sample.iterdir() if not is_linked(p) and p.is_file()
+                  and p.suffix.lower() in ('.jpg','.jpeg','.png','.webp') and p.stat().st_size <= 12*1024*1024}
+    if not candidates:
+        return {'kind':'unknown','status':'unverified','reason':'原样张目录缺少可核对的历史原图'}
+    # Some old WorkBuddy tasks saved the verified edit detail beside their listing package.
+    paths = [safe_join(root,'.publish/readback-product.json'),safe_join(root,'.publish/readback-apply.json')]
+    if detail_receipt:
+        detail_receipt = Path(detail_receipt).absolute().relative_to(root.parent).as_posix()
+        paths = [safe_join(root.parent,detail_receipt)]
+    else:
+        legacy = safe_join(root.parent,'after-edit-detail.json')
+        if legacy.is_file():
+            paths.insert(0,legacy)
+    for path in paths:
+        detail = load(path,{}) or {}
+        if str((detail.get('productInfo') or {}).get('productId')) != str(target['productId']):
+            continue
+        try:
+            before = before_for_sku(sample,detail,target,existing=candidates,readback_source=str(path))
+        except (ValueError,OSError):
+            continue
+        write_comparison(sample,accepted_path,before)
+        return read_comparison(sample,sample_sha=row['sha256'],target_product_id=target['productId'],target_sku_id=target['skuId'])
+    return {'kind':'unknown','status':'unverified','reason':'未找到与已核对目标 SKU 图片字节一致的历史原图'}
 
 
 def accept_sample(root, image_id, evidence):
@@ -439,11 +515,17 @@ def accept_sample(root, image_id, evidence):
     shutil.copyfile(original, target)
     if relative not in parent['sourcePhotos']:
         parent['sourcePhotos'].append(relative)
-    parent.setdefault('acceptedSamples', {})[relative] = {
+    accepted = parent.setdefault('acceptedSamples', {})
+    previous = accepted.get(relative, {})
+    accepted[relative] = {
         'role': plan[0]['role'], 'skuKey': plan[0].get('skuKey'), 'evidence': evidence,
         'firstImageReference': plan[0].get('firstImageReference'), 'sourceSkuId': plan[0].get('sourceSkuId'),
         'sha256': digest,
     }
+    from heideng_merchant.sample_delivery import target_sku
+    target_at_acceptance = previous.get('targetAtAcceptance') or target_sku(root, parent, plan[0].get('skuKey'))
+    if target_at_acceptance.get('targetStatus') == 'verified':
+        accepted[relative]['targetAtAcceptance'] = target_at_acceptance
     atomic_json(root/'manifest.json', parent)
     return {'reusePhoto': relative, 'role': plan[0]['role'], 'skuKey': plan[0].get('skuKey')}
 
@@ -643,12 +725,22 @@ def review_package(root):
  (root/'preview.html').write_text(page+'</html>',encoding='utf-8')
  result={'digest':digest,'checklist':str(root/'确认清单.md'),'preview':str(root/'preview.html'),'detailCount':len(details),'detailGate':gate['ok'],'detailProblems':gate['problems']}
  if m.get('sampleOf'):
-  result['sampleReview']=sample_review(root,m)
+  try:
+   result['sampleReview']=sample_review(root,m)
+  except (OSError, ValueError, KeyError, TypeError) as error:
+   # The review page and original sample remain usable when only a comparison is unavailable.
+   result['sampleReview']={'status':'comparison-unverified','comparisonOrigin':{'kind':'unknown','status':'unverified'},
+                           'reason':str(error)[:240]}
+   entries=list(media_entries(m))
+   if len(entries)==1:
+    local=package_path(root,entries[0]['localPath'])
+    if local.is_file() and sha(local)==entries[0].get('sha256'):
+     result['sampleReview']['sample']=str(local)
  return result
 
 
 def sample_review(root, manifest):
-    from PIL import Image, ImageOps
+    from heideng_merchant.sample_comparison import write_comparison
     plan = load(root/'plan.json', [])
     media = list(media_entries(manifest))
     if len(plan) != 1 or len(media) != 1 or media[0]['id'] != plan[0]['id']:
@@ -658,17 +750,35 @@ def sample_review(root, manifest):
     reference = task.get('firstImageReference')
     result = {'sample': str(new), 'skuKey': task.get('skuKey'), 'sourceSkuId': task.get('sourceSkuId'),
               'identityChecks': task.get('identityChecks'), 'consumerPageStatus': task.get('consumerPageStatus','unchecked')}
-    if reference:
-        old = package_path(root, reference)
-        sheet = Image.new('RGB', (1024, 512), 'white')
-        for i, path in enumerate((old, new)):
-            with Image.open(path) as source:
-                panel = ImageOps.contain(ImageOps.exif_transpose(source).convert('RGB'), (512, 512))
-                sheet.paste(panel, (512*i+(512-panel.width)//2, (512-panel.height)//2))
-        comparison = root/'源规格首图与样张.jpg'
-        sheet.save(comparison, quality=92)
-        left = '源规格实开记录中的首图' if result['consumerPageStatus']=='host-observed' else '源商品后台首图候选'
-        result.update(original=str(old), comparison=str(comparison), layout=f'左为{left}，右为本次样张')
+    before = load(root/'.comparison/before.json',{}) or {}
+    if task.get('comparisonPhoto'):
+        relative = task['comparisonPhoto']
+        before = {'kind':'merchant-provided','label':'本任务指定的商品参考图','beforeFile':relative,
+                  'beforeSha256':sha(package_path(root,relative))}
+    elif before:
+        from heideng_merchant.sample_delivery import target_sku
+        parent_dir = root.parent.parent
+        parent = read_manifest(parent_dir)
+        if manifest['sampleOf']['packageId'] != parent['packageId'] or manifest['store'] != parent['store']:
+            raise ValueError('样张与原商品任务不一致')
+        target = target_sku(parent_dir,parent,task.get('skuKey'))
+        if (target.get('productId'),target.get('skuId')) != (before.get('productId'),before.get('skuId')):
+            raise ValueError('规格原图回执和本次样张目标不匹配')
+    elif reference:
+        ref = manifest.get('reference') or {}
+        evidence = load(package_path(root,ref.get('cacheManifest') or '.reference-cache/assets.json'),{}) or {}
+        asset = next((a for a in evidence.get('entries',[])
+                      if reference in (a.get('productPhoto'),a.get('path'))),None)
+        old = package_path(root,reference)
+        if not asset or asset.get('sha256') != sha(old):
+            return {**result,'comparisonOrigin':{'kind':'unknown','status':'unverified'}}
+        sid = task.get('sourceSkuId') or evidence.get('sourceSkuId')
+        before = {'kind':'source-sku' if sid else 'source-product', 'skuId':str(sid) if sid else None,
+                  'productId':str(evidence.get('sourceSpuId') or '') or None, 'imageUrl':asset.get('sourceUrl'),
+                  'beforeFile':reference,'beforeSha256':sha(old),
+                  'label':'复刻来源规格实开记录中的首图' if result['consumerPageStatus']=='host-observed' else '复刻来源商品后台首图候选'}
+    if before:
+        result.update(write_comparison(root,new,before))
     return result
 
 def check_review(root,digest):
@@ -904,6 +1014,9 @@ def main(argv=None):
  view=sub.add_parser('record-first-view');view.add_argument('--package',required=True,type=Path)
  view.add_argument('--source-sku',required=True);view.add_argument('--url',required=True)
  view.add_argument('--product-photo',required=True);view.add_argument('--screenshot',required=True,type=Path)
+ recovery=sub.add_parser('recover-sample-comparison',help='从目标 SKU 的原回读核对旧样张对比来源，仅补本机对比回执')
+ recovery.add_argument('--package',required=True,type=Path);recovery.add_argument('--image-id',required=True)
+ recovery.add_argument('--detail-receipt',type=Path)
  for name in ('make-sample','accept-sample'):
   sample=sub.add_parser(name);sample.add_argument('--package',required=True,type=Path);sample.add_argument('--image-id',required=True)
   if name=='make-sample':sample.add_argument('--image-prompts-file',required=True,type=Path)
@@ -937,6 +1050,7 @@ def main(argv=None):
     result=create_package(root,store,args.photos,args.title,args.reference,True)
   elif command=='record-first-view':result=record_first_view(root,args.source_sku,args.url,args.product_photo,args.screenshot)
   elif command=='make-sample':result=make_sample(root,load(args.image_prompts_file),args.image_id)
+  elif command=='recover-sample-comparison':result=recover_sample_comparison(root,args.image_id,args.detail_receipt)
   elif command=='accept-sample':result=accept_sample(root,args.image_id,args.evidence)
   elif command=='refresh':
    m=read_manifest(root);verify_store(m['store']);r=cli.refresh_reference(root/'reference.json',args.category_id,args.category_name,args.brand_category_id);r['store']=m['store'];atomic_json(root/'reference.json',r)

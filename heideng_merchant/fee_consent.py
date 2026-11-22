@@ -1,5 +1,7 @@
 """Issue and check local merchant decisions for paid image work."""
 import os
+import hashlib
+import json
 import re
 import uuid
 from pathlib import Path
@@ -64,7 +66,7 @@ def _ask_merchant(message):
         root.destroy()
 
 
-def confirm_fee(quote, state, output, *, max_requests, billing='requests', price=None, selected_units=None):
+def confirm_fee(quote, state, output, *, max_requests, billing='requests', price=None, selected_units=None, quote_path=None):
     from .image_budget import validate_terms
 
     if not isinstance(quote, dict):
@@ -99,12 +101,6 @@ def confirm_fee(quote, state, output, *, max_requests, billing='requests', price
     output = Path(output)
     if output.resolve().is_relative_to((Path(state)/'fee-consents').resolve()):
         raise ValueError('任务回执请保存在任务目录')
-    existing = read_json(output, {})
-    if existing and re.fullmatch(r'fee-[a-f0-9]{32}', str(existing.get('approvalRef') or '')) and {
-            k:v for k,v in existing.items() if k != 'approvalRef'} == {
-            k:v for k,v in approval.items() if k != 'approvalRef'}:
-        verified_receipt(existing, state)
-        return existing
     identity = scope.get('shopIdentity') or {}
     shop = identity.get('shopName') or scope.get('shopName') or scope.get('shop') or scope.get('venderId') or scope.get('profile')
     if isinstance(shop, dict):
@@ -131,9 +127,33 @@ def confirm_fee(quote, state, output, *, max_requests, billing='requests', price
         lines.append(f"最高费用 {approval['maxAmount']} {approval['currency']}，每次最高 {approval['unitPriceUpperBound']}。")
     else:
         lines.append('金额未知；仅按上述请求次数封顶。')
-    if not _ask_merchant('\n\n'.join(lines)):
-        raise ValueError('商家未批准本次生图费用，可继续免费工作')
-    path = _receipt_path(state, approval['approvalRef'])
-    atomic_json(path, {'approval':approval, 'attempts':{}})
-    atomic_json(output, approval)
-    return approval
+    # A new host/chat can use a different delivery filename for the same quote.
+    # Serialize the decision by original quote and terms, independent of that filename.
+    terms = {k:v for k,v in approval.items() if k != 'approvalRef'}
+    anchor = str(Path(quote_path).resolve()) if quote_path else str(output.resolve().parent)
+    key = hashlib.sha256(json.dumps([anchor, dict(terms, units=sorted(units))],
+                         ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    index = safe_join(Path(state), 'fee-decisions/' + key + '.json')
+    with FileLock(index.with_suffix('.lock'), timeout=120):
+        existing = read_json(output, {})
+        if existing and {k:v for k,v in existing.items() if k != 'approvalRef'} == terms:
+            verified_receipt(existing, state)
+            atomic_json(index, {'approvalRef':existing['approvalRef']})
+            return existing
+        previous = read_json(index, {}).get('approvalRef')
+        if previous:
+            record = read_json(_receipt_path(state, previous), {})
+            prior = record.get('approval', {})
+            prior_terms = {k:v for k,v in prior.items() if k != 'approvalRef'}
+            if (dict(prior_terms, units=sorted(prior.get('units', []))) == dict(terms, units=sorted(units))
+                    and prior.get('approvalRef') == previous
+                    and max_requests - len(record['attempts']) >= len(pending)):
+                atomic_json(output, prior)
+                return prior
+        if not _ask_merchant('\n\n'.join(lines)):
+            raise ValueError('商家未批准本次生图费用，可继续免费工作')
+        path = _receipt_path(state, approval['approvalRef'])
+        atomic_json(path, {'approval':approval, 'attempts':{}})
+        atomic_json(index, {'approvalRef':approval['approvalRef']})
+        atomic_json(output, approval)
+        return approval

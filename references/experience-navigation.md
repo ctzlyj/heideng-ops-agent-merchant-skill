@@ -50,4 +50,6 @@
 技术参数与历史适配记录放在各模块页后半部分，宿主先按当前目标和真实工具返回规划，不把经验页当固定脚本。
 ## 新对话续办商品任务
 
+商家问已认可的样图，宿主优先执行 `scripts/merchant.py sample-context`。有目标店或商品时加对应参数。唯一命中就展示 delivery.imagePath、规格及 delivery.skuUrl、delivery.upload，并说明 delivery.comparison 的左右图来源；只对实际展示的目标规格给消费者链接。多个候选用店名、商品和规格简短区分。
+
 商家说“继续昨天的样图”“接着改那条链接”时，先解析已核验店铺，再运行 `scripts/merchant.py task-context --shop-id ID --vender-id ID`。宿主按业务目标使用 `--goal listing|sample|creative|sku-edit|materials`；已知上架后的商品用 `--product-id`，已知复刻来源用 `--source-product-id`。多条同款结果按原商品链接、样张、任务编号区分。仍有多笔符合时，只请商家选择目标。保留原任务目录、原额度与请求回执。对未知生成、上传或发布先沿原任务只读核对；需追加计费时沿用正式确认入口。

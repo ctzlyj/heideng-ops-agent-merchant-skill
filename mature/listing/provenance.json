@@ -47,7 +47,7 @@
     },
     "scripts/photo_listing.py": {
       "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
-      "sha256": "882bf1f7dcb0773a0fc71cd628e4b7c34b929c01b36fccc1511c18417362fa5b",
+      "sha256": "66d93c304f0f5897fb46710de092cc652ec62aa3178f405823aeb0ac02d3d4ab",
       "adapted": true
     },
     "scripts/photo_contract.py": {

@@ -9,6 +9,18 @@ from heideng_merchant.image_budget import reserve_request, validate_approval
 
 
 class CategoryFeeTests(unittest.TestCase):
+    def test_another_chat_reuses_decision_for_same_quote_even_with_a_new_export_name(self):
+        quote = {'scope':{'task':'same-photo-task','shop':'shop-one'}, 'units':['cover']}
+        with TemporaryDirectory() as tmp, patch('heideng_merchant.fee_consent._ask_merchant',return_value=True) as ask:
+            root = Path(tmp)
+            first = confirm_fee(quote,root,root/'first/approval.json',max_requests=1,quote_path=root/'quote.json')
+            second = confirm_fee(quote,root,root/'second/approval.json',max_requests=1,quote_path=root/'quote.json')
+            self.assertEqual(first,second)
+            ask.assert_called_once()
+            third = confirm_fee(quote,root,root/'third/approval.json',max_requests=2,quote_path=root/'quote.json')
+            self.assertNotEqual(first['approvalRef'],third['approvalRef'])
+            self.assertEqual(ask.call_count,2)
+
     def test_one_decision_five_attempts_and_no_sixth_even_in_another_directory(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
