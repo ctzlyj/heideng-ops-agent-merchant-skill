@@ -29,6 +29,12 @@ def build_parser():
     task.add_argument('--goal', choices=['materials','listing','sample','creative','sku-edit','diagnosis'])
     task.add_argument('--product-id', help='目标商品 SPU')
     task.add_argument('--source-product-id', help='复刻来源 SPU')
+    sample = sub.add_parser('sample-context', help='找回已认可的原样图、对应规格链接和上传回执')
+    sample.add_argument('--shop-id')
+    sample.add_argument('--vender-id')
+    sample.add_argument('--product-id')
+    sample.add_argument('--task-id')
+    sample.add_argument('--image-sha')
     fee = sub.add_parser('confirm-image-fee', help='商家一次确认本次图片费用与计费请求上限')
     fee.add_argument('--quote', type=Path, required=True)
     fee.add_argument('--output', type=Path, required=True)
@@ -56,6 +62,14 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         state = args.state or installed_state(Path(__file__).resolve().parents[1])
+        if args.command == 'sample-context':
+            from .commercial_tasks import accepted_sample_context
+            if any(value and not value.isdecimal() for value in (args.shop_id,args.vender_id,args.product_id)):
+                raise SafetyError('invalid-shop-or-product-identity')
+            result = accepted_sample_context(state,shop_id=args.shop_id,vender_id=args.vender_id,
+                                             product_id=args.product_id,task_id=args.task_id,image_sha=args.image_sha)
+            print(json.dumps(redact(result),ensure_ascii=False))
+            return 0
         if args.command == 'confirm-image-fee':
             from .fee_consent import confirm_fee
             try:
@@ -65,7 +79,7 @@ def main(argv=None):
                     raise ValueError('报价与费用回执需保存在两个文件')
                 approval = confirm_fee(json.loads(args.quote.read_text(encoding='utf-8-sig')), state, args.output,
                     max_requests=args.max_requests, billing=args.billing, price=price if args.billing=='amount' else None,
-                    selected_units=args.units)
+                    selected_units=args.units, quote_path=args.quote)
             except (ValueError, OSError, TypeError) as error:
                 raise SafetyError(str(error)) from None
             print(json.dumps({'status':'approved','approvalRef':approval['approvalRef'],'output':str(args.output)},ensure_ascii=False))

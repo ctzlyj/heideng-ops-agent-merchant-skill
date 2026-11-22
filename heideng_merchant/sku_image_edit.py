@@ -2,6 +2,7 @@
 from argparse import Namespace
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -253,7 +254,8 @@ def readback(api, pid, receipt):
     preserved = digest(business_state(detail, pid)) == receipt['beforeOnlineBusiness']
     verified = set(actual) == set(evidence) and all(evidence.values()) and preserved
     return {'status':'verified' if verified else 'awaiting-readback', 'productId':pid,
-            'skuMatches':evidence, 'otherFieldsMatch':preserved, 'consumerPageStatus':'unchecked'}
+            'skuMatches':evidence, 'otherFieldsMatch':preserved, 'consumerPageStatus':'unchecked',
+            'checkedAt':datetime.now(timezone.utc).isoformat(timespec='seconds')}
 
 
 def media_space(api):
@@ -317,6 +319,7 @@ def run(api, get_detail, identity, pid, images, package=None, *, check_only=Fals
             return readback(api, pid, prior)
         zone, category = media_space(api)
         targets = {}
+        store = {k:identity[k] for k in ('shopId','venderId','shopName','profile') if k in identity}
         for sid, image_hash in inputs.items():
             path = images[sid]
             upload_path = directory/'uploads'/f'{image_hash}.json'
@@ -329,11 +332,12 @@ def run(api, get_detail, identity, pid, images, package=None, *, check_only=Fals
                 shutil.copyfile(path, staged)
                 if file_sha(staged) != image_hash:
                     raise ValueError('图片文件已改变，重新核对后再上传')
-                atomic_json(upload_path, {'status':'uploading','sha256':image_hash})
+                intent = {'status':'uploading','sha256':image_hash,'shopIdentity':store,'productId':pid}
+                atomic_json(upload_path, intent)
                 entry = api.upload(zone, category, staged)
                 if not entry.get('imgUrl'):
                     raise ValueError('图片上传结果未知，请保留原回执')
-                receipt = {'status':'accepted','sha256':image_hash,'url':entry['imgUrl']}
+                receipt = {**intent,'status':'accepted','url':entry['imgUrl']}
                 atomic_json(upload_path, receipt)
             targets[sid] = receipt['url']
         fresh = get_detail(pid)
@@ -348,8 +352,7 @@ def run(api, get_detail, identity, pid, images, package=None, *, check_only=Fals
             return {'status':'rejected','productId':pid,'platformCode':prior.get('platformCode'),
                     'originalEdit':prior['directory'],'replayed':False}
         atomic_json(work/'edit-body.json', body)
-        record = {'status':'submitting','inputs':inputs,'shopIdentity':{k:identity[k] for k in
-                  ('shopId','venderId','shopName','profile') if k in identity},'beforeOnlineBusiness':digest(business_state(online, pid)),
+        record = {'status':'submitting','inputs':inputs,'shopIdentity':store,'beforeOnlineBusiness':digest(business_state(online, pid)),
                   'bodySha256':file_sha(work/'edit-body.json'), 'businessRequestHash':digest(body),
                   'expected':expected,'directory':str(work),'productId':pid}
         atomic_json(work/'intent.json', record)
