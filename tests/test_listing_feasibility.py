@@ -1,6 +1,7 @@
 """Merchant plan, local publication body and evidence without platform or model calls."""
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from PIL import Image
 
@@ -81,3 +82,42 @@ class ListingFeasibilityTests(unittest.TestCase):
         m['facts']={}
         preview = {'images':[{'id':'sample','role':'main','prompt':'展示外观','photos':['front.jpg']}]}
         self.assertEqual(len(self.pl.prepare_creative_plan(m,self.root,{},preview,preview=True)[0]),1)
+
+    def test_published_three_dimension_readback_requires_real_receipt_and_correct_sku_image(self):
+        pl, root = self.pl,self.root
+        _, ref, design = self.fixture(['颜色','容量','组合'])
+        pl.make_plan(root,ref,design=design)
+        pl.generate_plan(root)
+        manifest = pl.read_manifest(root)
+        listing = pl.build_listing(manifest,root,ref)
+        for image in listing['images']:
+            image['upload'] = {'imgUrl':'jfs/'+image['role']}
+        pl.atomic_json(root/'listing.json',listing)
+        manifest['productId'] = 99
+        pl.atomic_json(root/'manifest.json',manifest)
+        rows = []
+        for i, sku in enumerate(listing['skus'], 1):
+            sale = [{'attrId':v['componentCode'].removeprefix('sale-prop-'),
+                     'attrValueAlias':v['alias'],'attrValues':v['mappingId']} for v in sku['saleValues']]
+            rows.append({'outerId':sku['vendorSku'],'skuId':i,'priceInfo':{'jdPrice':sku['jdPrice']},
+                         'skuEnableStatus':1,'skuStats':{'onOffShelfStatus':1},'logo':'jfs/sku_main',
+                         'saleAttrs':list(reversed(sale))})
+        detail = {'skuList':rows,'productInfo':{'productId':99,'productName':listing['product']['title'],
+                                                'productStatus':{'productStatusNew':103}}}
+        first_group = listing['skus'][0]['saleValues'][0]['mappingId']
+        groups = [{'uuid':key,'imageInfoList':[{'orderSort':1,'imgUrl':img}]}
+                  for key,img in [('0000000000','jfs/spu_main'),(first_group,'jfs/sku_main')]]
+        html = pl.dp.detail_html([pl.cli.detail_image_url('jfs/detail')])
+        apply = {'material':{'mainImages':groups},'productInfo':{'productDetailDesc':{'desc':html,'mobileDesc':html}}}
+        def response(_skill,url,_params):
+            return {'data':apply if 'product-apply' in url else detail}
+        with patch.object(pl,'verify_store'), patch.object(pl.cli,'get',side_effect=response), \
+                patch.object(pl.cli,'query_sku_stocks',return_value=[{'skuId':r['skuId'],'stockNum':3} for r in rows]):
+            self.assertFalse(pl.verify_package(root,1,0)['deliveryChecks']['platformValidationPassed'])
+            pl.atomic_json(root/'.publish/validation-response.json',{'success':True,'data':{}})
+            self.assertEqual(pl.verify_package(root,1,0)['status'],'VERIFIED')
+            rows[0]['logo']='jfs/wrong'
+            outcome=pl.verify_package(root,1,0)
+            self.assertEqual(outcome['status'],'VERIFICATION_FAILED')
+            self.assertTrue(outcome['deliveryChecks']['productOnSale'])
+            self.assertIn('交付待核对',outcome['statement'])

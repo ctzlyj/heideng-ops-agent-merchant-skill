@@ -628,7 +628,7 @@ def review_package(root):
  facts=m.get('facts') or {};lines=['# 发布前确认清单','',f"店铺：{m['store']['shopName']}（{m['store']['profile']} / {m['store']['venderId']}）",f"类目：{facts.get('categoryId','待确认')}",f"标题：{facts.get('title') or m['title']}",f"品牌ID：{facts.get('brandId','待确认')}",f"包装/重量：{facts.get('packageLengthMm')} × {facts.get('packageWidthMm')} × {facts.get('packageHeightMm')} mm / {facts.get('weightKg')} kg",f"运费模板：{facts.get('freightTemplateId','待确认')}",f"无理由退货代码：{facts.get('sevenDayReturnCode','待确认')}",'','|SKU|规格|京东价|库存|','|---|---|---|---|']
  for s in facts.get('skus') or []:lines.append(f"|{s['key']}|{s['spec']}|{s.get('jdPrice')}|{s.get('stock')}|")
  gate=dp.check_detail_set(m,root);details=m.get('detailImages') or []
- lines += ['','## 详情页（发布前门槛：'+('通过' if gate['ok'] else '未通过，禁止发布')+'）',f'详情页：{len(details)} 张（默认6-8张，宽790px，PC与手机端同图）']
+ lines += ['','## 详情页（发布前门槛：'+('通过' if gate['ok'] else '未通过，禁止发布')+'）',f'详情页：{len(details)} 张，按本次方案核对 PC 与手机端的数量和顺序。']
  if gate.get('exemption'):lines.append(f"例外原因（{gate['exemption']['type']}）：{gate['exemption']['reason']}")
  for i,d in enumerate(details,1):lines.append(f"{i}. {d.get('id')}｜{dp.KIND_TITLES.get(d.get('module'),d.get('module') or '')}｜SKU：{','.join(d.get('skuKeys') or []) or '通用'}")
  lines += [f'- 问题：{p}' for p in gate['problems']]
@@ -726,6 +726,8 @@ def _prepare_package(root,reference,*,confirm,digest):
  atomic_json(root/'listing.json',listing);paths=cli.write_publish_payloads(root/'listing.json',runtime)
  response=cli.run_jdo_large(url='/rest/sp-product/v0/product-schemas/validations',method='POST',body_path=Path(paths['paths']['validation']),skill_id='jdo-product-publish',yes=True)
  atomic_json(runtime/'validation-response.json',response)
+ if not isinstance(response,dict) or response.get('success') is not True:
+  raise ReconcileRequired('平台校验未返回明确成功回执，请核对原校验记录')
  strong=[v for v in pipeline.validation_violations(response) if int(v.get('detectResult') or 0)==1]
  if strong:raise ValueError('Platform validation rejected the listing; review violations in validation-response.json')
  for item in media_entries(m):
@@ -821,6 +823,11 @@ def verify_package(root,attempts=18,interval=10):
  if int(((detail.get('productInfo') or {}).get('productStatus') or {}).get('productStatusNew') or 0) not in ON_SALE_STATUSES:problems.append('product not on sale')
  expected_main=[i['upload']['imgUrl'] for i in listing['images'] if i['role']=='spu_main']
  if groups.get('0000000000')!=expected_main:problems.append('SPU main image order mismatch')
+ from heideng_merchant.sku_image_edit import pictures
+ try:spec_images=pictures(detail,pid)
+ except ValueError:
+  spec_images={}
+  problems.append('SKU image ownership not verified')
  stocks={str(s.get('skuId')):s for s in cli.query_sku_stocks([int(s['skuId']) for s in detail['skuList']])}
  for key,sku in expected.items():
   remote=online.get(key)
@@ -846,7 +853,7 @@ def verify_package(root,attempts=18,interval=10):
     attr_id=sku['saleValues'][0]['componentCode'].removeprefix('sale-prop-')
     first=next((a for a in sale if str(a.get('attrId'))==attr_id),{})
    if groups.get(str(first.get('attrValues'))) != sku_urls:problems.append('SKU gallery '+key)
-  if not wanted and remote.get('logo')!=sku_urls[0]:problems.append('SKU image '+key)
+  if not sku_urls or spec_images.get(str(remote['skuId']))!=sku_urls[0]:problems.append('SKU image '+key)
   for v in m['variants']:
    if v.get('vendorSku')==key:v['skuId']=int(remote['skuId'])
  details=[cli.detail_image_url(i['upload']['imgUrl']) for i in listing['images'] if i['role']=='detail']
@@ -855,10 +862,14 @@ def verify_package(root,attempts=18,interval=10):
  local_gate=dp.check_detail_set(m,root)
  if not local_gate['ok']:detail_problems += ['local detail gate: '+x for x in local_gate['problems']]
  problems += ['detail '+x for x in detail_problems]
- sale_problems=[x for x in problems if not x.startswith('detail ')]
+ validation=load(root/'.publish/validation-response.json')
+ validated=(isinstance(validation,dict) and validation.get('success') is True and
+            not any(int(v.get('detectResult') or 0)==1 for v in pipeline.validation_violations(validation)))
+ if not validated:problems.append('平台发品校验缺少成功回执')
  m['detailPlan']={'moduleCount':len(m.get('detailImages') or []),'width':dp.OUTPUT_WIDTH,'exemption':local_gate.get('exemption'),'readback':{k:v for k,v in readback.items() if k!='problems'},'modules':[{'id':d.get('id'),'kind':d.get('module'),'localPath':d.get('localPath'),'skuKeys':d.get('skuKeys') or [],'onlineUrl':d.get('onlineUrl') or ''} for d in m.get('detailImages') or []]}
- m['deliveryChecks']={'platformValidationPassed':bool((load(root/'.publish/validation-response.json',{}) is not None) and not [v for v in pipeline.validation_violations(load(root/'.publish/validation-response.json',{}) or {}) if int(v.get('detectResult') or 0)==1]),'productOnSale':'product not on sale' not in problems and not any(x.startswith(('SKU not on shelf','disabled SKU')) for x in problems),'detailQualityPassed':not detail_problems,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%S')}
+ m['deliveryChecks']={'platformValidationPassed':validated,'productOnSale':'product not on sale' not in problems and not any(x.startswith(('SKU not on shelf','disabled SKU')) for x in problems),'detailQualityPassed':not detail_problems,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%S')}
  m['deliveryChecks']=dp.delivery_checks(m);m['deliveryChecks']['statement']=dp.completion_statement(m['deliveryChecks'])
+ if problems:m['deliveryChecks']['statement']='已提交，交付待核对：'+'、'.join(problems)
  m['skuIds']=[int(s['skuId']) for s in detail['skuList']];m['status']='VERIFIED' if not problems else 'VERIFICATION_FAILED';m['timings']['verifySeconds']=round(time.monotonic()-began,2);m['verification']={'problems':problems,'skuCount':len(online),'at':time.strftime('%Y-%m-%dT%H:%M:%S')}
  links=consumer_links(detail['skuList'],expected)
  m['consumerLinks']=links

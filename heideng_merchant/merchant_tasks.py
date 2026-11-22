@@ -64,6 +64,7 @@ def _repair_context(state, directory, identity_key, record=None):
              Path(__file__).resolve().parents[1]) / 'scripts/merchant.py'), '--state', str(state),
             'run', 'materials', '--', 'check-repair-status', '--output-dir', str(directory)]
     result = {'taskId':task_id, 'goal':'修复驳回素材', 'shopIdentity':identity,
+              'productIds':sorted({str(row['productId']) for row in frozen.get('rows',[]) if row.get('productId')}),
               'taskDirectory':str(directory), 'originalScope':str(freeze), 'state':'recoverable',
               'updatedAt':freeze.stat().st_mtime, 'recoverArgv':base+['--profile',profile] if profile else [],
               'readbackCommand':base, 'nextAction':'使用本店已核验 Profile 只读回查原绑定；未知生成先对账。', 'results':{}}
@@ -149,6 +150,7 @@ def task_context(state, shop_id, vender_id, task_id=None, *, goal=None, product_
                 }
         matches.append({
             **record, 'state':'recoverable', 'results':results, 'originalHandoff':str(handoff),
+            'productIds':[str(spu) for spu in current.get('scope',{}).get('spuIds',[])],
             'recoverArgv':current.get('recoverArgv',[]),
         })
     for directory in _legacy_repair_directories(state):
@@ -159,6 +161,9 @@ def task_context(state, shop_id, vender_id, task_id=None, *, goal=None, product_
             matches.append(entry)
     from .commercial_tasks import commercial_tasks
     matches.extend(commercial_tasks(state, shop_id, vender_id))
+    if goal in (None, 'diagnosis'):
+        from .commerce_evidence import saved_handoffs
+        matches.extend(saved_handoffs(state, shop_id, vender_id, product_id, task_id))
     matches = [entry for entry in matches if (not task_id or entry['taskId'] == task_id)
                and (not goal or goal == entry.get('kind', 'materials'))
                and (not product_id or product_id == entry.get('productId') or product_id in entry.get('productIds', []))

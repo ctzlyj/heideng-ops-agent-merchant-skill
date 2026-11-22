@@ -26,7 +26,7 @@ def build_parser():
     task.add_argument('--shop-id', required=True)
     task.add_argument('--vender-id', required=True)
     task.add_argument('--task-id')
-    task.add_argument('--goal', choices=['materials','listing','sample','creative','sku-edit'])
+    task.add_argument('--goal', choices=['materials','listing','sample','creative','sku-edit','diagnosis'])
     task.add_argument('--product-id', help='目标商品 SPU')
     task.add_argument('--source-product-id', help='复刻来源 SPU')
     fee = sub.add_parser('confirm-image-fee', help='商家一次确认本次图片费用与计费请求上限')
@@ -44,6 +44,7 @@ def build_parser():
     evidence.add_argument('--vender-id', required=True)
     evidence.add_argument('--spu-id', required=True)
     evidence.add_argument('--input', type=Path, required=True)
+    evidence.add_argument('--save-handoff', action='store_true', help='保存本次比较结果和输入中的 handoff 供下个岗位续办')
     return parser
 
 
@@ -74,7 +75,11 @@ def main(argv=None):
             if not all(key.isdecimal() for key in (args.shop_id, args.vender_id, args.spu_id)):
                 raise SafetyError('invalid-shop-or-product-identity')
             try:
-                result = compare_evidence(json.loads(args.input.read_text(encoding='utf-8-sig')), args.shop_id, args.vender_id, args.spu_id)
+                data = json.loads(args.input.read_text(encoding='utf-8-sig'))
+                result = compare_evidence(data, args.shop_id, args.vender_id, args.spu_id)
+                if args.save_handoff:
+                    from .commerce_evidence import save_handoff
+                    result['handoff'] = save_handoff(state, result, data.get('handoff'))
             except (ValueError, TypeError, KeyError, OSError) as exc:
                 raise SafetyError(f'经营报表不能对齐：{exc}') from None
             print(json.dumps(result, ensure_ascii=False, allow_nan=False))

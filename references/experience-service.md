@@ -11,6 +11,10 @@
 
 ## 脱敏示例
 
+商家要跨对话续办诊断，或把某款的问题交给另一岗位时，宿主在已核验的本店运行 `compare-evidence --save-handoff`。在原输入 JSON 的 `handoff` 中写 `nextRole`（接手岗位）、`priorityAction`（先核查哪件事）、`recheck`（复核口径与窗口），可另列 `hypothesis`（待证假设）。工具保存已对齐的汇总事实和缺项，并关联本店同商品已有的素材或改图回执。仅使用脱敏汇总；费用批准、买家明细等继续留在原业务工具。
+
+下一位宿主用 `task-context --goal diagnosis --shop-id ID --vender-id ID --product-id SPU` 找回原记录。按统计窗口和任务 ID 区分相似诊断；交接中的素材状态是保存时快照，归因前按回执再查当前是否生效。交接动作只保存本地记录，对客发送、退款、调价或生图仍按商家本次授权处理。
+
 同一 SPU 的四域汇总可交给 `scripts/merchant.py compare-evidence --shop-id ID --vender-id ID --spu-id ID --input FILE`。宿主自行从已授权数据整理输入，商家只交办经营目标。输入 JSON 包含 `periods` 和 `rows`。periods 的 baseline、current 各给起止日期数组（YYYY-MM-DD，含首尾）；每条 row 带字符串 shopId、venderId、spuId、domain、period、window、source、channel、basis 以及 metrics。source 引用原报表；basis 写明归因天数和模型、有效成交定义、咨询样本规则或退货统计日期。按同店同 SPU 分组后再比较。
 
 | domain | metrics 汇总字段 |

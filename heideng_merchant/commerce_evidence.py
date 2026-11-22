@@ -2,6 +2,13 @@
 from calendar import monthrange
 from datetime import date
 import math
+from hashlib import sha256
+import json
+from pathlib import Path
+import time
+
+from .safety import SafetyError, atomic_json, read_json, redact, safe_join
+from .state import FileLock
 
 
 FIELDS = {
@@ -95,3 +102,74 @@ def compare_evidence(data, shop_id, vender_id, spu_id):
                                 'perDay':daily, 'comparable':comparable}
     return {'shopId': shop_id, 'venderId': vender_id, 'spuId': spu_id, 'periods': periods, 'days':days,
             'observations': observations, 'gaps': gaps, 'readOnly': True}
+
+
+def _receipt_id(body):
+    raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    return sha256(raw.encode()).hexdigest()
+
+
+def save_handoff(state, facts, notes):
+    """Persist only scoped aggregate evidence and the host's explicitly supplied assessment."""
+    from .merchant_tasks import task_context
+
+    shop, vendor, product = (facts[k] for k in ('shopId','venderId','spuId'))
+    registry = read_json(safe_join(state,'linker/shops.json'), {}).get('profiles', {})
+    if not any(str(p.get('shopId')) == shop and str(p.get('venderId')) == vendor and
+               p.get('lastVerifiedAt') and p.get('status') == 'ok' for p in registry.values()):
+        raise ValueError('保存经营交接前，请先用连接入口核验本店身份')
+    if not isinstance(notes, dict):
+        raise ValueError('交接需要宿主整理 priorityAction、nextRole 和 recheck')
+    assessment = {}
+    for key in ('priorityAction','nextRole','recheck','hypothesis'):
+        value = notes.get(key)
+        if key == 'hypothesis' and value in (None,''):
+            continue
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f'经营交接缺少 {key}')
+        assessment[key] = value.strip()
+
+    related = []
+    for item in task_context(state, shop, vendor, product_id=product)['tasks']:
+        kind = item.get('kind','materials')
+        if kind not in ('materials','sku-edit','listing','creative','sample'):
+            continue
+        summary = {k:item[k] for k in ('taskId','goal','state','updatedAt','receipt','originalScope',
+                    'originalHandoff','consumerPageStatus') if k in item}
+        # A multi-product batch total cannot establish which of this product's slots is live.
+        if set(item.get('productIds') or [product]) == {product} and item.get('results'):
+            summary['results'] = {name:{k:r[k] for k in ('phase','pendingReviewCount','submittedSkuSlotCount',
+                                           'approvedSkuSlotCount','checkedAt','receipt') if k in r}
+                                  for name,r in item['results'].items()}
+        related.append(summary)
+    related.sort(key=lambda item:item['taskId'])
+    body = redact({'facts':facts, 'hostAssessment':assessment, 'relatedReceiptsAtSave':related})
+    key = _receipt_id(body)
+    path = safe_join(state, f'commerce-handoffs/{shop}/{vendor}/{key}.json')
+    with FileLock(path.with_suffix('.lock')):
+        if not path.is_file():
+            atomic_json(path, {'body':body, 'savedAt':int(time.time())})
+    return {'taskId':key,'receipt':str(path)}
+
+
+def saved_handoffs(state, shop, vendor, product=None, task_id=None):
+    directory = safe_join(Path(state), f'commerce-handoffs/{shop}/{vendor}')
+    for entry in directory.glob('*.json'):
+        if task_id and entry.stem != task_id:
+            continue
+        try:
+            path = safe_join(directory, entry.name)
+            record = read_json(path)
+            body = record['body']
+            facts = body['facts']
+            if ((facts['shopId'],facts['venderId']) != (shop,vendor) or _receipt_id(body) != entry.stem
+                    or product and product != facts['spuId']):
+                continue
+            item = {'kind':'diagnosis','goal':'经营诊断交接','state':'saved','taskId':entry.stem,
+                    'shopIdentity':{'shopId':shop,'venderId':vendor},'productId':facts['spuId'],
+                    'updatedAt':record['savedAt'], 'receipt':str(path), **body,
+                    'nextAction':body['hostAssessment']['priorityAction'], 'readOnly':True}
+        except (SafetyError, OSError, KeyError, TypeError, ValueError):
+            # An incomplete local record cannot establish the handoff's shop or product.
+            continue
+        yield item

@@ -125,8 +125,12 @@ class ConnectionExperienceTests(unittest.TestCase):
         from heideng_merchant import merchant_key_store as store
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);(root/'secrets').mkdir();(root/'lts4ai.key.dpapi').write_bytes(b'encrypted-fixture')
-            with patch.object(store,'_dpapi',side_effect=[b'merchant-fixture',b'new-encrypted-fixture']) as dpapi:
+            # Exercise the Windows migration on every runner without changing pathlib's host OS.
+            with patch.object(store,'os',name='windows_os') as windows_os, patch.object(
+                    store,'_dpapi',side_effect=[b'merchant-fixture',b'new-encrypted-fixture']) as dpapi:
+                windows_os.name = 'nt'
                 self.assertEqual(store.read_key(root),'merchant-fixture')
+                self.assertEqual(dpapi.call_count,2)
             self.assertEqual((root/'secrets/lts4ai.dpapi').read_bytes(),b'new-encrypted-fixture')
             self.assertTrue((root/'lts4ai.key.dpapi').is_file())
 

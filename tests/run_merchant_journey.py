@@ -121,14 +121,17 @@ def main():
     sys.path.insert(0,str(ROOT))
     from heideng_merchant.safety import clean_environment
     with tempfile.TemporaryDirectory(prefix='merchant-pr-journey-') as tmp:
-        home = Path(tmp)
+        home = Path(tmp).resolve()
         state = home/'state'
         env = clean_environment(home)
         env.update(HEIDENG_MERCHANT_HOME=str(state), JINGMAI_LINKER_HOME=str(state/'linker'),
                    JDO_HOME=str(state/'cli-home/.jdo-cli'), PYTHONIOENCODING='utf-8')
         def run(argv):
-            return subprocess.check_output([sys.executable,'-I','-B',*map(str,argv)], cwd=home,env=env,
-                                           text=True,encoding='utf-8',timeout=120)
+            proc = subprocess.run([sys.executable,'-I','-B',*map(str,argv)], cwd=home,env=env,
+                                  capture_output=True,text=True,encoding='utf-8',timeout=120)
+            if proc.returncode:
+                raise RuntimeError(f'Isolated merchant command failed ({proc.returncode}): {proc.stdout} {proc.stderr}')
+            return proc.stdout
         installed = json.loads(run([ROOT/'install.py','--home',home,'--state',state,'--host','workbuddy',
                                     '--offline','--no-auto-update']))
         assert installed['version'] == (ROOT/'VERSION').read_text().strip()

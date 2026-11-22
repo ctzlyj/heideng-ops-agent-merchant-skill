@@ -22,6 +22,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Use a canonical runner directory for disposable merchant homes
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']).resolve() / 'merchant-tests'
+          root.mkdir(exist_ok=True)
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              for name in ('TMPDIR', 'TEMP', 'TMP'):
+                  print(f'{name}={root}', file=env)
       - name: Install CI dependencies
         run: >-
           python -I -m pip --isolated install --index-url https://pypi.org/simple
