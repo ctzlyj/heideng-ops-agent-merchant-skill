@@ -1,7 +1,8 @@
 """Install the checked-out PR into an isolated WorkBuddy and resume a lost edit response.
 
-Only the host dialogue and the external shop/media services are simulated. Connection,
+The harness scripts host decisions and simulates the shop/media services. Connection,
 eligibility, upload deduplication, task discovery and readback use the installed code.
+Natural-language understanding and merchant-supplied technical hints need a real host.
 """
 from contextlib import redirect_stdout
 import io
@@ -26,6 +27,7 @@ def execute_stage(target, home, stage):
                     str(ROOT/'tests')]
     import linker
     import image_patch_update as images
+    from heideng_merchant import fee_consent, mature_image
     from heideng_merchant.safety import atomic_json
     from test_category_sku_edit import Platform
 
@@ -35,11 +37,17 @@ def execute_stage(target, home, stage):
     socket.socket.connect = no_external
     shop = Platform(87, ['31','32'])
     remote = home/'synthetic-platform.json'
-    args = ['images','replace-sku-images','--profile',PROFILE,'--store-config',str(home/'store.json'),
-            '--product-id','42']
+    product_id = '42'
+    counters = {'paidModelCalls':0,'feePrompts':0, 'merchantInputPrompts':0}
     if remote.is_file():
         previous = json.loads(remote.read_bytes())
-        shop.detail, shop.edits = previous['detail'],previous['edits']
+        shop.detail, shop.edits, shop.uploads = previous['detail'],previous['edits'],previous['uploads']
+        counters.update(previous['counters'])
+        task = json.loads((home/'selected-task.json').read_bytes())
+        product_id = task['productId']
+    writes_before = shop.edits
+    args = ['images','replace-sku-images','--profile',PROFILE,'--store-config',str(home/'store.json'),
+            '--product-id',str(product_id)]
     def get(skill, url, params=None):
         if url.endswith('/venderinfo'):
             return {'success':True,'data':IDENTITY}
@@ -56,7 +64,10 @@ def execute_stage(target, home, stage):
         return result
 
     with patch.object(images.cli,'get',side_effect=get), patch.object(images.cli,'upload',side_effect=shop.upload), \
-            patch.object(images.cli,'command_edit_product',side_effect=shop.command_edit_product):
+            patch.object(images.cli,'command_edit_product',side_effect=shop.command_edit_product), \
+            patch.object(mature_image.MerchantImageClient,'edit',side_effect=AssertionError('unexpected paid model call')) as paid, \
+            patch.object(fee_consent,'_ask_merchant',side_effect=AssertionError('unexpected fee prompt')) as fees, \
+            patch('builtins.input',side_effect=AssertionError('unexpected input request')) as inputs:
         if stage == 'submit':
             sl = linker.sl
             sl.profiles_dir().mkdir(parents=True,exist_ok=True)
@@ -87,14 +98,20 @@ def execute_stage(target, home, stage):
             else:
                 raise AssertionError('Lost-response fixture did not interrupt the original task')
             assert shop.edits == shop.uploads == 1
-            atomic_json(remote,{'detail':shop.detail,'edits':shop.edits})
         else:
             result = image_command(['--reconcile'])
             assert result['status'] == 'verified' and result['skuMatches'] == {'31':True,'32':True}
-            assert shop.edits == 1 and shop.uploads == 0
-            print(json.dumps({'deliveredSkuSlots':sum(result['skuMatches'].values()), 'shopWrites':shop.edits,
-                              'replayedWrites':0, 'paidModelCalls':0, 'duplicateConfirmations':0,
-                              'merchantTechnicalHints':0, 'dialogue':'scripted synthetic host'}))
+            assert result['otherFieldsMatch'] and result['resumedOriginal']
+            assert shop.edits == writes_before and shop.uploads == previous['uploads']
+        counters['paidModelCalls'] += paid.call_count
+        counters['feePrompts'] += fees.call_count
+        counters['merchantInputPrompts'] += inputs.call_count
+        if stage == 'submit':
+            atomic_json(remote,{'detail':shop.detail, 'edits':shop.edits, 'uploads':shop.uploads, 'counters':counters})
+        else:
+            print(json.dumps({'deliveredSkuSlots':sum(result['skuMatches'].values()), 'editSubmissions':shop.edits,
+                              'mediaUploads':shop.uploads, 'replayedWrites':shop.edits-writes_before, **counters,
+                              'merchantTechnicalHints':None, 'host':'scripted synthetic host'}))
 
 
 def main():
@@ -120,6 +137,9 @@ def main():
         tasks = json.loads(run([target/'scripts/merchant.py','--state',state,'task-context','--shop-id','77',
                                 '--vender-id','99','--goal','sku-edit','--product-id','42']))
         assert len(tasks['tasks']) == 1, tasks
+        task = tasks['tasks'][0]
+        assert task['kind'] == 'sku-edit' and str(task['productId']) == '42'
+        (home/'selected-task.json').write_text(json.dumps(task), encoding='utf-8')
         print(run([__file__,target,home,'recover']).strip())
 
 

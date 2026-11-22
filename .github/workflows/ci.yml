@@ -22,7 +22,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: python -I -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: --no-cache-dir -r tests/mature-requirements.txt -r requirements-updates.txt
+      - name: Install CI dependencies
+        run: >-
+          python -I -m pip --isolated install --index-url https://pypi.org/simple
+          --only-binary=:all: --no-cache-dir -r tests/mature-requirements.txt -r requirements-updates.txt
       - name: Installed merchant journey
         run: python -B tests/run_merchant_journey.py
       - run: python tests/run_usability_offline.py
