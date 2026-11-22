@@ -806,13 +806,22 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, sl.create_verified_desktop_shortcut(profile, shop_name))
 
 
+class LocalHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer normally does a reverse DNS lookup just to set server_name.
+        # This private service only listens on a numeric loopback address.
+        from socketserver import TCPServer
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def create_httpd(port=DEFAULT_PORT, host='127.0.0.1'):
     if host != '127.0.0.1':
         raise ValueError('服务只允许监听 127.0.0.1')
     Handler.session_token = secrets.token_urlsafe(24)
     Handler.manager = Manager()
     Handler.port = port
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd = LocalHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
     return httpd
 

@@ -963,7 +963,7 @@ if ($exists) {
                        JM_DESKTOP_BROWSER=command[0], JM_DESKTOP_ARGS=subprocess.list2cmdline(command[1:]),
                        JM_DESKTOP_STAGE=str(Path(directory) / 'stage.lnk'))
             result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
-                                    env=env, capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=12)
+                                    env=env, capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=30)
         if result.returncode == 3:
             raise FileExistsError(path)
         if result.returncode == 4:

@@ -11,10 +11,11 @@ class ConnectorLifecycleTests(unittest.TestCase):
             root=Path(d);state=root/'merchant';env=child_environment(state)
             env.update(HEIDENG_MERCHANT_PACKAGE=str(ROOT),JDO_CLI_PATH=str(root/'missing-official-cli'))
             port=env['JINGMAI_LINKER_PORT'];base='http://127.0.0.1:'+port
+            local_http=urllib.request.build_opener(urllib.request.ProxyHandler({}))
             def api(path,payload=None):
                 data=None if payload is None else json.dumps(payload).encode()
                 request=urllib.request.Request(base+path,data=data,headers={'Content-Type':'application/json','X-Session-Token':token})
-                with urllib.request.urlopen(request,timeout=3) as response:return json.loads(response.read())
+                with local_http.open(request,timeout=3) as response:return json.loads(response.read())
             # Isolated fake identity provider only. No real browser/login/OAuth.
             (state/'linker').mkdir(parents=True)
             client=subprocess.run([sys.executable,'-I','-B',str(ROOT/'scripts/mature_entry.py'),str(ROOT/'mature/connection/scripts/linker.py'),'--help'],env=env,capture_output=True,timeout=5)
@@ -23,30 +24,33 @@ class ConnectorLifecycleTests(unittest.TestCase):
             flags=0x08000000|0x00000008 if os.name=='nt' else 0
             env=env.copy();env['HEIDENG_MERCHANT_PACKAGE']=str(ROOT)
             from unittest.mock import patch
-            sys.path.insert(0,str(ROOT/'mature/connection/scripts'))
-            with patch.dict(os.environ,env,clear=True):import linker
-            os.environ.update(HEIDENG_MERCHANT_PACKAGE=str(ROOT),JINGMAI_LINKER_HOME=str(state/'linker'),JINGMAI_LINKER_PORT=port)
+            self.enterContext(patch.object(sys,'path',[str(ROOT/'mature/connection/scripts'),*sys.path]))
+            self.enterContext(patch.dict(os.environ,env,clear=True))
+            import importlib.util
+            spec=importlib.util.spec_from_file_location('isolated_lifecycle_linker',ROOT/'mature/connection/scripts/linker.py')
+            linker=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(linker)
             # Original detached service launcher. No GUI or real account.
             self.assertTrue(linker.ensure_server())
             deadline=time.monotonic()+8
             while time.monotonic()<deadline:
                 try:
-                    health=json.loads(urllib.request.urlopen(base+'/api/health',timeout=1).read())
+                    health=json.loads(local_http.open(base+'/api/health',timeout=1).read())
                     if health.get('ok'):break
                 except OSError:time.sleep(.05)
             else:self.fail('isolated original connector unavailable')
             # The launcher returns, another short-lived client reads the same service.
-            token=urllib.request.urlopen(base+'/',timeout=1).read().decode().split('const TOKEN = "')[1].split('"')[0]
+            token=local_http.open(base+'/',timeout=1).read().decode().split('const TOKEN = "')[1].split('"')[0]
             self.assertTrue(api('/api/job')['ok'])
             try:
                 deadline=time.monotonic()+8
                 while time.monotonic()<deadline:
                     try:
-                        health=json.loads(urllib.request.urlopen(base+'/api/health',timeout=1).read())
+                        health=json.loads(local_http.open(base+'/api/health',timeout=1).read())
                         if health.get('ok'):break
                     except OSError:time.sleep(.05)
                 else:self.fail('isolated original connector unavailable')
-                token=urllib.request.urlopen(base+'/',timeout=1).read().decode().split('const TOKEN = "')[1].split('"')[0]
+                token=local_http.open(base+'/',timeout=1).read().decode().split('const TOKEN = "')[1].split('"')[0]
                 # Original service survives an independent short-lived client process.
                 subprocess.run([sys.executable,'-c','pass'],check=True,timeout=2)
                 self.assertTrue(api('/api/job')['ok'])
@@ -66,11 +70,11 @@ class ConnectorLifecycleTests(unittest.TestCase):
                 created.assert_called_once()
             finally:
                 try:
-                    token=urllib.request.urlopen(base+'/',timeout=1).read().decode().split('const TOKEN = "')[1].split('"')[0]
+                    token=local_http.open(base+'/',timeout=1).read().decode().split('const TOKEN = "')[1].split('"')[0]
                     request=urllib.request.Request(base+'/api/shutdown',data=b'{}',headers={'Content-Type':'application/json','X-Session-Token':token})
-                    urllib.request.urlopen(request,timeout=2).read()
+                    local_http.open(request,timeout=2).read()
                 except Exception:pass
                 time.sleep(.1)
-                with self.assertRaises(OSError):urllib.request.urlopen(base+'/api/health',timeout=1).read()
+                with self.assertRaises(OSError):local_http.open(base+'/api/health',timeout=1).read()
 
 if __name__=='__main__':unittest.main()

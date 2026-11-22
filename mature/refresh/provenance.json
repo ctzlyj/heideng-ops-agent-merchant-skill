@@ -58,8 +58,8 @@
     },
     "scripts/no_window.py": {
       "upstreamSha256": "7d0e2a60cf4831b4494d60cfe0ccb4119b29a14b916f8c8e7883d5aa07e9fc9b",
-      "sha256": "7d0e2a60cf4831b4494d60cfe0ccb4119b29a14b916f8c8e7883d5aa07e9fc9b",
-      "adapted": false
+      "sha256": "07b6ae5f90cc7a9dc88f541bbe6047099992b195e64b9289735075e45e681f4d",
+      "adapted": true
     },
     "scripts/patch.py": {
       "upstreamSha256": "24bc66dfd8421f70e3a29e7cdcddcd44506a32d0cfaa317b6d15b4fbaadc30fb",

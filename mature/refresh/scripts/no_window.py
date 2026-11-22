@@ -14,36 +14,25 @@ CREATE_NO_WINDOW 与 STARTF_USESHOWWINDOW/SW_HIDE，避免逐条命令闪黑框�
 import subprocess
 import sys
 
-CREATE_NO_WINDOW = 0x08000000
-
-_original_run = subprocess.run
-_original_popen = subprocess.Popen
-
-
 def _hidden_kwargs(kwargs):
-    if sys.platform != "win32":
-        return kwargs
-    flags = kwargs.get("creationflags") or 0
-    kwargs["creationflags"] = flags | CREATE_NO_WINDOW
     if sys.platform == "win32":
-        startupinfo = kwargs.get("startupinfo") or subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = subprocess.SW_HIDE
-        kwargs["startupinfo"] = startupinfo
+        kwargs["creationflags"] = (kwargs.get("creationflags") or 0) | subprocess.CREATE_NO_WINDOW
+        startup = kwargs.get("startupinfo") or subprocess.STARTUPINFO()
+        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup.wShowWindow = subprocess.SW_HIDE
+        kwargs["startupinfo"] = startup
     return kwargs
 
 
-def run(*args, **kwargs):
-    return _original_run(*args, **_hidden_kwargs(kwargs))
+# Standard run/check_output also use Popen. Preserve their exit-code and timeout handling.
+if sys.platform == "win32" and not getattr(subprocess.Popen, "_merchant_hidden", False):
+    class Popen(subprocess.Popen):
+        _merchant_hidden = True
 
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **_hidden_kwargs(kwargs))
 
-class Popen(_original_popen):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **_hidden_kwargs(kwargs))
+    subprocess.Popen = Popen
 
-
-subprocess.run = run
-subprocess.Popen = Popen
-subprocess.call = lambda *a, **k: run(*a, **k).returncode
-subprocess.check_output = lambda *a, **k: run(*a, stdout=subprocess.PIPE, **k).stdout
-
+run = subprocess.run
+Popen = subprocess.Popen

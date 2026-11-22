@@ -71,6 +71,26 @@ class DirectorySwitchRetryTests(unittest.TestCase):
  tearDown=DistributionTests.tearDown
  bundle=DistributionTests.bundle
  install=DistributionTests.install
+ def test_old_windows_journal_recovers_via_equivalent_directory_spelling(self):
+  import ctypes,os
+  from heideng_merchant import distribution
+  if os.name!='nt':self.skipTest('Windows DOS path spelling')
+  base=self.root/'Merchant Test Directory'
+  base.mkdir()
+  buf=ctypes.create_unicode_buffer(32768)
+  length=ctypes.windll.kernel32.GetShortPathNameW(str(base),buf,len(buf))
+  alias=Path(buf.value) if 0<length<len(buf) and buf.value!=str(base) else base.with_name(base.name.upper())
+  self.target=base/'skills'/distribution.SKILL_NAME
+  self.install(self.bundle())
+  journal_target=alias/'skills'/self.target.name
+  stage=journal_target.parent/('.'+self.target.name+'.stage-fixture')
+  backup=journal_target.parent/('.'+self.target.name+'.backup-fixture')
+  self.target.rename(backup)
+  (self.state/'install-journal.json').write_text(json.dumps({
+      'target':str(journal_target),'stage':str(stage),'backup':str(backup)}), encoding='utf-8')
+  distribution._recover(distribution._target(self.target), self.state)
+  self.assertTrue(verify_install(self.target)['valid'])
+  self.assertFalse((self.state/'install-journal.json').exists())
  # Limit inherited cases: these are focused recovery regressions, not a second suite.
  def test_transient_windows_stage_denial_is_retried(self):
   import os

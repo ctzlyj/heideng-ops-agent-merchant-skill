@@ -76,6 +76,13 @@ class MatureConnectionTests(unittest.TestCase):
             self.assertEqual(rejected['status'],'rejected')
             self.assertEqual(browser.profile_directory,directory.resolve())
 
+    def test_numeric_loopback_server_starts_without_reverse_dns(self):
+        server=load('merchant_loopback_server',SOURCE/'app/server.py')
+        with patch('socket.getfqdn',side_effect=AssertionError('local connector queried DNS')):
+            with server.create_httpd(port=0) as httpd:
+                self.assertEqual(httpd.server_name,'127.0.0.1')
+                self.assertGreater(httpd.server_port,0)
+
     def test_install_quiesces_owned_idle_connector_via_original_shutdown(self):
         import subprocess, time, urllib.request
         from heideng_merchant.mature_runtime import child_environment
@@ -83,16 +90,23 @@ class MatureConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             env=child_environment(Path(d));port=env['JINGMAI_LINKER_PORT']
             command=[sys.executable,'-I','-B',str(ROOT/'scripts/mature_entry.py'),str(SOURCE/'app/server.py'),'--port',port,'--no-clipboard']
-            proc=subprocess.Popen(command,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            local_http=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with open(Path(d)/"startup.log","wb") as log:
+                proc=subprocess.Popen(command,env=env,stdout=log,stderr=subprocess.STDOUT)
             try:
                 deadline=time.monotonic()+10
                 while time.monotonic()<deadline:
                     try:
-                        with urllib.request.urlopen('http://127.0.0.1:'+port+'/api/health',timeout=1) as response:
+                        with local_http.open('http://127.0.0.1:'+port+'/api/health',timeout=1) as response:
                             health=json.loads(response.read())
                         if health.get('ok'):break
-                    except OSError:time.sleep(.1)
-                else:self.fail('original connector service did not start')
+                    except OSError as error:
+                        if proc.poll() is not None:
+                            startup=(Path(d)/'startup.log').read_text(encoding='utf-8',errors='replace')
+                            self.fail(f'connector exited {proc.returncode} before health: {startup[-1500:]}')
+                        last_error=str(error)
+                        time.sleep(.1)
+                else:self.fail(f'connector health timed out: {last_error}')
                 quiesce_mature_connector(ROOT,Path(d))
                 proc.wait(timeout=8)
                 self.assertEqual(proc.returncode,0)

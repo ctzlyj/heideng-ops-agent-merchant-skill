@@ -126,7 +126,17 @@ def _target(target):
  for ancestor in (target.parent,*target.parents):
   if is_linked(ancestor):raise SafetyError('linked-install-parent')
  target.parent.mkdir(parents=True,exist_ok=True)
- return target
+ return target.resolve()
+
+def _recorded_path(value):
+ # Older Windows journals may contain 8.3 names. Normalize only after rejecting
+ # links in the originally recorded path; the canonical owner must still match.
+ if not isinstance(value,str) or not value:
+  raise SafetyError('invalid-recovery-path')
+ path = Path(value)
+ if not path.is_absolute() or '..' in path.parts or any(is_linked(p) for p in (path,*path.parents)):
+  raise SafetyError('invalid-recovery-path')
+ return path.resolve()
 
 def _backup_roots(target,state):
  return (safe_join(target.parent.parent,'heideng-merchant-backups'),safe_join(Path(state).absolute(),'backups/skills'))
@@ -141,10 +151,10 @@ def _new_backup(target,state,ident):
  raise SafetyError('same-filesystem-outside-skills-backup-required')
 
 def _owned(path,target,kind,state=None):
- p=Path(path).absolute()
+ p=_recorded_path(str(path))
  parents={target.parent}
  if kind=='backup' and state is not None:parents.update(_backup_roots(target,state))
- if p.parent not in parents or not p.name.startswith('.'+SKILL_NAME+'.'+kind+'-') or is_linked(p):raise SafetyError('unsafe-recovery-path')
+ if p.parent not in {parent.resolve() for parent in parents} or not p.name.startswith('.'+SKILL_NAME+'.'+kind+'-') or is_linked(p):raise SafetyError('unsafe-recovery-path')
  return p
 
 def _remove_owned(path,target,kind):
@@ -184,7 +194,7 @@ def _replace_directory(source,target):
 def _recover(target,state):
  journal=read_json(Path(state)/'install-journal.json')
  if not journal:return
- if journal.get('target')!=str(target):raise SafetyError('recovery-target-mismatch')
+ if _recorded_path(journal.get('target'))!=target:raise SafetyError('recovery-target-mismatch')
  stage=_owned(journal['stage'],target,'stage');backup=_owned(journal['backup'],target,'backup',state)
  if target.exists():
   if not verify_install(target)['valid']:raise SafetyError('recovery-local-change')
@@ -235,7 +245,7 @@ def rollback(target,state):
   _recover(target,state)
   if busy(state):raise SafetyError('active-task-rollback-deferred')
   info=read_json(state/'install-history.json',{})
-  if info.get('target')!=str(target) or not info.get('previous'):raise SafetyError('no-verified-rollback')
+  if not info.get('target') or _recorded_path(info['target'])!=target or not info.get('previous'):raise SafetyError('no-verified-rollback')
   previous=_owned(info['previous'],target,'backup',state)
   # Backup directory has a different name; verification uses its trusted receipt/file hashes.
   check=read_json(previous/RECEIPT,{})

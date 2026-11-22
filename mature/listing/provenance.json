@@ -132,8 +132,8 @@
     },
     "scripts/win_no_window.py": {
       "upstreamSha256": "59d2fcd8616cd7c3f49dbc07be23818dbc45f5529516756341d08c722810d125",
-      "sha256": "59d2fcd8616cd7c3f49dbc07be23818dbc45f5529516756341d08c722810d125",
-      "adapted": false
+      "sha256": "07b6ae5f90cc7a9dc88f541bbe6047099992b195e64b9289735075e45e681f4d",
+      "adapted": true
     },
     "scripts/photo_video.py": {
       "upstreamSha256": "cde5dd441d20c4c1d1bd53aeb1328acb227b9ad8b2c64b24b05eb879ba6098cc",
