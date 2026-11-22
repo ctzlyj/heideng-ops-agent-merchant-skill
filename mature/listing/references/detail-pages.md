@@ -18,7 +18,7 @@
 
 在 `accept-images`、`prepare`（上传前）、`build_listing` 三处强制：
 
-1. 详情图 ≥ 6 张；与 `detail-plan.json` 的模块 id 与顺序一致。
+1. 详情至少有一张可交付图片，实际张数按类目要求和商品需要说明的内容确定；与 `detail-plan.json` 的模块 id 与顺序一致。
 2. 新方案按宿主的逐图计划校验顺序、文件与覆盖规格；旧任务继续校验原模块清单。
 3. 来源、商品事实及画面文字可核对。
 4. 宽度只能 750 或 790；必须竖版；文件可读；sha256 与记录一致。
@@ -27,9 +27,9 @@
 
 任一不过：**禁止发布**，先补生成（`make-plan --only detail --image-prompts-file <设计.json>`、`generate`，只重做详情，不动已有主图/SKU 图），不是只给警告。
 
-例外：用户明确“只要一张/少量”或平台/类目限制，在 `facts.detailPolicy={"type":"user-single-image"|"platform-limit","reason":"…","minimum":N}` 写明原因；确认清单显示该原因。
+宿主可在 `facts.requiredDetailTopics` 记录当前商品确需说明的事项，逐张在设计的 `covers` 指明回答了哪些。比如简单耗材的适用型号与更换步骤可以用一到两张说明；组合装可用多张解释各 SKU 配件。计划报告具体缺失的事项。平台给出更高下限时沿用 `facts.detailPolicy` 的来源、原因与最低张数。旧任务保留其明确政策。
 
-其他路线（链接搬运/复刻/模板导入/PDD）通过 `jdo_listing_mvp.validate_manifest` 同样拦截 <6 张详情图（`product.detailPolicy` + `product.detailExemptionReason` 可例外）。同款矩阵换主图沿用源商品详情 HTML：源详情 <6 张或 PC/mobile 不一致时 `build` 停止，先用 `detail-repair` 补源；确有原因用环境变量 `MATRIX_DETAIL_EXEMPTION_REASON`。旧爆款复刻的定稿提示词与逐张重制逻辑未改动。
+链接搬运、模板导入和同款矩阵可沿用已核验的合格详情；仍检查来源、重复、图序及 PC/mobile 回读。
 
 ## 四、确认清单
 

@@ -169,6 +169,12 @@ def generate(run, args):
         print(json.dumps(order.quote, ensure_ascii=False))
         return
     order.check()
+    pending = [key for key in pending if key in order.selected]
+    if not pending:
+        print(json.dumps({'selectedUnits':[], 'deferredUnits':order.deferred}, ensure_ascii=False))
+        if order.deferred:
+            raise SystemExit(2)  # Pause the whole-store pipeline before upload/patch.
+        return
     paths["order"] = order
     api_key = common.resolve_api_key()
     if not api_key:
@@ -261,7 +267,7 @@ def generate(run, args):
     rejected = [key for key in tasks if (ledger.get(key) or {}).get("status") == "rejected"]
     failed_keys = [
         key for key in tasks
-        if (ledger.get(key) or {}).get("status") not in ("succeeded", "rejected")
+        if key not in order.deferred and (ledger.get(key) or {}).get("status") not in ("succeeded", "rejected")
     ]
     print("done: succeeded=%d rejected=%d failed=%d total=%d"
           % (ok, len(rejected), len(failed_keys), len(tasks)), flush=True)
@@ -270,6 +276,10 @@ def generate(run, args):
     if failed_keys:
         print("failed keys:", failed_keys[:10])
         raise SystemExit(1)
+    if order.deferred:
+        print(json.dumps({'selectedUnits':order.selected, 'deferredUnits':order.deferred,
+                          'nextAction':'本次图位已完成；全店流水线等待其余图位分批完成或复用。'}, ensure_ascii=False))
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

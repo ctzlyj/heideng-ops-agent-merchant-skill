@@ -26,10 +26,14 @@ def build_parser():
     task.add_argument('--shop-id', required=True)
     task.add_argument('--vender-id', required=True)
     task.add_argument('--task-id')
+    task.add_argument('--goal', choices=['materials','listing','sample','creative','sku-edit','diagnosis'])
+    task.add_argument('--product-id', help='目标商品 SPU')
+    task.add_argument('--source-product-id', help='复刻来源 SPU')
     fee = sub.add_parser('confirm-image-fee', help='商家一次确认本次图片费用与计费请求上限')
     fee.add_argument('--quote', type=Path, required=True)
     fee.add_argument('--output', type=Path, required=True)
     fee.add_argument('--max-requests', type=int, required=True)
+    fee.add_argument('--units', nargs='+', help='从可拆分报价选定本次实际制作的图号')
     fee.add_argument('--billing', choices=['requests','amount'], required=True)
     fee.add_argument('--currency')
     fee.add_argument('--max-amount')
@@ -40,6 +44,7 @@ def build_parser():
     evidence.add_argument('--vender-id', required=True)
     evidence.add_argument('--spu-id', required=True)
     evidence.add_argument('--input', type=Path, required=True)
+    evidence.add_argument('--save-handoff', action='store_true', help='保存本次比较结果和输入中的 handoff 供下个岗位续办')
     return parser
 
 
@@ -59,7 +64,8 @@ def main(argv=None):
                 if args.output.resolve() == args.quote.resolve():
                     raise ValueError('报价与费用回执需保存在两个文件')
                 approval = confirm_fee(json.loads(args.quote.read_text(encoding='utf-8-sig')), state, args.output,
-                    max_requests=args.max_requests, billing=args.billing, price=price if args.billing=='amount' else None)
+                    max_requests=args.max_requests, billing=args.billing, price=price if args.billing=='amount' else None,
+                    selected_units=args.units)
             except (ValueError, OSError, TypeError) as error:
                 raise SafetyError(str(error)) from None
             print(json.dumps({'status':'approved','approvalRef':approval['approvalRef'],'output':str(args.output)},ensure_ascii=False))
@@ -69,7 +75,11 @@ def main(argv=None):
             if not all(key.isdecimal() for key in (args.shop_id, args.vender_id, args.spu_id)):
                 raise SafetyError('invalid-shop-or-product-identity')
             try:
-                result = compare_evidence(json.loads(args.input.read_text(encoding='utf-8-sig')), args.shop_id, args.vender_id, args.spu_id)
+                data = json.loads(args.input.read_text(encoding='utf-8-sig'))
+                result = compare_evidence(data, args.shop_id, args.vender_id, args.spu_id)
+                if args.save_handoff:
+                    from .commerce_evidence import save_handoff
+                    result['handoff'] = save_handoff(state, result, data.get('handoff'))
             except (ValueError, TypeError, KeyError, OSError) as exc:
                 raise SafetyError(f'经营报表不能对齐：{exc}') from None
             print(json.dumps(result, ensure_ascii=False, allow_nan=False))
@@ -78,7 +88,8 @@ def main(argv=None):
             from .merchant_tasks import task_context
             if not args.shop_id.isdecimal() or not args.vender_id.isdecimal():
                 raise SafetyError('invalid-shop-identity')
-            print(json.dumps(redact(task_context(state,args.shop_id,args.vender_id,args.task_id)),ensure_ascii=False))
+            print(json.dumps(redact(task_context(state,args.shop_id,args.vender_id,args.task_id,
+                goal=args.goal, product_id=args.product_id, source_product_id=args.source_product_id)),ensure_ascii=False))
             return 0
         if args.command == 'key':
             from .merchant_key_store import forget_key

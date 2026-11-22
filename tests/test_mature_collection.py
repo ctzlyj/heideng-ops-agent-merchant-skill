@@ -133,6 +133,12 @@ class MatureCollectionTests(unittest.TestCase):
             path, name = key.split("::")
             tree = ast.parse((COLLECTION / path).read_text(encoding="utf-8-sig"))
             node = next(n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name == name)
+            # The pinned hashes use Python 3.12's representation. A 3.11 definition
+            # has the same semantics but predates the empty type_params field.
+            for definition in ast.walk(node):
+                if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and 'type_params' not in definition._fields:
+                    definition._fields = (*definition._fields, 'type_params')
+                    definition.type_params = []
             self.assertEqual(digest(ast.dump(node, include_attributes=False).encode()), wanted, key)
 
     def test_parent_provenance_and_complete_inventory(self):

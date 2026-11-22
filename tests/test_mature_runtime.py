@@ -6,6 +6,19 @@ from heideng_merchant.distribution import build_bundle, validate_archive
 ROOT = Path(__file__).resolve().parents[1]
 
 class MatureRuntimeTests(unittest.TestCase):
+    def test_hidden_launch_keeps_exit_and_output_contract_on_this_platform(self):
+        code = """
+import runpy, subprocess, sys
+for path in sys.argv[1:]:
+    runpy.run_path(path)
+assert subprocess.check_output([sys.executable, '-c', 'print(42)']).strip() == b'42'
+try: subprocess.check_output([sys.executable, '-c', 'raise SystemExit(7)'])
+except subprocess.CalledProcessError as error: assert error.returncode == 7
+else: raise AssertionError('nonzero exit was silently accepted')
+"""
+        subprocess.run([sys.executable, '-I', '-B', '-c', code, str(ROOT/'mature/listing/scripts/win_no_window.py'),
+                        str(ROOT/'mature/refresh/scripts/no_window.py')], check=True, timeout=20)
+
     def test_release_excludes_duplicate_business_runtime(self):
         with tempfile.TemporaryDirectory() as d:
             bundle = build_bundle(ROOT, Path(d)/'merchant.zip', (ROOT/'VERSION').read_text().strip())

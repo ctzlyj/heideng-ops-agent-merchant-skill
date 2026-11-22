@@ -14,24 +14,25 @@ class CategoryFeeTests(unittest.TestCase):
             root = Path(directory)
             units = [f'variant-{n}' for n in range(6)]
             scope = {'shop':'fixture', 'products':['apparel-set'], 'model':'fixture'}
-            quote = {'scope':scope, 'units':units}
+            quote = {'scope':scope, 'units':units, 'canSelectUnits': True}
             with patch.dict(os.environ, {'HEIDENG_MERCHANT_HOME':directory}), patch(
                     'heideng_merchant.fee_consent._ask_merchant', return_value=True) as decision:
-                grant = confirm_fee(quote, root, root/'approval.json', max_requests=5)
-                self.assertEqual(confirm_fee(quote, root, root/'approval.json', max_requests=5), grant)
+                grant = confirm_fee(quote, root, root/'approval.json', max_requests=5, selected_units=units[:5])
+                self.assertEqual(confirm_fee(quote, root, root/'approval.json', max_requests=5, selected_units=units[:5]), grant)
                 decision.assert_called_once()
                 calls = []
                 for n in range(5):
-                    reserve_request(root/'task', grant, scope=scope, units=units, request_id=units[n])
+                    reserve_request(root/'task', grant, scope=scope, units=grant['units'], request_id=units[n])
                     calls.append(n)
                 with self.assertRaisesRegex(ValueError, '上限'):
-                    reserve_request(root/'copy', grant, scope=scope, units=units, request_id=units[5])
+                    reserve_request(root/'copy', grant, scope=scope, units=grant['units'], request_id=units[0],
+                                    previous_receipt={'status':'SUCCEEDED','sha256':'original-image'})
                     calls.append(5)
                 self.assertEqual(len(calls), 5)
                 with self.assertRaises(ValueError):
-                    validate_approval(dict(grant,maxRequests=8), scope=scope,units=units)
+                    validate_approval(dict(grant,maxRequests=8), scope=scope,units=grant['units'])
                 with self.assertRaises(ValueError):
-                    validate_approval(dict(grant,approvalRef='商家说去吧'),scope=scope,units=units)
+                    validate_approval(dict(grant,approvalRef='商家说去吧'),scope=scope,units=grant['units'])
 
     def test_unknown_and_cancel(self):
         quote = {'scope':{'task':'sample','possibleDuplicateCharge':True}, 'units':['sample']}

@@ -29,6 +29,7 @@ from redaction import safe_text
 SERVER_PY = APP_DIR / "server.py"
 DEFAULT_PORT = int(os.environ.get('JINGMAI_LINKER_PORT') or 8765)
 BASE = f"http://127.0.0.1:{DEFAULT_PORT}"
+_LOCAL_HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 _EMBEDDED_HTTPD = None
 _EMBEDDED_THREAD = None
@@ -44,7 +45,7 @@ def http_json(path: str, payload=None, token=None, timeout: int = 30):
     request = urllib.request.Request(BASE + path, data=data, headers=headers,
                                      method="POST" if data is not None else "GET")
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _LOCAL_HTTP.open(request, timeout=timeout) as response:
             return response.status, json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -139,7 +140,7 @@ def ensure_server() -> bool:
         stop_stale_server()
     if not SERVER_PY.exists():
         raise RuntimeError(f"找不到 app/server.py：{SERVER_PY}")
-    subprocess.Popen(
+    process = subprocess.Popen(
         [sys.executable, "-I", "-B", str(Path(os.environ["HEIDENG_MERCHANT_PACKAGE"])/"scripts/mature_entry.py"),
          str(SERVER_PY), "--port", str(DEFAULT_PORT), "--no-clipboard"],
         cwd=str(APP_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -151,11 +152,13 @@ def ensure_server() -> bool:
         info = server_info()
         if info and info.get("version") == expected_version():
             return True
+        if process.poll() is not None:
+            raise RuntimeError(f"本机连接服务在就绪前退出（退出码 {process.returncode}）。请核对当前解释器和连接器运行环境。")
         time.sleep(0.5)
     raise RuntimeError("本机连接器启动超时，请手动运行 python app/server.py 查看错误。")
 
 def get_token() -> str:
-    with urllib.request.urlopen(BASE + "/", timeout=10) as response:
+    with _LOCAL_HTTP.open(BASE + "/", timeout=10) as response:
         html = response.read().decode("utf-8")
     match = re.search(r'const TOKEN = "([^"]+)"', html)
     if not match:

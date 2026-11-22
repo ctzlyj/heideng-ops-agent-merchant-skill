@@ -6,6 +6,7 @@ from heideng_merchant.safety import clean_environment
 MODULES=['test_task_image_prompts','test_field_9mv_connection','test_field_9mv_materials','test_mature_image','test_field_material_contracts','test_field_install_contracts','test_audit_contracts','test_audit_connection_contracts','test_audit_handoff_contracts','test_merchant_experience','test_connection_experience','test_connection_service_lifecycle','test_merchant_usability','test_merchant_key_input','test_merchant_usability_upgrade','test_mature_connection','test_mature_materials','test_runtime_dependencies','test_mature_runtime','test_mature_release_refs','test_install_entry','test_update_loop']
 
 MODULES.append('test_field_commerce')
+MODULES.append('test_commerce_handoff')
 
 def main():
     with tempfile.TemporaryDirectory(prefix='merchant-usability-offline-') as d:
