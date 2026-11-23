@@ -46,7 +46,7 @@ class WorkBuddyExpertTests(unittest.TestCase):
         run, lookup = Mock(), Mock()
         with patch('heideng_merchant.merchant_key_store.read_key',return_value=secrets.token_hex(32)):
             with self.assertRaisesRegex(ValueError, '未获'):
-                self.beta.invoke(['sample-context'],skill=self.skill,home=self.root,lookup=lookup,run=run)
+                self.beta.invoke(['sample-context'],key=secrets.token_hex(32),skill=self.skill,home=self.root,lookup=lookup,run=run)
         with self.assertRaisesRegex(ValueError, '预览'):
             self.beta.qualify(self.key,[],lookup=lookup)
         run.assert_not_called()
@@ -76,26 +76,37 @@ class WorkBuddyExpertTests(unittest.TestCase):
                 self.assertEqual(env['HEIDENG_MERCHANT_LTS4AI_API_KEY'], self.key)
             else:
                 self.assertNotIn('HEIDENG_MERCHANT_LTS4AI_API_KEY', env)
-            self.assertEqual(env['HEIDENG_MERCHANT_BETA_IMAGE_BLOCKED'], 'quota-exhausted')
+            self.assertNotIn('HEIDENG_MERCHANT_BETA_IMAGE_BLOCKED', env)
             self.assertEqual(env['HEIDENG_MERCHANT_HOME'], str(self.root/'.heideng-wb-beta'))
             return subprocess.CompletedProcess(cmd,0)
         def lookup(key):
             validated.append(hashlib.sha256(key.encode()).hexdigest())
-            return usage(balance=0)
+            return usage(balance=9)
         with patch.dict(os.environ, {'HEIDENG_MERCHANT_LTS4AI_API_KEY':old}), \
                 patch('heideng_merchant.merchant_key_store.read_key',return_value=self.key), \
                 patch('heideng_merchant.distribution.verify_install',
                       return_value={'valid':True,'receipt':{'archiveSha256':'c'*64}}):
-            self.assertEqual(self.beta.invoke(['sample-context'],skill=self.skill,home=self.root,lookup=lookup,active=active,run=run), 0)
+            self.assertEqual(self.beta.invoke(['sample-context'],skill=self.skill,home=self.root,key=self.key,lookup=lookup,active=active,run=run), 0)
             self.assertEqual(self.beta.invoke(['run','photo-listing','--','generate'],skill=self.skill,home=self.root,
-                                             lookup=lookup,active=active,run=run), 0)
+                                             key=self.key,lookup=lookup,active=active,run=run), 0)
         self.assertEqual(validated,[self.digest]*2)
+        self.assertEqual(len(commands),2)
+        with self.assertRaisesRegex(ValueError,'凭证依赖未连接'):
+            self.beta.invoke(['sample-context'],skill=self.skill,home=self.root,lookup=lookup,run=run)
+        for argv in (['run','connection','--','ensure-shop','--shop','fixture'],
+                     ['run','--entry','scripts/linker.py','connection','--','connect'],
+                     ['run','materials','--','audit-pop-coverage']):
+            with self.assertRaisesRegex(ValueError,'京麦连接器尚未接入'):
+                self.beta.invoke(argv,key=self.key,skill=self.skill,home=self.root,lookup=lookup,active=active,run=run)
         self.assertEqual(len(commands),2)
 
     def test_expert_bundle_bootstraps_exact_core_in_a_new_workbuddy_home(self):
         invites = self.root/'digests.json'
         invites.write_text(json.dumps([self.digest]))
-        result = build(self.root/'expert.zip', invites, 'operator@example.com')
+        with self.assertRaisesRegex(ValueError, '已上架京麦连接器'):
+            build(self.root/'expert.zip', invites, 'operator@example.com')
+        result = build(self.root/'expert.zip', invites, 'operator@example.com',integration_only=True)
+        self.assertFalse(result['readyForSubmission'])
         self.assertEqual(result['invitedKeys'],1)
         with zipfile.ZipFile(result['file']) as z:
             config = json.loads(z.read('.codebuddy-plugin/plugin.json'))
@@ -122,7 +133,7 @@ class WorkBuddyExpertTests(unittest.TestCase):
             return proc
         with patch('heideng_merchant.merchant_key_store.read_key',return_value=self.key):
             for _ in range(2):
-                self.assertEqual(runtime.invoke(['sample-context'],home=self.root,skill=skill,
+                self.assertEqual(runtime.invoke(['sample-context'],key=self.key,home=self.root,skill=skill,
                     lookup=lambda _:usage(),active=active,run=offline),0)
         self.assertEqual(len(installs),1)
         from heideng_merchant.distribution import install_archive, verify_install
@@ -136,7 +147,7 @@ class WorkBuddyExpertTests(unittest.TestCase):
         note.parent.mkdir(parents=True)
         note.write_text('{"status":"UNKNOWN"}')
         with patch('heideng_merchant.merchant_key_store.read_key',return_value=self.key):
-            self.assertEqual(runtime.invoke(['sample-context'],home=old_home,skill=skill,
+            self.assertEqual(runtime.invoke(['sample-context'],key=self.key,home=old_home,skill=skill,
                 lookup=lambda _:usage(),active=active,run=offline),0)
         self.assertEqual(verify_install(program)['version'],config['version'])
         self.assertEqual(json.loads(note.read_bytes()),{'status':'UNKNOWN'})

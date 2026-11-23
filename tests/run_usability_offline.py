@@ -8,7 +8,7 @@ MODULES=['test_task_image_prompts','test_field_9mv_connection','test_field_9mv_m
 MODULES.append('test_field_commerce')
 MODULES.append('test_commerce_handoff')
 
-MODULES.append('test_workbuddy_expert')
+MODULES += ['test_workbuddy_expert', 'test_expert_guidance', 'test_expert_mcp']
 
 def main():
     with tempfile.TemporaryDirectory(prefix='merchant-usability-offline-') as d:

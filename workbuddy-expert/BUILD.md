@@ -1,14 +1,17 @@
-# WorkBuddy 本地候选包
+# WorkBuddy 授权联调
 
-先运行商家回归与分发审计，再从仓库根目录选择一条构建命令。
+0.4.19 是授权接入联调版本。完整商品运营专家等待京麦依赖；当前构建回执 `readyForSubmission` 为 false。已有 0.4.18 的名单和商家状态可用于联调。
 
+专家清单在 `.codebuddy-plugin/plugin.json` 引用根目录的 `.mcp.json`。其中的 `heideng-member` 通过标准 stdio 启动包内 Python 工具，以 `x-workbuddy.auth.type=token` 和 `tokenSchema` 声明专用 Key。WorkBuddy 向该工具进程注入表单值。工具验证本批名单和 LTS4AI 资格，仅在对应的生图子进程临时传递 Key。原生费用确认窗口只用于已交办任务的预算决策。
+
+在仓库根目录运行以下命令可构建预览或联调包。真实名册只在仓库外使用，每项为一把高熵专用 Key 的 SHA-256 指纹。
 ```text
-python scripts/build_workbuddy_expert.py --preview --output dist/workbuddy-preview.zip
-python scripts/build_workbuddy_expert.py --invite-digests <仓库外的指纹名册.json> --publisher-email <开发者邮箱> --output dist/workbuddy-invite.zip
+python scripts/build_workbuddy_expert.py --preview --output dist/expert-preview.zip
+python scripts/build_workbuddy_expert.py --integration-only --invite-digests <指纹名册.json> --publisher-email <联系邮箱> --output dist/expert-auth-integration.zip
 ```
 
-名册是运营方所发各商家高熵专用 Key **原字符串 UTF-8 字节**的 SHA-256 小写十六进制摘要 JSON 数组。由发 Key 的受控后台计算，再将摘要交给构建者。整批商家共用同一个专家包，各人只输入自己的专用 Key。增加新邀请需更新名册并提升发行版本；追加现有 Key 的额度只在 LTS4AI 后台操作。预览包内名册为空，无法运行业务。
+联调包应在真实 WorkBuddy 中观察召唤前的凭证卡、字段注入、重启后的复用、缺失和失效凭证及断开连接。离线协议测试只能证明声明与本机程序的字段和调用路径相通。专家包内的内核保留正常来源审计与原始说明，专家自身加载专用经验导航。对外部京麦的操作在联调入口关闭，京麦本机授权不会由此包发起。
 
-专家入口先匹配本批 Key 指纹，再用 Bearer Key 调用 LTS4AI 的只读 `GET /api/usage/token/` 核对额度与到期时间，再以需要完整 TokenAuth 的只读 `GET /v1/models` 核实当前资格。只有两个接口都成功，才允许进入业务。上游明确确认当前资格仍有效、但额度为零或未设上限时，仅暂停新生图。若完整鉴权返回 401/403（被撤销、到期或耗尽等情形可能返回相同错误），交由运营方核实；此时所有业务暂缓。本地不将原始 quota 单位换算成张数。指纹名册只用于本地专家的资格筛选；设备归属、账户分享和上游额度仍由运营方掌握。收到不符合契约的响应、网络断开或凭证无效时，专家提示当前缺口，保留原任务。
+完整版本恢复送审前，应取得平台认可的京麦授权路径。如果采用 marketplace 连接器，取得已上架 source 后在 `dependencies.connectors` 声明，证明它产生的当前店铺授权能被同一台设备、同一商家状态内的业务工具消费，再联通核店、续用和断开。WorkBuddy 的 CLI 连接器检查清单要求覆盖 macOS 与 Linux 及 auth/status/unAuth；目前京东官方 0.3.7 二进制发行清单仅列 Windows x64 和 macOS ARM。先与平台确认现有连接器、独立连接器的平台范围，或官方支持的其他等效方案。
 
-在一台没有研发仓权限的干净 WorkBuddy 桌面上验证实际导入、专用 Key 首次输入与重启复用、同店身份、受邀与非受邀 Key、撤销和额度用尽。针对一次已授权商品任务，检查模型名称、额度与 LTS4AI 账单，再升级同一个专家确认原状态。首次启用需宿主可用 Python 3.11+，由内置安装器准备隔离运行时和官方京麦 CLI。专家分发时整体递增版本；与旧 GitHub 安装可并存。本地构建没有上传或上架动作。
+[专家依赖声明](https://open.workbuddy.cn/docs/expert#声明方式) · [连接器规范](https://open.workbuddy.cn/docs/connector) · [京东 CLI 发行清单](https://mcp-open.jd.com/cli/version-policy.json)
