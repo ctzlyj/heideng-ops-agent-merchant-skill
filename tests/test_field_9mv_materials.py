@@ -99,7 +99,82 @@ class RepairScopeTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):client.edit_image('fixture',Path('fixture.png'),model='pool')
                 stats=client.image_model_stats()
             finally:client.close()
-        self.assertEqual(stats.get('attempts',{}).get('gpt-image-2.5'),1);self.assertEqual(stats['failures']['gpt-image-2.5'],1)
+        self.assertEqual(stats.get('attempts',{}).get(a.MODELS[0]),1);self.assertEqual(stats['failures'][a.MODELS[0]],1)
+
+    def test_approved_material_slots_share_two_models_without_duplicate_dispatch(self):
+        import io
+        from threading import Barrier
+        from PIL import Image
+        from tests.fee_consent import signed_fixture
+        from heideng_merchant.mature_image import MerchantImageClient
+        a = self.agent()
+        job = a.SpuJob('11','1','fixture',('1',),(('1','fixture'),), needs_selling_points=False,
+                       needs_white=False, needs_selling_image=False, needs_transparent=False)
+        prepared = a.PreparedSource('fixture','Sheet1',(),(a.SourceRow('1','fixture','11'),),(job,),1,1,0)
+        image = io.BytesIO()
+        Image.new('RGB',(800,800),'blue').save(image,'JPEG')
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy), tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
+                    'HEIDENG_MERCHANT_HOME': tmp, 'HEIDENG_MERCHANT_LTS4AI_API_KEY':'fixture'}):
+                root = Path(tmp)
+                (root/'refs').mkdir()
+                (root/'refs/11.jpg').write_bytes(image.getvalue())
+                out = root/'batch'
+                def fee(approval=None):
+                    return a.material_image_approval(prepared, [(prepared,out)], out, {}, {'shopId':'123'}, approval)
+                offer = fee()['feeQuote']
+                self.assertEqual(offer['creditCostsByUnit'],{'11/scene1':3, '11/scene2':3})
+                self.assertEqual((offer['estimatedCredits'],offer['maxCredits']), (6,6))
+                self.assertEqual(offer['scope']['models'],list(a.MODELS))
+                if legacy:
+                    del offer['scope']['models']
+                    del offer['scope']['imageSize']
+                    a._save_state(out/'.state/image-fee-quote.json',offer)
+                approval = out/'approved.json'
+                a._save_state(approval, signed_fixture(dict(offer,billing='requests',maxRequests=2)))
+                both = Barrier(2)
+                dispatched = []
+                def edit(client, *, prompt, images, **kwargs):
+                    dispatched.append(client.client.model)
+                    both.wait(timeout=6)
+                    return image.getvalue()
+                with patch.object(MerchantImageClient,'edit',edit):
+                    result = a.generate_batch(prepared,root/'refs',out,fee_context=fee(approval))
+                self.assertEqual(result.failed_spus, 0)
+                receipts = [json.loads(p.read_bytes()) for p in (out/'.state/image-requests').glob('*.json')]
+                expected = ['gpt-image-2.5']*2 if legacy else list(a.MODELS)
+                self.assertCountEqual(dispatched, expected)
+                self.assertCountEqual([r['model'] for r in receipts], expected)
+                self.assertEqual({r['status'] for r in receipts},{'received'})
+                self.assertEqual(fee(), (out,None,None))
+
+    def test_repair_receipts_bind_real_model_per_fresh_image_and_reuse_original_bytes(self):
+        import pop_repair
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from heideng_merchant.mature_image import MerchantImageClient
+        a = self.agent()
+        both = Barrier(2)
+        dispatched = {}
+        def edit(client, *, prompt, images, size):
+            self.assertEqual(size, a.MATERIAL_IMAGE_SIZE)
+            dispatched[prompt] = client.client.model
+            both.wait(timeout=6)
+            return b'fixture'
+        with tempfile.TemporaryDirectory() as tmp, patch.object(MerchantImageClient,'edit',edit):
+            model = a.ModelClient('synthetic')
+            self.addCleanup(model.close)
+            model.max_model_requests = 2
+            def run(kind):
+                return pop_repair.request_repair_image(a,model,kind,kind,Path(tmp)/'ref.jpg',None,Path(tmp)/(kind+'.png'),5)
+            with ThreadPoolExecutor(2) as pool:
+                self.assertEqual(list(pool.map(run,['scene1','selling'])), [b'fixture']*2)
+            self.assertCountEqual(dispatched.values(),a.MODELS)
+            for kind, selected in dispatched.items():
+                self.assertEqual(run(kind), b'fixture')
+                item = json.loads((Path(tmp)/(kind+'.request.json')).read_bytes())
+                self.assertEqual((item['model'],item['status']), (selected,'received'))
+            self.assertEqual(sum(model.image_model_stats()['attempts'].values()), 2)
 
     def test_appeal_action_is_not_misreported_as_login_or_new_fee_decision(self):
         from heideng_merchant.merchant_experience import task_summary
@@ -142,7 +217,7 @@ class RepairScopeTests(unittest.TestCase):
     def test_paid_request_cap_cannot_fall_through_to_a_second_provider(self):
         a=self.agent();import pop_repair
         from heideng_merchant.mature_image import MerchantImageClient
-        with tempfile.TemporaryDirectory() as d,patch.object(MerchantImageClient,'edit',side_effect=RuntimeError('synthetic unknown output')) as edit,patch.object(pop_repair.subprocess,'run') as run:
+        with tempfile.TemporaryDirectory() as d,patch.object(MerchantImageClient,'edit',side_effect=RuntimeError('synthetic unknown output')) as edit,patch('subprocess.run') as run:
             model=a.ModelClient('synthetic');model.max_model_requests=0
             try:
                 with self.assertRaisesRegex(RuntimeError,'budget'):
@@ -154,7 +229,7 @@ class RepairScopeTests(unittest.TestCase):
     def test_unknown_paid_image_failure_never_triggers_adapter_resubmission(self):
         a=self.agent();import pop_repair
         from heideng_merchant.mature_image import MerchantImageClient
-        with tempfile.TemporaryDirectory() as d,patch.object(MerchantImageClient,'edit',side_effect=RuntimeError('synthetic unknown output')) as edit,patch.object(pop_repair.subprocess,'run') as run:
+        with tempfile.TemporaryDirectory() as d,patch.object(MerchantImageClient,'edit',side_effect=RuntimeError('synthetic unknown output')) as edit,patch('subprocess.run') as run:
             model=a.ModelClient('synthetic');model.max_model_requests=2
             try:
                 with self.assertRaises(a.JdoWriteUncertainError):

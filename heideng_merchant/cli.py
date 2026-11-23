@@ -40,7 +40,7 @@ def build_parser():
     fee.add_argument('--output', type=Path, required=True)
     fee.add_argument('--max-requests', type=int, required=True)
     fee.add_argument('--units', nargs='+', help='从可拆分报价选定本次实际制作的图号')
-    fee.add_argument('--billing', choices=['requests','amount'], required=True)
+    fee.add_argument('--billing', choices=['credits','requests','amount'], default='requests', help='新生图报价自动使用 LTS4AI 积分；旧报价保留原口径')
     fee.add_argument('--currency')
     fee.add_argument('--max-amount')
     fee.add_argument('--unit-price-upper-bound')

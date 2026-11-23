@@ -30,20 +30,23 @@ class MatureRefreshTests(unittest.TestCase):
   result,count=common.rewrite_detail_html(html,{'https://img.example/one.jpg':'https://img.example/new.jpg'})
   self.assertEqual(count,1)
   self.assertEqual(result,html.replace('https://img.example/one.jpg','https://img.example/new.jpg'))
- def test_external_image_probe_uses_sufy_once_not_a_company_chain(self):
+ def test_external_image_edit_uses_selected_model_once(self):
   common=load('_common',SOURCE/'scripts/_common.py');gen=load('merchant_refresh_generate',SOURCE/'scripts/generate.py')
   from heideng_merchant.mature_image import MerchantImageClient
   from heideng_merchant.safety import SafetyError
   with tempfile.TemporaryDirectory() as d:
    sources=Path(d);(sources/'fixture.img').write_bytes(b'not-opened-by-fixture')
    with patch.object(MerchantImageClient,'edit',side_effect=SafetyError('unknown-image-response')) as edit:
-    status,model,data,detail=gen.probe_task(['gpt-image-2.5'],{'key':'fixture','prompt':'fixture'},sources,'1024x1024','offline-fixture-not-a-secret')
-  self.assertEqual(edit.call_count,1);self.assertEqual(status,'error')
+    client=gen.PinnedClient('gpt-image-2.5','offline-fixture-not-a-secret',1)
+    with self.assertRaises(SafetyError):
+     client.edit_image(prompt='fixture',images=[sources/'fixture.img'],size='1024x1024')
+  self.assertEqual(edit.call_count,1)
  @isolated_fees
  def test_unknown_first_image_keeps_existing_ledger_and_is_not_replayed(self):
   common=load('_common',SOURCE/'scripts/_common.py');gen=load('merchant_refresh_generate',SOURCE/'scripts/generate.py')
   with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT_LTS4AI_API_KEY':'offline-fixture-not-a-secret'}):
-   root=Path(d);(root/'sources').mkdir();(root/'sources/fixture.img').write_bytes(b'fixture')
+   from PIL import Image
+   root=Path(d);(root/'sources').mkdir();Image.new('RGB',(10,10)).save(root/'sources/fixture.img',format='JPEG')
    common.save_json(root/'job.json',{'profile':'fixture-profile','venderId':12345,'shopName':'fixture-shop','productIds':[1001]})
    common.save_json(root/'plan-batch.json',{'tasks':{'fixture':{'key':'fixture','productId':1001,'prompt':'fixture'}},'products':[]})
    common.save_json(root/'host-prompts.json',{'fixture':'逐图设计'})
@@ -51,7 +54,7 @@ class MatureRefreshTests(unittest.TestCase):
    quote=common.load_json(root/'image-quote.json')
    self.assertEqual(quote['designs']['fixture']['prompt'],'逐图设计')
    common.save_json(root/'fee-approval.json',signed_fixture({**quote,'approvalRef':'test-message','billing':'requests','maxRequests':1}))
-   with patch.object(gen,'probe_task',return_value=('error','',b'','unknown-first-output')) as probe:
+   with patch.object(gen.PinnedClient,'edit_image',side_effect=TimeoutError('unknown-first-output')) as probe:
     with self.assertRaises(SystemExit):gen.main(['generate.py',str(root)])
     self.assertEqual(common.load_json(root/'internal-generation.json')['fixture']['status'],'unknown')
     with self.assertRaises(SystemExit):gen.main(['generate.py',str(root)])

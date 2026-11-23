@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .image_budget import reserve_request, validate_approval
+from .image_models import MODELS, image_credit_quote, model_scope
 from .safety import atomic_json
 
 
@@ -14,19 +15,40 @@ def host_prompt(prompts, image_id):
     return prompt.strip()
 
 
+def quoted_scope(directory, context, sizes, models=MODELS):
+    """Freeze model pool and dimensions; recognize an existing pre-pool 2.5 quote."""
+    values = tuple(models)
+    if not values or len(values) != len(set(values)) or not set(values).issubset(MODELS):
+        raise ValueError('图像模型超出已配置的 LTS4AI 范围')
+    legacy = {**context, 'model':'gpt-image-2.5'}
+    if directory is not None and 'gpt-image-2.5' in values:
+        path = Path(directory) / 'image-quote.json'
+        if path.is_file():
+            old = json.loads(path.read_text(encoding='utf-8-sig'))
+            if old.get('scope') == legacy and all(
+                not row.get('size') or row['size'] == sizes.get(key)
+                for key, row in old.get('designs', {}).items()
+            ):
+                return legacy, ('gpt-image-2.5',)
+    return {**context, **model_scope(values), 'imageSizes': sizes}, values
+
+
 class CreativeOrder:
     """Write the exact quote even if approval is still pending. Cached work costs zero."""
 
-    def __init__(self, directory, context, designs, pending, approval_file, *, reused=None):
+    def __init__(self, directory, context, designs, pending, approval_file, *, reused=None, models=MODELS):
         self.directory = Path(directory)
         self.units = sorted(designs)
         sources = {key: row['sourceSha256'] for key, row in designs.items()}
         digest = sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
-        self.scope = {**context, 'model': 'gpt-image-2.5', 'sourceSetSha256': digest}
+        context = {**context, 'sourceSetSha256': digest}
+        sizes = {key:row.get('size') or '1024x1024' for key,row in designs.items()}
+        self.scope, self.models = quoted_scope(self.directory, context, sizes, models)
         self.quote = {
             'scope': self.scope, 'units': self.units, 'pendingUnits': sorted(pending), 'canSelectUnits': True,
             'newImageCount': len(pending), 'suggestedMaxRequests': len(pending),
             'actualAmount': None, 'designs': designs, 'reusedSources': reused or {},
+            **image_credit_quote({key:sizes[key] for key in pending}),
         }
         atomic_json(self.directory / 'image-quote.json', self.quote)
         from .commercial_tasks import register
@@ -45,7 +67,10 @@ class CreativeOrder:
         self.deferred = [key for key in self.quote['pendingUnits'] if key not in units]
         if self.approval['maxRequests'] < len(self.selected):
             raise ValueError('计划新增图片数超过批准请求数，请缩小范围并核对报价')
-        self.quote.update(selectedUnits=self.selected, deferredUnits=self.deferred)
+        costs = self.quote['creditCostsByUnit']
+        self.quote.update(selectedUnits=self.selected, deferredUnits=self.deferred,
+                          selectedCredits=sum(costs[unit] for unit in self.selected),
+                          deferredCredits=sum(costs[unit] for unit in self.deferred))
         atomic_json(self.directory / 'image-quote.json', self.quote)
 
     def reserve(self, key):

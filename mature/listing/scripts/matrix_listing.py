@@ -35,7 +35,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import win_no_window  # noqa: F401,E402  (hide jdo-cli consoles)
 import jdo_listing_mvp as cli  # noqa: E402
 
-MODELS = ("gpt-image-2.5",)
 SHARED_GROUP = "0000000000"
 IMAGE_HOSTS = ("https://img10.360buyimg.com/imgzone/", "https://img10.360buyimg.com/image/")
 VARIANT_PATTERN = re.compile(r"^[a-z0-9]{1,8}$")
@@ -118,10 +117,6 @@ def load_variants(path: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
         if not VARIANT_PATTERN.fullmatch(name):
             raise MatrixError(f"风格编号只能是 1-8 位小写字母或数字：{name}")
     return variants, keep
-
-
-def model_order(index: int) -> tuple[str, ...]:
-    return MODELS
 
 
 # ------------------------------------------------------------------- ledgers
@@ -489,6 +484,7 @@ def command_generate(args: argparse.Namespace) -> int:
 
 def generate_variant(args, run):
     import company_jpeg_edits as company
+    from heideng_merchant.image_models import model_for
     from heideng_merchant.creative_images import CreativeOrder, host_prompt
 
     source_apply_data(run)
@@ -544,9 +540,13 @@ def generate_variant(args, run):
     key = resolve_api_key()
     if not key:
         raise MatrixError("Missing HEIDENG_MERCHANT_LTS4AI_API_KEY; no alternate provider")
-    clients = {model: company.CompanyClient(key) for model in MODELS}
+    client = company.CompanyClient(key)
+    if hasattr(client, 'prepare'):
+        for model in {model_for(index, order.models) for index in range(len(todo))}:
+            client.prepare(model)
     lock = threading.Lock()
     def work(index: int, item: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        model = model_for(index, order.models)
         stem = item["stem"]
         prompt = designs[stem]["prompt"]
         with lock:
@@ -557,20 +557,17 @@ def generate_variant(args, run):
                 archive.parent.mkdir(exist_ok=True)
                 shutil.copy2(target, archive)
                 target.unlink()
-            ledger[stem] = {"status": "STARTED", "model": MODELS[0], "attempts": 1, **designs[stem]}
+            ledger[stem] = {"status": "STARTED", "model": model, "attempts": 1, **designs[stem]}
             save_json_atomic(ledger_path, ledger)
-        began, last = time.monotonic(), ""
-        for model in model_order(index):
-            try:
-                raw, _ = clients[model].edit(model=model, prompt=prompt, source=run / "source-main" / item["file"])
-            except company.SafeGenerationError as exc:
-                last = f"{model}:{exc.status}:{exc.category}"
-                continue
-            (out / f"{item['stem']}.jpg").write_bytes(raw)
-            return item["stem"], {"status": "ok", "model": model, "bytes": len(raw),
-                                  **designs[stem], "promptSha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-                                  "seconds": round(time.monotonic() - began, 1)}
-        return item["stem"], {"status": "UNKNOWN", "error": last, "model": MODELS[0], "attempts": 1}
+        began = time.monotonic()
+        try:
+            raw, _ = client.edit(model=model, prompt=prompt, source=run / "source-main" / item["file"])
+        except company.SafeGenerationError as exc:
+            return stem, {"status":"UNKNOWN", "error":f"{model}:{exc.status}:{exc.category}", "model":model, "attempts":1}
+        (out / f"{stem}.jpg").write_bytes(raw)
+        return stem, {"status": "ok", "model": model, "bytes": len(raw),
+                      **designs[stem], "promptSha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                      "seconds": round(time.monotonic() - began, 1)}
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         jobs = [pool.submit(work, index, item) for index, item in enumerate(todo)]

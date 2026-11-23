@@ -2,9 +2,11 @@
 
 import argparse
 import hashlib
+import io
 import json
 import sys
 import threading
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -16,21 +18,10 @@ import no_window  # noqa: F401
 import _common as common
 
 from heideng_merchant.mature_image import MerchantImageClient
+from heideng_merchant.image_models import MODELS, model_for
 from heideng_merchant.creative_images import CreativeOrder, host_prompt
 from heideng_merchant.state import FileLock
 LOCK = threading.RLock()
-QUOTA_MARKERS = ("额度已用尽", "2006", "2007", "insufficient", "quota", "rate limit")
-CONTENT_MARKERS = ("moderation", "safety", "invalid_request", "rejected by the safety")
-def is_quota_error(text: str) -> bool:
-    lowered = str(text).lower()
-    return any(marker.lower() in lowered for marker in QUOTA_MARKERS)
-
-
-def is_content_rejection(text: str) -> bool:
-    lowered = str(text).lower()
-    return any(marker.lower() in lowered for marker in CONTENT_MARKERS)
-
-
 def source_path(task, sources: Path) -> Path:
     key = task.get("sourceKey") or task["key"]
     path = sources / (key + ".img")
@@ -40,68 +31,50 @@ def source_path(task, sources: Path) -> Path:
 
 
 class PinnedClient:
-    """Thin mature sufy adapter; no company SDK, model switching or retries."""
-    def __init__(self, first_model, *, max_image_requests=None, api_key=None, **kwargs):
-        if first_model != 'gpt-image-2.5':raise RuntimeError('merchant-image-model-not-configured')
-        self.client=MerchantImageClient(api_key)
-        self.last_image_model='gpt-image-2.5'
-        self._image_semaphore=threading.BoundedSemaphore(max(1,int(max_image_requests or 1)))
+    def __init__(self, model, api_key, concurrency):
+        if model not in MODELS:
+            raise ValueError('merchant-image-model-not-configured')
+        self.model = model
+        self.client = MerchantImageClient(api_key, model=model)
+        self.slots = threading.BoundedSemaphore(concurrency)
+
     def edit_image(self, *, prompt, images, size):
-        with self._image_semaphore:
-            return self.client.edit(prompt=prompt,images=images,size=size)
-
-
-def probe_task(models, task, sources, size, api_key):
-    """First approved planned image, not a schema/extra-output paid probe."""
-    if list(dict.fromkeys(models)) != ['gpt-image-2.5']:
-        raise RuntimeError('merchant-image-model-not-configured')
-    try:
-        client=PinnedClient('gpt-image-2.5',api_key=api_key)
-        data=client.edit_image(prompt=task['prompt'],images=[source_path(task,sources)],size=task.get('size') or size)
-        return 'ok','gpt-image-2.5',data,''
-    except Exception as error:
-        detail=str(error)
-        if is_quota_error(detail):return 'quota','',b'',detail
-        if is_content_rejection(detail):return 'content','',b'',detail
-        return 'error','',b'',detail
-
-
-def preflight(models, tasks, sources, size, api_key, ledger, ledger_path, order):
-    """Probe up to five pending tasks before spawning workers."""
-    if not tasks:
-        return "empty", "", b"", None, "", []
-    skipped, detail = [], ""
-    for task in list(tasks.values())[:5]:
-        order.reserve(task["key"])
-        if ledger is not None:
-            ledger[task['key']]={**order.quote['designs'][task['key']], 'status':'unknown','attempts':1,'error':'Original submission result not yet confirmed; no automatic replay'}
-            common.save_json(ledger_path,ledger)
-        status, model, image, detail = probe_task(models, task, sources, size, api_key)
-        if status == "ok":
-            return "ok", model, image, task, "", skipped
-        if status == "quota":
-            return "blocked", "", b"", task, detail, skipped
-        if status == "content":
-            skipped.append(task["key"])
-            continue
-        return "error", "", b"", task, detail, skipped
-    return "content", "", b"", None, detail, skipped
+        with self.slots:
+            return self.client.edit(prompt=prompt, images=images, size=size)
 
 
 def work(key, item, client, paths):
-    started=time.time()
-    try:
-        source=source_path(item,paths['sources'])
+    source = source_path(item, paths['sources'])
+    design = paths['order'].quote['designs'][key]
+    raw = source.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != design['sourceSha256']:
+        raise ValueError('原图在报价后已变更')
+    # Download receipts keep opaque .img names; the provider requires an actual image MIME/filename.
+    with Image.open(io.BytesIO(raw)) as image:
+        extension = {'JPEG':'.jpg', 'PNG':'.png', 'WEBP':'.webp','GIF':'.gif'}.get(image.format)
+        image.verify()
+    if not extension:
+        raise ValueError('原图编码不受支持')
+    with tempfile.TemporaryDirectory(prefix='refresh-reference-') as tmp:
+        ref = Path(tmp)/('reference'+extension)
+        ref.write_bytes(raw)
         with LOCK:
+            if paths['stop'].is_set():
+                return None
             paths['order'].reserve(key)
-            paths['ledger'][key]={**paths['order'].quote['designs'][key], 'status':'unknown','attempts':1,'error':'Original submission result not yet confirmed; no automatic replay'}
-            common.save_json(paths['ledger_path'],paths['ledger'])
-        data=client.edit_image(prompt=item['prompt'],images=[source],size=item.get('size') or paths['size'])
-        out=paths['generated']/(key+'.png');out.write_bytes(data)
-        with Image.open(out) as check:check.verify()
-        return {'status':'succeeded','attempts':1,'model':client.last_image_model,'elapsed':round(time.time()-started,1),'bytes':len(data)}
-    except Exception as error:
-        return {'status':'unknown','attempts':1,'error':type(error).__name__}
+            record = {**design, 'status':'unknown', 'attempts':1, 'model':client.model}
+            paths['ledger'][key] = record
+            common.save_json(paths['ledger_path'], paths['ledger'])
+        started = time.monotonic()
+        try:
+            data = client.edit_image(prompt=item['prompt'], images=[ref], size=design['size'])
+            out = paths['generated']/(key+'.png')
+            with Image.open(io.BytesIO(data)) as generated:
+                generated.save(out, format='PNG')
+            return dict(record, status='succeeded', elapsed=round(time.monotonic()-started, 1), bytes=out.stat().st_size)
+        except Exception as error:
+            paths['stop'].set()
+            return dict(record, error=type(error).__name__)
 
 
 def main(argv):
@@ -160,11 +133,13 @@ def generate(run, args):
         prompt = host_prompt(prompts, key)
         reference = source_path(task, paths['sources'])
         designs[key] = {"prompt": prompt, "sourceSha256": hashlib.sha256(reference.read_bytes()).hexdigest(),
-                        "productId": task["productId"], "role": task.get("scope"), "url": task.get("currentUrl")}
+                        "productId": task["productId"], "role": task.get("scope"), "url": task.get("currentUrl"),
+                        "size":task.get("size") or paths["size"]}
         task["prompt"] = prompt
     context = {"kind": "image-refresh", "shop": {k: job[k] for k in ("profile", "venderId", "shopName")},
                "products": sorted({str(v["productId"]) for v in tasks.values()})}
-    order = CreativeOrder(run, context, designs, pending, args.fee_approval_file)
+    order = CreativeOrder(run, context, designs, pending, args.fee_approval_file,
+                          models=job.get("imageModels") or MODELS)
     if args.quote_only:
         print(json.dumps(order.quote, ensure_ascii=False))
         return
@@ -179,50 +154,12 @@ def generate(run, args):
     api_key = common.resolve_api_key()
     if not api_key:
         raise SystemExit('merchant LTS4AI Key required; use the masked merchant Key launcher after task/cost approval')
-    models = list(dict.fromkeys(str(item) for item in (job.get('imageModels') or ['gpt-image-2.5'])))
-    if models != ['gpt-image-2.5']:raise SystemExit('merchant-image-model-not-configured')
-    paths.update(ledger=ledger,ledger_path=ledger_path)
-    if pending:
-        while True:
-            probe_set = {key: tasks[key] for key in pending[:5]}
-            status, model, image, task, detail, skipped = preflight(
-                models, probe_set, paths["sources"], paths["size"], api_key, ledger, ledger_path, order
-            )
-            for key in skipped:
-                ledger[key] = {**designs[key], "status": "rejected",
-                               "error": "内容审核拒绝（任务级，保留原图）"}
-                pending = [item for item in pending if item != key]
-            if skipped:
-                common.save_json(ledger_path, ledger)
-                print("preflight skipped %d moderation-rejected image(s)" % len(skipped), flush=True)
-            if status == "blocked":
-                print("PREFLIGHT_BLOCKED: %s" % detail, flush=True)
-                print("原图片请求结果/扣费未确认；保留台账，不自动重提。", flush=True)
-                raise SystemExit(3)
-            if status == "error":
-                raise SystemExit("Original first image request unresolved; preserve ledger and do not replay")
-            if status == "content":
-                print("PREFLIGHT_REJECTED: probed images were blocked by content moderation; "
-                      "其余任务继续，被拒图片保留原图。", flush=True)
-            if status == "ok" and task is not None:
-                key = task["key"]
-                (paths["generated"] / (key + ".png")).write_bytes(image)
-                ledger[key] = {**designs[key], "status": "succeeded", "attempts": 1, "model": model,
-                               "elapsed": 0, "bytes": len(image), "preflight": True}
-                common.save_json(ledger_path, ledger)
-                pending = [item for item in pending if item != key]
-                print("preflight ok via %s; %d pending" % (model, len(pending)), flush=True)
-                if model != models[0]:
-                    models = [model] + [item for item in models if item != model]
-            break
-
-    workers = int(job.get("concurrency") or 8)
-    per_client = max(1, int(job.get("concurrentImageRequests") or workers)) // max(len(models), 1)
-    clients = [
-        PinnedClient(model, api_key=api_key, max_image_requests=per_client)
-        for model in models
-    ]
-    assignments = [(key, clients[index % len(clients)]) for index, key in enumerate(pending)]
+    models = order.models
+    paths.update(ledger=ledger, ledger_path=ledger_path, stop=threading.Event())
+    workers = max(1, min(int(job.get('concurrency') or 8), int(job.get('concurrentImageRequests') or 8)))
+    per_client = max(1, (workers + len(models) - 1) // len(models))
+    clients = {model: PinnedClient(model, api_key, per_client) for model in models}
+    assignments = [(key, clients[model_for(index, models)]) for index, key in enumerate(pending)]
     print("tasks: %d pending: %d" % (len(tasks), len(pending)), flush=True)
 
     done_in_run = 0
@@ -236,8 +173,10 @@ def generate(run, args):
         for future in as_completed(futures):
             key = futures[future]
             record = future.result()
+            if record is None:
+                continue
             with LOCK:
-                ledger[key] = {**designs[key], **record}
+                ledger[key] = record
                 try:
                     common.save_json(ledger_path, ledger)
                 except OSError as exc:  # noqa: PERF203 - keep generating

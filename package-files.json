@@ -15,6 +15,7 @@
     "heideng_merchant/lts4ai_client.py",
     "heideng_merchant/mature_runtime.py",
     "heideng_merchant/mature_image.py",
+    "heideng_merchant/image_models.py",
     "heideng_merchant/image_budget.py",
     "heideng_merchant/fee_consent.py",
     "heideng_merchant/sku_image_edit.py",

@@ -9,6 +9,30 @@ from heideng_merchant.image_budget import reserve_request, validate_approval
 
 
 class CategoryFeeTests(unittest.TestCase):
+    def test_selected_batch_has_a_single_credit_ceiling_across_both_models(self):
+        from heideng_merchant.image_models import image_credit_quote, model_scope
+        scope = {'task':'catalogue', **model_scope()}
+        units = ['front','detail','variant','side','back']
+        sizes = dict(zip(units,['1024x1536','2048x1536','2880x2880','1024x1024','1536x1024']))
+        scope['imageSizes'] = sizes
+        quote = {'scope':scope, 'units':units, **image_credit_quote(sizes)}
+        self.assertEqual(quote['maxCredits'],18)
+        with TemporaryDirectory() as tmp, patch('heideng_merchant.fee_consent._ask_merchant',return_value=True) as ask:
+            root = Path(tmp)
+            grant = confirm_fee(quote,root,root/'grant.json',max_requests=5)
+            self.assertEqual((grant['billing'],grant['maxCredits']),('credits',18))
+            self.assertNotIn('¥',ask.call_args.args[0])
+            self.assertIn('18 积分',ask.call_args.args[0])
+            with patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':tmp}):
+                for unit in units:
+                    reserve_request(root,grant,scope=scope,units=units,request_id=unit)
+                with self.assertRaisesRegex(ValueError,'上限'):
+                    reserve_request(root,grant,scope=scope,units=units,request_id='front',
+                                    previous_receipt={'status':'SUCCEEDED','sha256':'old'})
+                with self.assertRaises(ValueError):
+                    validate_approval(dict(grant,maxCredits=30),scope=scope,units=units)
+            ask.assert_called_once()
+
     def test_another_chat_reuses_decision_for_same_quote_even_with_a_new_export_name(self):
         quote = {'scope':{'task':'same-photo-task','shop':'shop-one'}, 'units':['cover']}
         with TemporaryDirectory() as tmp, patch('heideng_merchant.fee_consent._ask_merchant',return_value=True) as ask:

@@ -45,9 +45,10 @@ JDO_IMAGE_BASE = 'https://img14.360buyimg.com/imgzone/'
 JDO_PERMISSION_CODES = {'99904030007', '99904030008'}
 JDO_MATERIAL_SLOTS = {'white': (31, 1), 'scene1': (32, 1), 'scene2': (32, 2), 'selling': (33, 1), 'transparent': (36, 1), 'point1': (1002, 1), 'point2': (1002, 2), 'point3': (1002, 3)}
 
-IMAGE_MODEL_POOL = (('gpt-image-2.5', 1),)
-SCENE_SELLING_EXTRA_MODEL = 'gpt-image-2.5'
-SCENE_SELLING_MODEL_POOL = IMAGE_MODEL_POOL
+from heideng_merchant.image_models import MODELS, image_credit_quote, model_for, model_scope
+
+MATERIAL_IMAGE_SIZE = '1024x1024'
+IMAGE_MODEL_POOL = tuple((model, 1) for model in MODELS)
 IMAGE_MODEL_POOL_ALIAS = 'pool'
 GEMINI_IMAGE_MODELS = ()
 GEMINI_IMAGE_ENDPOINT = ''
@@ -72,7 +73,7 @@ class ProviderConfig:
     flare_model: str = 'gpt-image-2.5'
     flare_endpoint: str = 'images/edits'
     image_model_pool: tuple[tuple[str, int], ...] = IMAGE_MODEL_POOL
-PROVIDER = ProviderConfig(id='merchant-lts4ai', base_url='https://api.lts4ai.com/v1', text_model='external-text-not-configured', image_model='gpt-image-2.5', api_key_env='HEIDENG_MERCHANT_LTS4AI_API_KEY', text_endpoint='', image_endpoint='images/edits', text_concurrency=20, default_image_concurrency=10, maximum_image_concurrency=20, text_start_interval_seconds=0.75, image_start_interval_seconds=0.1, scene_image_model=None, flare_model='gpt-image-2.5', image_model_pool=IMAGE_MODEL_POOL)
+PROVIDER = ProviderConfig(id='merchant-lts4ai', base_url='https://api.lts4ai.com/v1', text_model='external-text-not-configured', image_model=MODELS[0], api_key_env='HEIDENG_MERCHANT_LTS4AI_API_KEY', text_endpoint='', image_endpoint='images/edits', text_concurrency=20, default_image_concurrency=10, maximum_image_concurrency=20, text_start_interval_seconds=0.75, image_start_interval_seconds=0.1, scene_image_model=None, flare_model='gpt-image-2.5', image_model_pool=IMAGE_MODEL_POOL)
 IMAGE_SUFFIXES = {'white': '白底图.jpg', 'transparent': '透明图.png', 'scene1': '场景图1.jpg', 'scene2': '场景图2.jpg', 'selling': '卖点图.jpg'}
 BANNED_SELLING_POINT_TERMS = {'第一', '顶级', '独家', '国家级', '最先进', '金牌', '质量免检', '销量', '好评', '包邮', '京东', '自营', '物流', '官方', '授权', '专供', '特供', '热卖', '疯抢', '直降', '清仓', '推荐', '爆款', '首发', '让利', '特价', '折', '赠'}
 SKU_HEADERS = {'SKUID', 'SKUID（必填）', 'SKUID(必填)'}
@@ -1018,6 +1019,7 @@ def audit_generation_summary(path):
             'imageGenerationRequestCount':None if uncertain else new,'newImageCandidateCount':new,
             'reuseImageSlotCount':reuse,'transparentDerivationCount':derived,'sourceIssues':uncertain,
             'estimateComplete':not uncertain,'spuImageReuse':True,
+            'estimatedCredits':None if uncertain else new * image_credit_quote({'slot':MATERIAL_IMAGE_SIZE})['estimatedCredits'],
             'note':'按同SPU唯一已通过素材复用；透明图本地派生不计付费生图。不是最终扣费或绑定生效证明。'}
 
 
@@ -1454,7 +1456,7 @@ class ModelQuotaExceeded(RuntimeError):
 class ModelUnauthorized(RuntimeError):
 
     def __init__(self, model: str):
-        super().__init__(f'当前业务未授权使用生图模型 {model}；不要重试，改用已授权模型或 JoyAgent-image 兜底，并让商家/平台开通该模型授权。')
+        super().__init__(f'当前内测 Key 未获准使用 {model}，已停在原请求；请核对 LTS4AI 的模型授权。')
 
 class ModelModerationBlocked(RuntimeError):
 
@@ -1465,15 +1467,6 @@ class ModelModerationBlocked(RuntimeError):
 
 def is_model_unauthorized(error: BaseException) -> bool:
     return bool(re.search('未授权使用该生图模型|not authorized|unauthorized', str(error), re.I))
-
-def pool_switchable(error: Exception) -> bool:
-    if isinstance(error, httpx.TransportError):
-        return True
-    message = str(error)
-    if re.search(r'HTTP (?:408|409|425|429|5\d\d)\b', message):
-        return True
-    lowered = message.lower()
-    return 'timeout' in lowered or 'timed out' in lowered or 'get access token failed' in lowered
 
 def _merge_image_model_stats(previous: dict[str, Any] | None, stats: dict[str, Any]) -> dict[str, Any]:
     previous = previous if isinstance(previous, dict) else {}
@@ -1495,7 +1488,7 @@ class ModelClient:
         if not api_key.isascii() or any((character.isspace() for character in api_key)):
             raise ValueError(f'{PROVIDER.api_key_env} 未设置或格式无效。')
         from heideng_merchant.mature_image import MerchantImageClient
-        self._merchant_images = MerchantImageClient(api_key)
+        self._merchant_images = {model: MerchantImageClient(api_key, model=model) for model in MODELS}
         self.http = httpx.Client(timeout=timeout, headers={'Authorization': f'Bearer {api_key}'})
         self.download_http = httpx.Client(timeout=120.0)
         self.text_gate = RequestGate(PROVIDER.requests_per_minute, PROVIDER.text_start_interval_seconds)
@@ -1516,10 +1509,8 @@ class ModelClient:
         self.pool_failures: dict[str, int] = {}
         self.pool_attempts: dict[str, int] = {}
         self.max_model_requests=None
-        self._pool_slots = tuple((model for model, weight in PROVIDER.image_model_pool for _ in range(max(1, int(weight)))))
+        self.image_models = MODELS
         self._pool_cursor = 0
-        self._material_context = threading.local()
-        self._slot_pool_cursors = {}
         self._pool_lock = threading.Lock()
         self.cancel_event = None
 
@@ -1533,57 +1524,16 @@ class ModelClient:
         with self._pool_lock:
             return {'usage': dict(self.pool_usage), 'failures': dict(self.pool_failures), 'attempts':dict(self.pool_attempts),'exhausted': sorted(self.exhausted_models)}
 
-    def material_pool_models(self, kind):
-        if kind == 'transparent':
-            raise ValueError('Transparent images are local derivations, never model requests')
-        if kind not in {'white', 'scene1', 'scene2', 'selling'}:
-            raise ValueError('Unknown image material kind')
-        pool = SCENE_SELLING_MODEL_POOL if kind in {'scene1', 'scene2', 'selling'} else PROVIDER.image_model_pool
-        return [model for model, _weight in pool]
-
-    def edit_material_image(self, kind, prompt, source_path, *, model=None):
-        self.material_pool_models(kind)
-        selected = model or IMAGE_MODEL_POOL_ALIAS
-        if kind == 'white' and selected == SCENE_SELLING_EXTRA_MODEL:
-            raise ValueError('Oxygen-Product-Pro is forbidden for white and transparent materials')
-        previous = getattr(self._material_context, 'kind', None)
-        self._material_context.kind = kind
-        try:
-            return self.edit_image(prompt, source_path, model=selected)
-        finally:
-            self._material_context.kind = previous
-
-    def _remaining_pool_models(self) -> list[str]:
-        kind = getattr(self._material_context, 'kind', None)
-        models = self.material_pool_models(kind) if kind else [model for model, _weight in PROVIDER.image_model_pool]
-        return [model for model in models if model not in self.exhausted_models and model not in self.unavailable_models]
-
-    def _next_pool_model(self) -> str:
+    def select_image_model(self, requested=None):
+        if requested not in (None, IMAGE_MODEL_POOL_ALIAS):
+            if requested not in self.image_models:
+                raise ValueError('指定模型不在这次生图授权范围内')
+            return requested
+        # Choose only for an actual missing image; platform reuse and cutouts consume no turn.
         with self._pool_lock:
-            for _ in range(max(1, len(self._pool_slots)) * 2):
-                model = self._pool_slots[self._pool_cursor % len(self._pool_slots)]
-                self._pool_cursor += 1
-                if model not in self.exhausted_models and model not in self.unavailable_models:
-                    return model
-        raise ModelQuotaExceeded('GPT 生图模型池配额已用尽')
-
-    def _pool_candidates(self) -> list[str]:
-        kind = getattr(self._material_context, 'kind', None)
-        if kind in {'scene1', 'scene2', 'selling'}:
-            slots = [model for model, weight in SCENE_SELLING_MODEL_POOL for _ in range(weight)]
-            with self._pool_lock:
-                cursor = self._slot_pool_cursors.get(kind, 0)
-                choices = [slots[(cursor+i) % len(slots)] for i in range(len(slots))]
-                selected = next((name for name in choices if name not in self.exhausted_models and name not in self.unavailable_models), None)
-                if selected is None: raise ModelQuotaExceeded('Slot model pool exhausted')
-                self._slot_pool_cursors[kind] = cursor + choices.index(selected) + 1
-            candidates = [selected]
-        else:
-            candidates = [self._next_pool_model()]
-        for model in self._remaining_pool_models():
-            if model not in candidates:
-                candidates.append(model)
-        return candidates
+            selected = model_for(self._pool_cursor, self.image_models)
+            self._pool_cursor += 1
+            return selected
 
     def _record_model(self, model: str, *, failed: bool=False) -> None:
         with self._pool_lock:
@@ -1618,11 +1568,10 @@ class ModelClient:
 
     def edit_image(self, prompt: str, source_path: Path, *, model: str | None=None) -> bytes:
         # External paid image calls are single-attempt; unknown output is not a pool-switch retry.
-        if model not in (None, IMAGE_MODEL_POOL_ALIAS, 'gpt-image-2.5'):
-            raise RuntimeError('merchant-image-model-not-configured')
+        selected = self.select_image_model(model)
         with self.image_semaphore:
             self.image_gate.wait()
-            return self._edit_once(prompt, source_path, 'gpt-image-2.5')
+            return self._edit_once(prompt, source_path, selected)
 
     def reserve_image_request(self, model):
         with self._pool_lock:
@@ -1636,9 +1585,9 @@ class ModelClient:
             self.pool_attempts[model]=self.pool_attempts.get(model,0)+1
 
     def _edit_once(self, prompt: str, source_path: Path, image_model: str, *, pool: bool=False) -> bytes:
-        if image_model != 'gpt-image-2.5':raise RuntimeError('merchant-image-model-not-configured')
+        if image_model not in self.image_models:raise RuntimeError('merchant-image-model-not-configured')
         self.reserve_image_request(image_model)
-        try:result = self._merchant_images.edit(prompt=prompt, images=[source_path])
+        try:result = self._merchant_images[image_model].edit(prompt=prompt, images=[source_path], size=MATERIAL_IMAGE_SIZE)
         except Exception:
             self._record_model(image_model,failed=True)
             raise
@@ -1941,16 +1890,12 @@ def _image_model_for_kind(kind: str, scene_model: str | None=None, image_model: 
     if kind not in {'white', 'scene1', 'scene2', 'selling'}:
         raise ValueError('Unknown image material kind')
     selected = (scene_model if scene_model is not None else IMAGE_MODEL_POOL_ALIAS) if kind in {'scene1', 'scene2'} else (image_model if image_model is not None else IMAGE_MODEL_POOL_ALIAS)
-    if not selected: raise ValueError('Image model cannot be empty')
-    if kind == 'white' and selected == SCENE_SELLING_EXTRA_MODEL:
-        raise ValueError('Oxygen-Product-Pro is scene/selling-only; forbidden for white or transparent')
+    if selected not in (*MODELS, IMAGE_MODEL_POOL_ALIAS):
+        raise ValueError('Unsupported LTS4AI material image model')
     return selected
 
 def request_material_image(client, kind, prompt, source, *, model=None):
     selected = _image_model_for_kind(kind, scene_model=model if kind.startswith('scene') else None, image_model=model if not kind.startswith('scene') else None)
-    # Real runtime clients enforce slot eligibility inside their shared concurrency context.
-    if callable(getattr(type(client), 'edit_material_image', None)):
-        return client.edit_material_image(kind, prompt, source, model=selected)
     return client.edit_image(prompt, source, model=selected)
 
 def _request_image_set(client: ModelClient, kinds: Iterable[str], source: Path, title: str | None, scene_model: str | None=None, image_model: str | None=None, *, prompts=None) -> tuple[dict[str, bytes], dict[str, Exception]]:
@@ -1968,16 +1913,6 @@ def _request_image_set(client: ModelClient, kinds: Iterable[str], source: Path, 
                 results[kind] = future.result()
             except Exception as error:
                 errors[kind] = error
-    fallback = PROVIDER.scene_image_model
-    for kind in [name for name in errors if name in {'scene1', 'scene2'}]:
-        error = errors[kind]
-        if not isinstance(error, (ModelModerationBlocked, ModelUnauthorized)) or not fallback:
-            continue
-        try:
-            results[kind] = request_material_image(client, kind, prompts.get(kind) or image_prompt(kind, title), source, model=fallback)
-            errors.pop(kind, None)
-        except Exception as fallback_error:
-            errors[kind] = fallback_error
     return (results, errors)
 
 def _commit_staged_images(results: dict[str, bytes], images: Path, names: dict[str, str], spu_id: str) -> None:
@@ -2722,7 +2657,7 @@ def _write_results(prepared: PreparedSource, output: Path, state: dict, failures
         (output / '失败SPU清单.xlsx').unlink(missing_ok=True)
     return BatchResult(len(prepared.jobs), len(completed), len(incomplete), output, manifest_path, short_title_path, failure_path)
 
-def material_image_approval(prepared, batches, output, existing, shop, approval_file, *, source_id=None):
+def material_image_approval(prepared, batches, output, existing, shop, approval_file, *, source_id=None, scene_model=None, image_model=None):
     """Quote the remaining paid SPU slots across batches after remote and local reuse."""
     from heideng_merchant.image_budget import validate_approval
     from heideng_merchant.safety import read_json, atomic_json
@@ -2739,12 +2674,34 @@ def material_image_approval(prepared, batches, output, existing, shop, approval_
         return (output, None, None)
     scope = {'task':'generate-material-images','shopIdentity':shop,'directory':str(output.resolve()),
              'source':source_id, 'taskSignature':_task_signature(prepared)}
-    quote = {'scope':scope,'units':sorted(units),'estimatedPaidImageCount':len(units),
-             'amount':None,'actualAmount':None,'maxRequestsSuggested':len(units)}
     path = output/'.state/image-fee-quote.json'
     previous = read_json(path, {})
+    approval = read_json(Path(approval_file)) if approval_file else {}
+    # Existing scopes predate model routing: keep their budget fingerprints and 2.5 limitation.
+    if scope in (previous.get('scope'), approval.get('scope')):
+        if any(value not in (None, IMAGE_MODEL_POOL_ALIAS, 'gpt-image-2.5') for value in (scene_model,image_model)):
+            raise ValueError('原单模型范围仅批准 gpt-image-2.5；先核对原费用回执')
+    else:
+        planned = {kind for job in prepared.jobs for kind in _model_kinds(job)}
+        routes = {kind: _image_model_for_kind(kind, scene_model, image_model) for kind in sorted(planned)}
+        choices = MODELS if IMAGE_MODEL_POOL_ALIAS in routes.values() else tuple(m for m in MODELS if m in routes.values())
+        scope.update(model_scope(choices))
+        scope['imageSize'] = MATERIAL_IMAGE_SIZE
+        if scene_model or image_model:
+            scope['materialRoutes'] = routes
+    ledger = read_json(output / '.state/paid-image-budget.json', {})
+    pending_units = set(units)
+    for reservation_id, reservation in ledger.get('requests', {}).items():
+        unit = reservation.get('unit')
+        if unit in pending_units:
+            current_id = hashlib.sha256(json.dumps([scope, unit],ensure_ascii=False,sort_keys=True,
+                                                  separators=(',', ':')).encode('utf-8')).hexdigest()
+            if current_id != reservation_id:
+                raise JdoWriteUncertainError('该图位已有其他模型范围的预占；先核对原回执，不能切换模型再发。')
+    quote = {'scope':scope,'units':sorted(units),'estimatedPaidImageCount':len(units),
+             'amount':None,'actualAmount':None,'maxRequestsSuggested':len(units),
+             **image_credit_quote(dict.fromkeys(units, MATERIAL_IMAGE_SIZE))}
     if approval_file:
-        approval = read_json(Path(approval_file))
         # Completed units may disappear during a resumed run. Only the previously quoted scope may be reused.
         if previous.get('scope') == scope and set(units).issubset(previous['units']) and approval.get('units') == previous['units']:
             quote = previous
@@ -2824,6 +2781,9 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
     client = None
     if needs_model_client():
         client = model_client_factory() if model_client_factory else ModelClient(os.environ.get(PROVIDER.api_key_env, ''), timeout=timeout, image_concurrency=image_concurrency, text_model=text_model)
+    if client is not None and fee_context and fee_context[2]:
+        authorized = fee_context[2]['scope']
+        client.image_models = tuple(authorized.get('models') or [authorized.get('model', 'gpt-image-2.5')])
     if client is not None and getattr(client, 'text_model', None) == 'auto':
         with client._title_registry_lock:
             for item in state['jobs'].values():
@@ -2896,11 +2856,22 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
                     raise ValueError('实际出现了报价外的付费图片；重新盘点剩余范围')
                 def generate_approved(kind):
                     unit = f'{job.spu_id}/{kind}'
-                    reserve_request(fee_root, approval, scope=quote['scope'], units=quote['units'], request_id=unit)
+                    reserved = reserve_request(fee_root, approval, scope=quote['scope'], units=quote['units'], request_id=unit)
+                    requested = _image_model_for_kind(kind, scene_image_model, image_model)
+                    selected = client.select_image_model(requested) if callable(getattr(type(client),'select_image_model',None)) else requested
                     prompt = job_prompts.get(kind) or image_prompt(kind, job.title)
-                    content = request_material_image(client, kind, prompt, source,
-                                                     model=_image_model_for_kind(kind, scene_image_model, image_model))
-                    normalize_jpeg(content, images / names[kind], pure_white=kind == 'white')
+                    receipt = output/'.state'/'image-requests'/f"{reserved['reservationId']}.json"
+                    record = {'unit':unit, 'model':selected, 'size':MATERIAL_IMAGE_SIZE,
+                              'status':'intent', 'approvalRef':approval['approvalRef']}
+                    _save_state(receipt,record)
+                    try:
+                        content = request_material_image(client, kind, prompt, source, model=selected)
+                        destination = images / names[kind]
+                        normalize_jpeg(content, destination, pure_white=kind == 'white')
+                    except Exception:
+                        _save_state(receipt,{**record,'status':'unknown'})
+                        raise
+                    _save_state(receipt,{**record,'status':'received','sha256':_file_sha256(destination)})
                 with ThreadPoolExecutor(max_workers=min(len(pending), PROVIDER.maximum_image_concurrency)) as pool:
                     list(pool.map(generate_approved, pending))
                 pending = []
@@ -2911,18 +2882,6 @@ def generate_batch(prepared: PreparedSource, reference_dir: str | Path, output_d
                     _save_state(output/'.state/image-prompts'/f'{job.spu_id}-{kind}-{image_prompt_revision(entry)}.json',entry)
             if pending and recovery.get('normal_status') != 'blocked':
                 results, errors = _request_image_set(client, pending, source, job.title, scene_model=scene_image_model, image_model=image_model,**({'prompts':job_prompts} if job_prompts else {}))
-                # Gateway disconnect waves (peer closed/timeouts across every pool model) used to fail the whole
-                # SPU and wait for a manual rerun; retry only the transiently failed kinds a few times in-run.
-                for retry_round in range(1, 4):
-                    transient = [kind for kind, failure in errors.items() if pool_switchable(failure) and not is_moderation_error(failure)]
-                    if not transient:
-                        break
-                    time.sleep(3 * retry_round)
-                    retried, retried_errors = _request_image_set(client, transient, source, job.title, scene_model=scene_image_model, image_model=image_model,**({'prompts':job_prompts} if job_prompts else {}))
-                    results.update(retried)
-                    for kind in transient:
-                        errors.pop(kind, None)
-                    errors.update(retried_errors)
                 for kind, content in results.items():
                     normalize_jpeg(content, images / names[kind], pure_white=kind == 'white')
                 all_required_moderated = set(pending) == set(required_model_kinds) and len(errors) == len(required_model_kinds) and all((is_moderation_error(error) for error in errors.values()))
@@ -3521,7 +3480,8 @@ def run_generate_auto_maintain(args) -> dict[str, Any]:
     image_prompts=load_image_prompts(args.image_prompts_file,[job.spu_id for job in prepared.jobs]) if getattr(args,'image_prompts_file',None) else {}
     batches = [(_subset_prepared(prepared,rows), output/f'批次{index:03d}') for index,rows in enumerate(split_rows_by_spu(prepared.rows),1)]
     fee = material_image_approval(prepared,batches,output,existing_materials,_shop_identity(seller),
-                                  getattr(args,'fee_approval_file',None),source_id=_file_sha256(source_path))
+                                  getattr(args,'fee_approval_file',None),source_id=_file_sha256(source_path),
+                                  scene_model=getattr(args,'scene_model',None), image_model=getattr(args,'image_model',None))
     if isinstance(fee, dict):
         return fee
     batch_payloads = []
@@ -3630,7 +3590,8 @@ def run_auto_maintain(args) -> dict[str, Any]:
         return {'status': 'no-work', 'batchImageHandoff': [], 'source': str(source_path), 'skuCount': 0, 'spuCount': 0, 'batches': [], 'browserRequired': False, 'planReused': plan_reused, 'verificationMode': getattr(args, 'verification_mode', 'submit-only'), 'manualVerificationRequired': False, 'manualVerificationMessage': None}
     fee_batches = [(_subset_prepared(prepared, rows), output/f'批次{index:03d}') for index, rows in frozen_scope_batches(prepared, output)]
     fee = material_image_approval(prepared, fee_batches, output, existing_materials, _shop_identity(seller),
-                                  getattr(args,'fee_approval_file',None), source_id=_file_sha256(source_path))
+                                  getattr(args,'fee_approval_file',None), source_id=_file_sha256(source_path),
+                                  scene_model=getattr(args,'scene_model',None), image_model=getattr(args,'image_model',None))
     if isinstance(fee, dict):
         return free_work_while_awaiting_fee(args, prepared, seller, client, batch_image_handoff, fee)
     if args.upload_mode != 'browser' and any(_has_material_work(job) for job in prepared.jobs):
@@ -3899,7 +3860,7 @@ def run_bind_external_cutouts(args) -> dict[str, Any]:
                     if kind == 'transparent' and not valid_material_image(transparent_path, 'transparent') and valid_material_image(white_path, 'white'):
                         make_transparent(white_path, transparent_path)
                     if not valid_material_image(path, kind):
-                        skipped.append({'spuId': job.spu_id, 'materialType': material_type, 'reason': f'{path.name} missing or invalid; generate it via the JoyAgent-image browser fallback first'})
+                        skipped.append({'spuId': job.spu_id, 'materialType': material_type, 'reason': f'{path.name} 缺失或无效，请先检查原生图回执和已批准的图位'})
                         continue
                     url = uploaded_urls.get(kind)
                     if not url:
@@ -4240,8 +4201,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument('--timeout', type=float, default=600)
     generate.add_argument('--existing-url-export', nargs='+', type=Path, default=[])
     generate.add_argument('--agent-text-file', type=Path)
-    generate.add_argument('--scene-model', help='Scene-only override; default six eligible channels (five-model pool + Oxygen-Product-Pro). Product-Pro is scene/selling-only, forbidden for cutouts.')
-    generate.add_argument('--image-model', help='Non-scene override; default white=five-model pool, selling=six-channel pool. Product-Pro must never be selected for white/transparent.')
+    generate.add_argument('--scene-model', help='场景图可选单个 LTS4AI 图片模型；默认两款并发分工，每张一次请求。')
+    generate.add_argument('--image-model', help='白底及卖点图可选单个 LTS4AI 图片模型；默认两款并发分工，透明图本地派生。')
     generate.add_argument('--text-model', help='网关文本模型显式 opt-in；默认不调用网关文本，文本由 agent 按 SKILL 规则自拟并通过 --agent-text-file 注入。')
     fill = sub.add_parser('fill-template')
     fill.add_argument('--manifest', required=True, type=Path)
@@ -4270,8 +4231,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate_auto.add_argument('--image-concurrency', type=int)
     generate_auto.add_argument('--timeout', type=float, default=600)
     generate_auto.add_argument('--agent-text-file', type=Path)
-    generate_auto.add_argument('--scene-model', help='Scene-only override; default six eligible channels (five-model pool + Oxygen-Product-Pro). Product-Pro is scene/selling-only, forbidden for cutouts.')
-    generate_auto.add_argument('--image-model', help='Non-scene override; default white=five-model pool, selling=six-channel pool. Product-Pro must never be selected for white/transparent.')
+    generate_auto.add_argument('--scene-model', help='场景图可选单个 LTS4AI 图片模型；默认两款并发分工，每张一次请求。')
+    generate_auto.add_argument('--image-model', help='白底及卖点图可选单个 LTS4AI 图片模型；默认两款并发分工，透明图本地派生。')
     generate_auto.add_argument('--text-model', help='网关文本模型显式 opt-in；默认不调用网关文本，文本由 agent 按 SKILL 规则自拟并通过 --agent-text-file 注入。')
     generate_auto.add_argument('--model-cutout-images', action='store_true', help='京麦免费方案无法完成时，可对获准图组启用付费白底和本地透明派生。')
     generate_auto.add_argument('--reference-override', action='append', default=[], help='按 SPU 覆盖参考图，格式 SPUID=本地图片路径；用于主图含人物/道具时改用裁好的纯商品图。')
@@ -4349,8 +4310,8 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument('--exclude-binding', action='append', default=[], help='字段级排除绑定，格式 SPUID:素材类型(31/32/33/36/1002)；用于已人工申诉接管的驳回槽位，整槽不重绑。')
     auto.add_argument('--skip-transparent', action='store_true', default=False)
     auto.add_argument('--agent-text-file', type=Path)
-    auto.add_argument('--scene-model', help='Scene-only override; default six eligible channels (five-model pool + Oxygen-Product-Pro). Product-Pro is scene/selling-only, forbidden for cutouts.')
-    auto.add_argument('--image-model', help='Non-scene override; default white=five-model pool, selling=six-channel pool. Product-Pro must never be selected for white/transparent.')
+    auto.add_argument('--scene-model', help='场景图可选单个 LTS4AI 图片模型；默认两款并发分工，每张一次请求。')
+    auto.add_argument('--image-model', help='白底及卖点图可选单个 LTS4AI 图片模型；默认两款并发分工，透明图本地派生。')
     auto.add_argument('--text-model', default='agent', help='auto: discover/probe current-key text models and generate in a shared20 request pool; agent: agent-text-file only; explicit model: legacy opt-in single route')
     auto.add_argument('--model-cutout-images', action='store_true', help='京麦免费方案无法完成时，可对获准图组启用付费白底和本地透明派生。')
     auto.add_argument('--batch-image-handoff', action='store_true', help='白底和透明图优先走京麦免费处理。')
@@ -4541,7 +4502,8 @@ def main(argv: list[str] | None=None) -> int:
                 for kind,name in image_names(job.spu_id).items() if normalize_material_stem(name) in existing_urls}}
                 for job in prepared.jobs}
     fee = material_image_approval(prepared, [(prepared,args.output_dir)], args.output_dir, existing, None,
-                                  args.fee_approval_file, source_id=[_file_sha256(path) for path in args.source])
+                                  args.fee_approval_file, source_id=[_file_sha256(path) for path in args.source],
+                                  scene_model=args.scene_model, image_model=args.image_model)
     if isinstance(fee, dict):
         print(json.dumps(fee,ensure_ascii=False))
         return 2

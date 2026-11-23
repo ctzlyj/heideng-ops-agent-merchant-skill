@@ -7,7 +7,7 @@ from PIL import Image
 from heideng_merchant.mature_image import MerchantImageClient
 
 class ImageBoundaryTests(unittest.TestCase):
-    def wire(self, response_code=200, error_message="synthetic upstream failure"):
+    def wire(self, response_code=200, error_message="synthetic upstream failure", model='gpt-image-2.5'):
         requests = []
         payload = io.BytesIO()
         Image.new('RGB', (32, 32), 'red').save(payload, 'PNG')
@@ -26,7 +26,7 @@ class ImageBoundaryTests(unittest.TestCase):
         worker.start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        client = MerchantImageClient('synthetic-merchant-marker')
+        client = MerchantImageClient('synthetic-merchant-marker',model=model)
         self.assertEqual(client.client.api_root, 'https://api.lts4ai.com/v1')
         # Deliberate test-only local route. Production does not expose an endpoint switch.
         client.client.api_root = 'http://127.0.0.1:'+str(server.server_port)+'/v1'
@@ -56,12 +56,28 @@ class ImageBoundaryTests(unittest.TestCase):
         self.assertIn(b'gpt-image-2.5', requests[0][2])
         self.assertIn(b'name="image"', requests[0][2])
 
+    def test_new_model_reaches_generate_and_edit_without_extra_requests(self):
+        client, requests = self.wire(model='gpt-image-2.6')
+        client.edit(prompt='one original',images=[])
+        with TemporaryDirectory() as temporary:
+            source = Path(temporary)/'reference.jpg'
+            Image.new('RGB',(32,32),'blue').save(source)
+            client.edit(prompt='one edit',images=[source])
+        self.assertEqual([r[0] for r in requests], ['/v1/images/generations','/v1/images/edits'])
+        self.assertEqual(json.loads(requests[0][2])['model'],'gpt-image-2.6')
+        self.assertIn(b'gpt-image-2.6',requests[1][2])
+        with self.assertRaises(ValueError):
+            from heideng_merchant.image_models import model_scope
+            model_scope(['unsupported-model'])
+
     def test_quota_response_cannot_echo_merchant_key(self):
         client, requests = self.wire(403, 'quota exhausted for synthetic-merchant-marker')
         with self.assertRaises(Exception) as failure:
             client.edit(prompt='synthetic product', images=[])
         self.assertEqual(len(requests), 1)
         self.assertNotIn('synthetic-merchant-marker', str(failure.exception))
+        self.assertNotIn('quota exhausted for', str(failure.exception))
+        self.assertIn('HTTP 403', str(failure.exception))
 
     def test_upstream_unknown_result_is_not_resubmitted(self):
         client, requests = self.wire(500)

@@ -42,7 +42,21 @@ def validate_terms(approval, *, scope, units):
         raise ValueError('生图需要明确的计费请求上限')
     if not isinstance(approval.get('approvalRef'), str) or not approval['approvalRef'].strip():
         raise ValueError('缺少商家费用批准的原始消息或回执引用')
-    if approval.get('billing') == 'amount':
+    if approval.get('billing') == 'credits':
+        from .image_models import TIER_CREDITS, resolution_tier
+        costs = approval.get('creditCostsByUnit')
+        if (not isinstance(costs,dict) or set(costs) != set(approved)
+                or any(type(c) is not int or c not in TIER_CREDITS.values() for c in costs.values())
+                or limit < len(costs)):
+            raise ValueError('图位积分和计费请求上限不一致')
+        for unit, cost in costs.items():
+            size = scope.get('imageSizes',{}).get(unit) or scope.get('imageSize')
+            if size and cost != TIER_CREDITS[resolution_tier(size)]:
+                raise ValueError('图位积分与实际请求的分辨率不一致')
+        cap = sum(costs.values()) + (limit-len(costs))*max(costs.values())
+        if approval.get('maxCredits') != cap:
+            raise ValueError('批准积分与报价上限不一致')
+    elif approval.get('billing') == 'amount':
         evidence = approval.get('priceEvidence')
         if not re.fullmatch('[A-Z]{3}', str(approval.get('currency', ''))) or not isinstance(evidence, str) or not evidence.strip():
             raise ValueError('按金额控制费用需要币种和可核验的价格依据')
@@ -102,7 +116,7 @@ def reserve_request(directory, approval, *, scope, units, request_id, previous_r
             entry['replacesUnknown'] = unresolved_reservation
         atomic_json(ledger, data)
         try:
-            charge_attempt(approval, directory=directory, fingerprint=fingerprint, intent=entry['intent'])
+            charge_attempt(approval, directory=directory, fingerprint=fingerprint, intent=entry['intent'], unit=request_id)
         except ValueError:
             # The central receipt declined this reservation. No dispatch has been authorized.
             del data['requests'][fingerprint]

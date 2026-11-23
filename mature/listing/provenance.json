@@ -47,7 +47,7 @@
     },
     "scripts/photo_listing.py": {
       "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
-      "sha256": "66d93c304f0f5897fb46710de092cc652ec62aa3178f405823aeb0ac02d3d4ab",
+      "sha256": "80270f2e75836cfd77df1a6090644176d40c11e1cb73a28e4f843cecf3d310e4",
       "adapted": true
     },
     "scripts/photo_contract.py": {
@@ -57,12 +57,12 @@
     },
     "scripts/photo_generation.py": {
       "upstreamSha256": "892e17c68cd038e2c0d3bdb0d84e31da983e2e4a5c9f69698cc14ab6c1a2ce50",
-      "sha256": "83dcad756a8d26d4955fb056ca16980561770ac5a5272bf26b4b7c0765cf85e1",
+      "sha256": "8c190fe366cb30db04a523166d1900c8467d9bc2fa05d021411038c4c2b27e16",
       "adapted": true
     },
     "scripts/company_jpeg_edits.py": {
       "upstreamSha256": "4e044efd666bea87b45976aa6fe39614eaacec4ef34a3c59a06f7d9f22f07b93",
-      "sha256": "d888c4861b3958e3b4f2c2aed82acfe562b5190746d2ea42a230437ccdd83e0a",
+      "sha256": "dc5dd05f4e3b8c1b09922687a6edf1f16317d34611d29eb815516971f5da0318",
       "adapted": true
     },
     "scripts/image_patch_update.py": {
@@ -97,7 +97,7 @@
     },
     "scripts/matrix_listing.py": {
       "upstreamSha256": "5f61e01259471244a4465fbf4be6f79bee573892c41a5d248cc3164d37917840",
-      "sha256": "b0f27d9d2ba3c21cef02e60827eb0dabaf2b246d66ff6458eaf72855c06258e4",
+      "sha256": "535cc644179e3620c592517961e6b536d9ead56b5b42f7c55e65fa868be700b7",
       "adapted": true
     },
     "scripts/set_product_brand.py": {

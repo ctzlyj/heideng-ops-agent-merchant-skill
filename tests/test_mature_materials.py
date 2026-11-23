@@ -129,7 +129,8 @@ class MatureMaterialsTests(unittest.TestCase):
         with patch('httpx.Client',side_effect=AssertionError('unconfigured channel must not open HTTP')):
             with self.assertRaises(RuntimeError):pop_text.TextPool('offline-fixture')
             with self.assertRaises(RuntimeError):pop_attrs.VisionAttrModel('offline-fixture')
-        self.assertEqual(a.PROVIDER.image_model,'gpt-image-2.5')
+        self.assertEqual(a.PROVIDER.image_model,a.MODELS[0])
+        self.assertEqual(tuple(name for name,_ in a.PROVIDER.image_model_pool),a.MODELS)
         self.assertEqual(a.PROVIDER.base_url,'https://api.lts4ai.com/v1')
         self.assertEqual(a.PROVIDER.api_key_env,'HEIDENG_MERCHANT_LTS4AI_API_KEY')
     def test_existing_uploaded_white_still_derives_missing_transparent_without_model_call(self):
