@@ -1,5 +1,6 @@
 {
   "name": "heideng-merchant",
+  "dependencies": {"mcpServers": "./.mcp.json"},
   "expertType": "agent",
   "agentName": "heideng-merchant",
   "agents": ["./agents/heideng-merchant.md"],

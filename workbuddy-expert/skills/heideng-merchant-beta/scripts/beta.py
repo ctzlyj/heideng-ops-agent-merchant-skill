@@ -90,18 +90,6 @@ def qualify(key, digests, *, lookup=token_usage, active=active_models, now=time.
     return 'quota-exhausted' if balance <= 0 else None
 
 
-def ask_key():
-    from heideng_merchant.merchant_key_ui import _prompt_local_page, _prompt_native_window
-    try:
-        import tkinter as tk
-    except ImportError:
-        return _prompt_local_page(beta=True)[0]
-    try:
-        return _prompt_native_window(beta=True)[0]
-    except tk.TclError:
-        return _prompt_local_page(beta=True)[0]
-
-
 def checked_core(skill):
     config = json.loads((skill/'expert-distribution.json').read_bytes())
     archive = skill/'resources/merchant.zip'
@@ -110,37 +98,40 @@ def checked_core(skill):
     return archive
 
 
-def invoke(argv, *, skill=SKILL, home=None, lookup=token_usage, active=active_models, ask=ask_key, run=subprocess.run):
+def invoke(argv, *, skill=SKILL, home=None, lookup=token_usage, active=active_models, key=None, run=subprocess.run):
     from heideng_merchant.cli import build_parser
     from heideng_merchant.distribution import validate_archive, verify_install
-    from heideng_merchant.merchant_key_store import forget_key, read_key, store_key
     from heideng_merchant.safety import clean_environment
 
     config = json.loads((skill/'expert-distribution.json').read_bytes())
     if not config['inviteDigests']:
         raise EligibilityError('此包为开发预览，尚未配置受邀商家。')
     state = (Path(home or Path.home())/'.heideng-wb-beta').resolve()
-    vault = state/'membership'
-    if argv == ['forget-key']:
-        forget_key(vault)
-        return {'status':'forgotten', 'businessExecuted':False}
+    if not key:
+        raise EligibilityError('WorkBuddy 凭证依赖未连接。')
     if not argv:
         argv = ['status']
     if argv[0].startswith('-') or argv[0] == 'key' or (argv[0] == 'update' and argv[1:2] != ['usage']):
-        raise EligibilityError('请通过专家维护本机内测凭证和版本。')
-    if argv != ['activate']:
-        parsed = build_parser().parse_args(argv)
-        if parsed.state is not None:
-            raise EligibilityError('内测任务使用专家自己的商家状态。')
-    saved = read_key(vault) if argv != ['activate'] else None
-    key = saved or ask()
-    if not key:
-        raise EligibilityError('内测资格录入已取消。')
+        raise EligibilityError('此操作由 WorkBuddy 专家依赖管理。')
+    card_identity = argv == ['card-shop-identity']
+    parsed = None if card_identity else build_parser().parse_args(argv)
+    if parsed is not None and parsed.state is not None:
+        raise EligibilityError('内测任务使用专家自己的商家状态。')
     blocked = qualify(key, config['inviteDigests'], lookup=lookup, active=active)
-    if not saved:
-        store_key(vault, key)
-    if argv == ['activate']:
-        return {'status':'eligible', 'newImagesAvailable':blocked is None, 'businessExecuted':False}
+    if card_identity:
+        card_state = (Path(home or Path.home())/'.heideng-wb-jd-card').resolve()
+        if not (card_state/'jd-card/current.json').is_file():
+            return {'status':'not-connected','matched':False,'readOnly':True}
+    # Only the card's exact read-only identity operation is available for connector
+    # integration. Shop selection, new authorization and writes have no MCP route.
+    if parsed is not None and parsed.command == 'run':
+        args = list(parsed.arguments)
+        if args[:1] == ['--']:
+            args = args[1:]
+        if parsed.capability != 'photo-listing' or parsed.entry or args[:1] not in (['generate'],['reconcile-images']):
+            raise EligibilityError('京麦连接器尚未接入；本联调包仅支持本地任务查询和原计划图片处理。')
+        if blocked and args[0] == 'generate':
+            raise EligibilityError('当前内测额度状态不支持新生图。')
     env = clean_environment(state/'runtime-home')
     env['HEIDENG_MERCHANT_HOME'] = str(state)
     target = state/'program'/'heideng-ops-agent-merchant'
@@ -156,15 +147,18 @@ def invoke(argv, *, skill=SKILL, home=None, lookup=token_usage, active=active_mo
                 path.write_bytes(content)
             result = run([sys.executable,'-I','-B',str(source/'install.py'),'--archive',str(archive),
                           '--sha256',config['coreSha256'],'--host','workbuddy','--skills-dir',str(target.parent),
-                          '--state',str(state),'--with-runtime','--with-official','--no-auto-update'],env=env)
+                          '--state',str(state),'--with-runtime','--no-auto-update'],env=env)
         if result.returncode:
             raise EligibilityError('专家初始化未完成；请核对安装回执后继续。')
         installed = verify_install(target)
         if not installed.get('valid') or installed['receipt']['archiveSha256'] != config['coreSha256']:
             raise EligibilityError('内测程序与专家发布清单不一致。')
+    if card_identity:
+        return run([sys.executable,'-I','-B',str(skill/'scripts/card.py'),'--core',str(target),
+                    '--state',str(card_state),'identity'],env=env).returncode
     # Transient process-only injection; never use the host's personal/provider key.
     image_capabilities = {'materials','listing','photo-listing','matrix-listing','link-replica','images','image-refresh'}
-    if parsed.command == 'run' and parsed.capability in image_capabilities:
+    if parsed.command == 'run' and args[:1] == ['generate'] and parsed.capability in image_capabilities:
         env['HEIDENG_MERCHANT_LTS4AI_API_KEY'] = key
     if blocked:
         env['HEIDENG_MERCHANT_BETA_IMAGE_BLOCKED'] = blocked
@@ -172,27 +166,8 @@ def invoke(argv, *, skill=SKILL, home=None, lookup=token_usage, active=active_mo
     return proc.returncode
 
 
-def main():
-    try:
-        archive = checked_core(SKILL)
-    except (EligibilityError, ValueError, KeyError, OSError):
-        print(json.dumps({'status':'blocked','message':'内测专家文件不完整，请重新取得本次专家副本。'},ensure_ascii=False))
-        return 2
-    sys.path.insert(0, str(archive))
-    from heideng_merchant.safety import SafetyError
-    try:
-        result = invoke(sys.argv[1:])
-        if isinstance(result, int):
-            return result
-        print(json.dumps(result, ensure_ascii=False))
-        return 0
-    except (EligibilityError, SafetyError) as error:
-        print(json.dumps({'status':'blocked','message':str(error),'businessExecuted':False},ensure_ascii=False))
-        return 2
-
-
 if __name__ == '__main__':
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, 'reconfigure'):
-            stream.reconfigure(encoding='utf-8',errors='backslashreplace')
-    raise SystemExit(main())
+    # The expert's stdio MCP receives the credential directly from WorkBuddy.
+    sys.stdout.reconfigure(encoding='utf-8')
+    print(json.dumps({'status':'blocked','message':'此专家从 WorkBuddy 已声明的工具入口执行。','businessExecuted':False},ensure_ascii=False))
+    raise SystemExit(2)

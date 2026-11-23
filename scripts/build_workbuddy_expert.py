@@ -29,17 +29,19 @@ def read_invites(path):
     return sorted(set(data))
 
 
-def build(output, invites=None, email='preview@example.invalid'):
+def build(output, invites=None, email='preview@example.invalid', *, integration_only=False):
     output = Path(output)
     if output.suffix.lower() != '.zip' or (invites and output.resolve() == Path(invites).resolve()):
         raise ValueError('输出需要单独的 .zip 文件')
     if invites and (not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email.endswith('.invalid')):
         raise ValueError('分发候选需要真实的发布联系人邮箱')
+    if invites and not integration_only:
+        raise ValueError('完整运营专家缺少可核验的已上架京麦连接器；当前仅可构建本地授权联调包')
     version = (ROOT/'VERSION').read_text().strip()
     with tempfile.TemporaryDirectory(prefix='heideng-workbuddy-build-') as tmp:
         archive = build_bundle(ROOT, Path(tmp)/'core.zip', version)
         audit(archive)
-        manifest, files = validate_archive(archive)
+        manifest, _ = validate_archive(archive)
         if manifest['version'] != version:
             raise ValueError('商家包版本不一致')
         config = json.loads((ROOT/'workbuddy-expert/plugin.json').read_text(encoding='utf-8'))
@@ -48,10 +50,13 @@ def build(output, invites=None, email='preview@example.invalid'):
         digests = read_invites(invites)
         # WorkBuddy sees one Skill. Ship its audited runtime as one immutable payload
         # so the host cannot accidentally register the core's standalone SKILL.md.
-        files = {f'{SKILL}/{n}':data for n,data in files.items() if n.startswith('references/')}
+        expert = ROOT/'workbuddy-expert'
+        files = {p.relative_to(expert).as_posix():p.read_bytes()
+                 for p in sorted((expert/SKILL/'references').glob('*.md'))}
         files[f'{SKILL}/resources/merchant.zip'] = archive.read_bytes()
-        for name in ('avatars/heideng.png', 'agents/heideng-merchant.md', 'README.md',
-                     f'{SKILL}/scripts/beta.py', f'{SKILL}/SKILL.md'):
+        files[f'{SKILL}/scripts/card.py'] = (ROOT/'workbuddy-jd-connector/card.py').read_bytes()
+        for name in ('.mcp.json','avatars/heideng.png', 'agents/heideng-merchant.md', 'README.md',
+                     f'{SKILL}/scripts/beta.py', f'{SKILL}/scripts/expert_mcp.py', f'{SKILL}/SKILL.md'):
             files[name] = (ROOT/'workbuddy-expert'/name).read_bytes()
         files['.codebuddy-plugin/plugin.json'] = json.dumps(config,ensure_ascii=False,indent=2).encode()
         files[f'{SKILL}/expert-distribution.json'] = json.dumps(
@@ -69,7 +74,8 @@ def build(output, invites=None, email='preview@example.invalid'):
         finally:
             Path(target).unlink(missing_ok=True)
     return {'expert':EXPERT,'version':version,'file':str(output),'sha256':file_sha(output),
-            'invitedKeys':len(digests),'mode':'invite-only-candidate' if digests else 'preview-no-access'}
+            'invitedKeys':len(digests),'mode':'authorization-integration-only' if digests else 'preview-no-access',
+            'readyForSubmission':False}
 
 
 if __name__ == '__main__':
@@ -78,6 +84,8 @@ if __name__ == '__main__':
     access.add_argument('--preview',action='store_true',help='没有内测资格的开发预览')
     access.add_argument('--invite-digests',type=Path,help='运营方在仓库外提供的一批专用 Key 的 SHA-256 指纹数组')
     parser.add_argument('--publisher-email',default='preview@example.invalid')
+    parser.add_argument('--integration-only', action='store_true', help='仅验证 WorkBuddy 凭据表单和本地原任务；不能提交完整店铺运营专家')
     parser.add_argument('--output',type=Path,required=True)
     args = parser.parse_args()
-    print(json.dumps(build(args.output,args.invite_digests,args.publisher_email),ensure_ascii=False))
+    print(json.dumps(build(args.output,args.invite_digests,args.publisher_email,
+                           integration_only=args.integration_only),ensure_ascii=False))

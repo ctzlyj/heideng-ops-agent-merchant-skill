@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "heideng-member": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-I", "-B", "${CODEBUDDY_PLUGIN_ROOT}/skills/heideng-merchant-beta/scripts/expert_mcp.py"],
+      "env": {"HEIDENG_WORKBUDDY_INVITE_KEY": "${HEIDENG_WORKBUDDY_INVITE_KEY}"},
+      "x-workbuddy": {
+        "displayName": {"zh": "黑灯受邀商家", "en": "Heideng merchant access"},
+        "description": {"zh": "验证本批内测资格并连接商家的本地经营工具。", "en": "Verify beta eligibility and connect the merchant's local tools."},
+        "icon": "./avatars/heideng.png",
+        "auth": {
+          "type": "token",
+          "tokenSchema": {
+            "title": {"zh": "连接黑灯内测", "en": "Connect to the Heideng beta"},
+            "description": {"zh": "此凭证用于验证受邀资格及使用该商家的 LTS4AI 生图额度。", "en": "Used for beta eligibility and this merchant's LTS4AI image credits."},
+            "fields": [{
+              "key": "HEIDENG_WORKBUDDY_INVITE_KEY",
+              "label": {"zh": "内测专用 Key", "en": "Beta access key"},
+              "type": "password",
+              "required": true
+            }]
+          }
+        }
+      }
+    }
+  }
+}
