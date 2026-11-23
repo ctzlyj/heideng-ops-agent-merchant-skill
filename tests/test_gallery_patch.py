@@ -150,3 +150,22 @@ class GalleryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '原刷新任务留有提交体'):
             gallery.frozen_patch(self.api, self.read, self.shop, 41, self.live, {'shared': 'new'}, [1], 9, bodies, str)
         self.api.run_jdo_large.assert_not_called()
+
+    def test_old_saved_mapping_body_is_checked_before_a_new_pilot_upload(self):
+        p = module('image_patch_update')
+        old_body, _ = p.build_image_patch_payload(self.live, {'shared': 'previous-request'})
+        path = self.root / 'outputs' / 'image-patches' / 'patch_41.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(old_body), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, '旧主图提交体'):
+            self.publish()
+        self.api.upload.assert_not_called()
+        self.api.run_jdo_large.assert_not_called()
+
+    def test_existing_shop_review_can_be_previewed_but_receives_no_new_upload(self):
+        self.live['applyInfo'] = {'draftComputeStatus': 1}
+        self.assertEqual(gallery.pilot(self.api, self.read, self.shop, 41, '301')['writes'], 0)
+        with self.assertRaisesRegex(ValueError, '已有在审申请'):
+            self.publish()
+        self.api.upload.assert_not_called()
+        self.api.run_jdo_large.assert_not_called()

@@ -190,7 +190,8 @@ def submit(cli, read_detail, root, pid, state, changes, summary, request, identi
             atomic_json(root / 'current.json', rejected)
         raise
     atomic_json(directory / 'response.json', response)
-    record['summary'] = {**summary, 'submit': response.get('data')}
+    if request['mode'] == 'url-map':
+        record['summary'] = {**summary, 'submit': response.get('data')}
     result = checked_result(record, snapshot(read_detail(pid), pid))
     atomic_json(directory / 'readback.json', result)
     atomic_json(root / 'current.json', {**record, 'status': 'verified' if result['ok'] else 'submitted'})
