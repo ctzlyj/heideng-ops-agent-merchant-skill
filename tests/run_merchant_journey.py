@@ -136,6 +136,9 @@ def main():
                                     '--offline','--no-auto-update']))
         assert installed['version'] == (ROOT/'VERSION').read_text().strip()
         target = home/'.workbuddy/skills/heideng-ops-agent-merchant'
+        receipt = json.loads((target/'.merchant-install.json').read_bytes())
+        assert receipt['sourceManifestSha256'] == receipt['files']['package-manifest.json']
+        assert 'archiveSha256' not in receipt
         run([__file__,target,home,'submit'])
         tasks = json.loads(run([target/'scripts/merchant.py','--state',state,'task-context','--shop-id','77',
                                 '--vender-id','99','--goal','sku-edit','--product-id','42']))

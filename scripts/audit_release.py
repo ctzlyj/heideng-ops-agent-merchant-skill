@@ -6,7 +6,10 @@ from heideng_merchant.distribution import validate_archive
 from heideng_merchant.safety import SafetyError
 
 def audit(archive):
- manifest,files=validate_archive(archive);issues=[]
+ return audit_payload(*validate_archive(archive))
+
+def audit_payload(manifest,files):
+ issues=[]
  for name,raw in files.items():
   if Path(name).suffix.lower() not in ('.py','.md','.json','.mjs','.js','.cjs','.html','.txt','.sh','.ps1') and Path(name).name!='LICENSE':continue
   text=raw.decode('utf-8-sig')

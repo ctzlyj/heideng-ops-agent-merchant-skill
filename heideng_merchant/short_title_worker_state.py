@@ -36,13 +36,16 @@ def _read(path):
  except (ValueError,OSError,RecursionError):_error()
 
 def _runtime(value):
- if not isinstance(value,dict) or set(value)!={'version','archiveSha256','filesSha256'} or not isinstance(value['version'],str) or re.fullmatch(r'\d+\.\d+\.\d+',value['version']) is None or any(not isinstance(value[k],str) or HASH.fullmatch(value[k]) is None for k in ('archiveSha256','filesSha256')):_error()
+ if not isinstance(value,dict):_error()
+ identity='sourceManifestSha256' if 'sourceManifestSha256' in value else 'archiveSha256'
+ if set(value)!={'version',identity,'filesSha256'} or not isinstance(value['version'],str) or re.fullmatch(r'\d+\.\d+\.\d+',value['version']) is None or any(not isinstance(value[k],str) or HASH.fullmatch(value[k]) is None for k in (identity,'filesSha256')):_error()
 
 def runtime_binding(target=None):
  from .distribution import verify_install
  check=verify_install(Path(__file__).resolve().parents[1] if target is None else target)
  if check.get('valid') is not True or check.get('version')!=VERSION:raise SafetyError('verified-current-managed-worker-install-required')
- receipt=check['receipt'];out={'version':receipt['version'],'archiveSha256':receipt['archiveSha256'],'filesSha256':digest(receipt['files'])};_runtime(out);return out
+ receipt=check['receipt'];identity='sourceManifestSha256' if 'sourceManifestSha256' in receipt else 'archiveSha256'
+ out={'version':receipt['version'],identity:receipt[identity],'filesSha256':digest(receipt['files'])};_runtime(out);return out
 
 def create_job(state,plan_id,client,binding,*,source_id=None,foreground=True):
  _runtime(binding)

@@ -16,6 +16,7 @@ MODULES += ['test_sample_delivery', 'test_sample_comparison', 'test_sample_uploa
 MODULES.append('test_dual_commercial_images')
 
 def main():
+    source_only='--source-only' in sys.argv
     with tempfile.TemporaryDirectory(prefix='merchant-mature-offline-') as home:
         env=clean_environment(Path(home));env['PYTHONIOENCODING']='utf-8'
         code="""import sys,socket,ipaddress,unittest
@@ -32,6 +33,7 @@ suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName('tests.'+n
 result=unittest.TextTestRunner(verbosity=2).run(suite)
 raise SystemExit(0 if result.wasSuccessful() else 1)
 """
-        result=subprocess.run([sys.executable,'-I','-B','-c',"import sys;sys.path.insert(0,"+repr(str(ROOT))+");"+code,*MODULES],cwd=ROOT,env=env)
+        guard='from tests.source_only import pause_bundle_fixtures;pause_bundle_fixtures();' if source_only else ''
+        result=subprocess.run([sys.executable,'-I','-B','-c',"import sys;sys.path.insert(0,"+repr(str(ROOT))+");"+guard+code,*MODULES],cwd=ROOT,env=env)
         return result.returncode
 if __name__=='__main__':raise SystemExit(main())
