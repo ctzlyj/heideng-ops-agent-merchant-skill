@@ -493,6 +493,9 @@ print('offline imports and merchant defaults OK')
 
     def test_image_patch_default_body_uses_merchant_namespace(self):
         p = module("image_patch_update"); before = detail(); after = copy.deepcopy(before)
+        for receipt in (before, after):
+            for sku, group in zip(receipt["skuList"], ("color-a", "color-b")):
+                sku["saleAttrs"] = [{"dim": 1, "attrValues": group}]
         after["material"]["mainImages"][0]["imageInfoList"][0]["imgUrl"] = "jfs/new-a.jpg"
         with tempfile.TemporaryDirectory() as t:
             state = Path(t) / "mature" / "listing"
@@ -502,7 +505,9 @@ print('offline imports and merchant defaults OK')
                 body = json.loads(body_path.read_text())
                 self.assertEqual(body["applyId"], "123"); self.assertEqual(body["opType"], 3)
                 return {"data": {"applyId": 123}}
-            with patch.object(p.cli, "STATE_ROOT", state), patch.object(p, "apply_detail", side_effect=[before, after]), \
+            store = {"venderId": 42, "shopName": "test", "profile": "pop-test"}
+            with patch.dict(os.environ, {'HEIDENG_MERCHANT_HOME': t}), patch.object(p.cli, "require_verified_jdo_store", return_value=store), \
+                    patch.object(p.cli, "STATE_ROOT", state), patch.object(p, "apply_detail", side_effect=[before, after]), \
                     patch.object(p.cli, "run_jdo_large", offline_transfer), patch.object(p.time, "sleep"):
                 result = p.patch_product(123, {"jfs/a.jpg": "jfs/new-a.jpg"}, "PATCH_PRODUCT_IMAGES")
             self.assertTrue(result["ok"])

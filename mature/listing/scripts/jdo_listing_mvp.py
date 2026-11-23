@@ -74,7 +74,7 @@ def active_jdo_profile() -> str:
     return _ACTIVE_JDO_PROFILE
 
 
-def mark_jdo_store_verified(profile: str, vender_id: int, shop_name: str) -> None:
+def mark_jdo_store_verified(profile: str, vender_id: int, shop_name: str, shop_id: int | None = None) -> None:
     global _VERIFIED_JDO_STORE
     active_profile = active_jdo_profile()
     if str(profile).strip().lower() != active_profile:
@@ -86,6 +86,8 @@ def mark_jdo_store_verified(profile: str, vender_id: int, shop_name: str) -> Non
         "venderId": int(vender_id),
         "shopName": str(shop_name).strip(),
     }
+    if shop_id:
+        _VERIFIED_JDO_STORE["shopId"] = int(shop_id)
 
 
 def require_verified_jdo_store() -> dict[str, Any]:
@@ -108,6 +110,7 @@ def recheck_verified_jdo_store() -> dict[str, Any]:
     if (
         actual_vender_id != int(expected["venderId"])
         or actual_shop_name != str(expected["shopName"])
+        or (expected.get("shopId") and str(expected["shopId"]) != str(shop.get("shopId") or ""))
     ):
         raise JdoError(
             f"写操作前店铺身份已变化：Profile={expected['profile']}, "
@@ -309,14 +312,15 @@ def verify_configured_store_identity(store_config_path: Path, profile: str) -> d
     shop = data.get("shopBaseInfo") or {}
     vender_id = int(data.get("venderId") or 0)
     shop_name = str(shop.get("shopName") or "").strip()
-    if vender_id != expected_vender_id or shop_name != expected_shop_name:
+    if (vender_id != expected_vender_id or shop_name != expected_shop_name
+            or (expected.get("shopId") and str(expected["shopId"]) != str(shop.get("shopId") or ""))):
         raise JdoError(
             f"Profile {active_profile} 对应店铺与配置不一致："
             f"venderId={vender_id}, shopName={shop_name}"
         )
     if int(shop.get("type", -1)) != 0 or int(shop.get("status") or 0) != 1:
         raise JdoError(f"Profile {active_profile} 对应店铺不是正常 POP 状态")
-    mark_jdo_store_verified(active_profile, vender_id, shop_name)
+    mark_jdo_store_verified(active_profile, vender_id, shop_name, shop.get("shopId"))
     return {
         "profile": active_profile,
         "venderId": vender_id,

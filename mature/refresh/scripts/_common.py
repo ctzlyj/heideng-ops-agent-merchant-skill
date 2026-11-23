@@ -261,13 +261,19 @@ def verify_identity(cli, job: dict[str, Any], run: str | Path | None = None) -> 
     shop_name = str((data.get("shopBaseInfo") or {}).get("shopName") or "")
     expected_id = int(job["venderId"])
     expected_name = str(job["shopName"])
-    if vender_id != expected_id or shop_name != expected_name:
+    if (vender_id != expected_id or shop_name != expected_name
+            or (job.get("shopId") and str(job["shopId"]) != str((data.get("shopBaseInfo") or {}).get("shopId") or ""))):
         raise SystemExit(
             "identity mismatch: cli=%s/%s job=%s/%s profile=%s"
             % (vender_id, shop_name, expected_id, expected_name, job["profile"])
         )
-    cli.mark_jdo_store_verified(job["profile"], vender_id, shop_name)
     identity = {"profile": job["profile"], "venderId": vender_id, "shopName": shop_name}
+    shop_id = (data.get("shopBaseInfo") or {}).get("shopId")
+    if shop_id:
+        identity["shopId"] = int(shop_id)
+        cli.mark_jdo_store_verified(job["profile"], vender_id, shop_name, shop_id)
+    else:
+        cli.mark_jdo_store_verified(job["profile"], vender_id, shop_name)
     if run is not None:
         save_json(Path(run) / "identity.json", identity)
     return identity

@@ -813,7 +813,8 @@ def command_patch_fix(args: argparse.Namespace) -> int:
     if old not in slots and new in slots:
         result = {"productId": product_id, "ok": True, "reconciled": True}
     else:
-        result = ipu.patch_product(product_id, {old: new}, PATCH_CONFIRM, out / "fix-patch")
+        # A matrix stem represents every use of this asset in the published variant.
+        result = ipu.patch_product(product_id, {old: new}, PATCH_CONFIRM, out / "fix-patch", all_matching_slots=True)
         if not result["ok"]:
             time.sleep(30)
             result["problemsRecheck"] = ipu.verify_patch(before, ipu.apply_detail(product_id), {old: new})

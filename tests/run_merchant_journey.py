@@ -146,7 +146,11 @@ def main():
         task = tasks['tasks'][0]
         assert task['kind'] == 'sku-edit' and str(task['productId']) == '42'
         (home/'selected-task.json').write_text(json.dumps(task), encoding='utf-8')
-        print(run([__file__,target,home,'recover']).strip())
+        result = json.loads(run([__file__,target,home,'recover']))
+        sys.path.insert(0,str(ROOT/'tests'))
+        from run_gallery_journey import run_journey
+        result['singleSkuPilot'] = run_journey(run,target,home,state)
+        print(json.dumps(result))
 
 
 if __name__ == '__main__':
