@@ -8,6 +8,8 @@ MODULES=['test_task_image_prompts','test_field_9mv_connection','test_field_9mv_m
 MODULES.append('test_field_commerce')
 MODULES.append('test_commerce_handoff')
 
+MODULES.append('test_workbuddy_expert')
+
 def main():
     with tempfile.TemporaryDirectory(prefix='merchant-usability-offline-') as d:
         env=clean_environment(Path(d));env['PYTHONIOENCODING']='utf-8'

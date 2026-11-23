@@ -1,11 +1,12 @@
 """Merchant photo generation with the mature durable per-image receipt."""
 from __future__ import annotations
-import hashlib,io,json,os,re,threading,time
+import hashlib,io,json,os,re,sys,threading,time
 from concurrent.futures import ThreadPoolExecutor,as_completed
 from pathlib import Path
 from PIL import Image
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from heideng_merchant.image_models import MODELS, image_credit_quote, model_for
 
-MODELS=('gpt-image-2.5',)
 class GenerationUnknown(RuntimeError):pass
 class GenerationRejected(RuntimeError):
  def __init__(self,status,retry_after=0):
@@ -36,16 +37,23 @@ def image_bytes(raw):
 class CompanyPhotoClient:
  """Legacy call surface; the parent merchant adapter owns all transport/key handling."""
  def __init__(self,key=None,per_model=4,starts_per_second=1):
-  self.capacity=per_model
+  self.capacity=per_model*len(MODELS)
   try:
    from heideng_merchant.mature_image import MerchantImageClient
   except ImportError:
    raise ValueError('Missing dependency heideng_merchant.mature_image.MerchantImageClient') from None
-  self.client=MerchantImageClient(key)
+  self.factory = MerchantImageClient
+  self.key = key
+  self.clients = {}
   self.slots={m:threading.BoundedSemaphore(per_model) for m in MODELS}
   self.locks={m:threading.Lock() for m in MODELS};self.next={m:0. for m in MODELS};self.period=1/starts_per_second
+ def prepare(self, model):
+  if model not in MODELS:raise ValueError('Unsupported merchant image model')
+  with self.locks[model]:
+   if model not in self.clients:
+    self.clients[model] = self.factory(self.key, model=model)
  def edit(self,*,model,prompt,photos,size):
-  if model not in MODELS:raise ValueError('Only merchant gpt-image-2.5 is supported; other image/text/video providers are blocked')
+  self.prepare(model)
   refs=[]
   for p in photos:
    raw=Path(p).read_bytes()
@@ -58,7 +66,7 @@ class CompanyPhotoClient:
     delay=self.next[model]-time.monotonic()
     if delay>0:time.sleep(delay)
     self.next[model]=time.monotonic()+self.period
-   try:return image_bytes(self.client.edit(prompt=prompt,images=refs,size=size))
+   try:return image_bytes(self.clients[model].edit(prompt=prompt,images=refs,size=size))
    except (Exception,SystemExit) as e:raise GenerationUnknown(type(e).__name__) from None
 
 def key_from_environment():
@@ -79,13 +87,16 @@ def fingerprint(task):
  content={'prompt':task['prompt'],'photos':[sha(p) for p in task['photos']],'size':task['size'],'role':task.get('role')}
  return hashlib.sha256(json.dumps(content,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
-def generation_scope(manifest, tasks):
+def generation_scope(manifest, tasks, directory=None):
     # Bind the authorized shop and deliverables; changing copy within that scope is allowed.
     identity = manifest['store']
-    return {'task': manifest['packageId'], 'shop': str(identity['venderId']),
-            'profile': identity['profile'], 'model': MODELS[0],
+    context = {'task': manifest['packageId'], 'shop': str(identity['venderId']),
+            'profile': identity['profile'],
             'outputs': [{'id': t['id'], 'role': t['role'], 'sku': t.get('skuKey'), 'sources': t['sourceSha256'],
                          'action': 'reuse' if t.get('reusePhoto') else 'generate'} for t in tasks]}
+    from heideng_merchant.creative_images import quoted_scope
+    sizes = {t['id']: t.get('size') or '1024x1024' for t in tasks if not t.get('reusePhoto')}
+    return quoted_scope(directory, context, sizes)[0]
 
 
 def pending_ids(tasks, out, redo=()):
@@ -149,6 +160,7 @@ def inspect_attempts(tasks, out, scope, selected=None):
     if parents and (not chosen or chosen == set(parents)):
         quote = {'scope':dict(scope, possibleDuplicateCharge=True, unresolvedRequests=parents),
                  'units':sorted(parents), 'maxRequests':len(parents), 'actualAmount':None,
+                 **image_credit_quote({t['id']:t['size'] for t in tasks if t['id'] in parents}),
                  'pricing':'原请求仍可能计费；每张另发一次，需要商家批准本次额外费用。'}
     return {'readOnly':True, 'submittedCount':0, 'providerChargeStatus':'unknown',
             'rows':rows, 'replacementQuote':quote}
@@ -253,10 +265,9 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
             if client is None:
                 client = CompanyPhotoClient(key_from_environment())
 
-        def work(task, current):
+        def work(task, current, model):
             name = task['id']
             path = out/'generated'/f'{name}.jpg'
-            model = MODELS[0]
             started = time.monotonic()
             with lock:
                 old = ledger.get(name) or {}
@@ -304,9 +315,17 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
                 ledger[name] = dict(outcome, seconds=round(time.monotonic()-started, 2))
                 atomic_json(ledger_path, ledger)
 
+        submitted_models = []
         if todo:
+            models = tuple(scope['models']) if 'models' in scope else (scope.get('model', 'gpt-image-2.5'),)
+            if not models or not set(models).issubset(MODELS):
+                raise ValueError('图像模型超出本次可用范围')
+            submitted_models = [model_for(index, models) for index in range(len(todo))]
+            if hasattr(client, 'prepare'):
+                for model in set(submitted_models):
+                    client.prepare(model)
             with ThreadPoolExecutor(max_workers=max(1, min(12, int(getattr(client, 'capacity', 4))))) as pool:
-                futures = [pool.submit(work, task, current) for task, current in todo]
+                futures = [pool.submit(work, task, current, model) for (task, current), model in zip(todo, submitted_models)]
                 for future in as_completed(futures):
                     future.result()
         selected = [ledger.get(name, {}) for name in ids]
@@ -315,7 +334,7 @@ def generate_tasks(tasks, out, *, client=None, redo=None, approval=None, scope=N
                   'failedCount':sum(r.get('status')=='REJECTED' for r in selected),
                   'seconds':round(time.monotonic()-began,2),
                   'modelsUsed':sorted({r['model'] for r in selected if r.get('model')}),
-                  'ledger':ledger, 'submittedCount':len(todo), 'modelsSubmitted':list(MODELS) if todo else []}
+                  'ledger':ledger, 'submittedCount':len(todo), 'modelsSubmitted':sorted(set(submitted_models))}
         report['selectedUnits'] = sorted(units or ())
         report['deferredUnits'] = [name for name in ids if name not in (units or ())
                                    and name not in ledger and states.get(name, {}).get('status') != 'RESERVED_WITHOUT_RECEIPT']

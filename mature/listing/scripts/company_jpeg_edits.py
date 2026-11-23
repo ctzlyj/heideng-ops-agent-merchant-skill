@@ -3,13 +3,14 @@ import hashlib
 import io
 import json
 import os
+import sys
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from PIL import Image
-
-MODELS = ("gpt-image-2.5",)
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from heideng_merchant.image_models import MODELS, model_for
 
 
 def save(path, value):
@@ -24,29 +25,37 @@ class CompanyClient:
             from heideng_merchant.mature_image import MerchantImageClient
         except ImportError:
             raise RuntimeError('Missing dependency heideng_merchant.mature_image.MerchantImageClient') from None
-        self.client = MerchantImageClient(key)
+        self.factory = MerchantImageClient
+        self.key = key
+        self.clients = {}
         self.clock = clock or time.monotonic
         self.sleep = sleep or time.sleep
-        self.slots = threading.BoundedSemaphore(4)
-        self.lock = threading.Lock()
-        self.next_start = 0.0
+        self.slots = {m: threading.BoundedSemaphore(4) for m in MODELS}
+        self.lock = {m: threading.Lock() for m in MODELS}
+        self.next_start = {m: 0.0 for m in MODELS}
+
+    def prepare(self, model):
+        if model not in MODELS:
+            raise ValueError('Unsupported merchant image model')
+        with self.lock[model]:
+            if model not in self.clients:
+                self.clients[model] = self.factory(self.key, model=model)
 
     def edit(self, *, model, prompt, source, size='1024x1024'):
-        if model not in MODELS:
-            raise ValueError('Only merchant gpt-image-2.5 is supported; other providers are blocked')
+        self.prepare(model)
         raw = Path(source).read_bytes()
         with Image.open(io.BytesIO(raw)) as image:
             image.load()
             if image.format not in ('PNG', 'JPEG', 'WEBP'):
                 raise ValueError('Unsupported actual reference format')
         try:
-            with self.slots:
-                with self.lock:
-                    delay = self.next_start - self.clock()
+            with self.slots[model]:
+                with self.lock[model]:
+                    delay = self.next_start[model] - self.clock()
                     if delay > 0:
                         self.sleep(delay)
-                    self.next_start = self.clock() + 1.0
-                result = self.client.edit(prompt=prompt, images=[Path(source)], size=size)
+                    self.next_start[model] = self.clock() + 1.0
+                result = self.clients[model].edit(prompt=prompt, images=[Path(source)], size=size)
             with Image.open(io.BytesIO(result)) as image:
                 image.load()
                 if image.format != 'JPEG' or (size == '1024x1024' and image.size != (1024, 1024)):
@@ -122,8 +131,8 @@ def _generate_plan(plan, run, client, approval_file, quote_only):
                 raise RuntimeError("Successful cached artifact changed")
             continue
         prompt = host_prompt({key: source.get("prompt")}, key)
-        if source["model"] not in MODELS:
-            raise ValueError("Only merchant gpt-image-2.5 is supported")
+        if source.get("model") is not None and source["model"] not in MODELS:
+            raise ValueError("Unsupported merchant image model")
         designs[key] = {"prompt": prompt, "sourceSha256": source["sha"], "role": source.get("role"),
                         "source": source["source"], "size": source.get("size") or "1024x1024"}
         record = ledger.get(key)
@@ -139,8 +148,18 @@ def _generate_plan(plan, run, client, approval_file, quote_only):
     shop = plan.get("shop")
     if not isinstance(shop, dict) or not shop.get("venderId") or not shop.get("profile"):
         raise ValueError("Missing shop identity in the image plan")
-    order = CreativeOrder(run, {"kind": "commercial-replica", "shop": shop, "product": plan["sourceProduct"]},
-                          designs, [s["imageKey"] for s in todo], approval_file, reused=reused)
+    context = {"kind": "commercial-replica", "shop": shop, "product": plan["sourceProduct"]}
+    pinned = {s["imageKey"]: s["model"] for s in sources if s["imageKey"] in designs and s.get("model")}
+    models = MODELS
+    if pinned:
+        if pinned.keys() == designs.keys() and len(set(pinned.values())) == 1:
+            models = (next(iter(pinned.values())),)
+        else:
+            context["modelAssignments"] = pinned
+    order = CreativeOrder(run, context, designs, [s["imageKey"] for s in todo],
+                          approval_file, reused=reused, models=models)
+    if not set(pinned.values()).issubset(order.models):
+        raise ValueError("Image design requests a model outside the frozen quote")
     if quote_only:
         print(json.dumps(order.quote, ensure_ascii=False))
         return
@@ -153,15 +172,21 @@ def _generate_plan(plan, run, client, approval_file, quote_only):
         (run / "generated").mkdir(exist_ok=True)
         lock = threading.Lock()
 
-        def one(source):
+        assignments = [(source, pinned.get(source["imageKey"], model_for(i, order.models)))
+                       for i, source in enumerate(todo)]
+        if hasattr(client, 'prepare'):
+            for model in {model for _,model in assignments}:
+                client.prepare(model)
+
+        def one(source, model):
             key = source["imageKey"]
             with lock:
                 order.reserve(key)
-                ledger[key] = {"status": "request-started", "attempts": 1, **designs[key]}
+                ledger[key] = {"status": "request-started", "attempts": 1, "model": model, **designs[key]}
                 save(ledger_path, ledger)
             try:
                 options = {"size": source["size"]} if source.get("size") else {}
-                raw, meta = client.edit(model=source["model"], prompt=source["prompt"],
+                raw, meta = client.edit(model=model, prompt=source["prompt"],
                                         source=source["reference"], **options)
                 (run / "generated" / (key + ".jpg")).write_bytes(raw)
                 record = {"status": "succeeded", "outputSha256": hashlib.sha256(raw).hexdigest(),
@@ -172,8 +197,8 @@ def _generate_plan(plan, run, client, approval_file, quote_only):
                 ledger[key].update(record)
                 save(ledger_path, ledger)
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for future in as_completed([pool.submit(one, source) for source in todo]):
+        with ThreadPoolExecutor(max_workers=4 * len(order.models)) as pool:
+            for future in as_completed([pool.submit(one, source, model) for source, model in assignments]):
                 future.result()
     if any(ledger[key]['status'] != "succeeded" for key in designs if key in ledger):
         raise RuntimeError("Generation incomplete; reconcile original receipts")
@@ -187,13 +212,27 @@ def _generate_plan(plan, run, client, approval_file, quote_only):
 
 def remake_sources(plan, draft):
     from heideng_merchant.safety import safe_join
-    from heideng_merchant.lts4ai_client import resolve_size
+    from heideng_merchant.lts4ai_client import calculate_custom_canvas, nearest_ratio, read_image_dimensions, resolve_size
     entries = plan["images"] + plan.get("deannotate", [])
     result = []
     for row in entries:
         path = safe_join(draft, row["source"])
+        size = row.get('size')
+        if not size:
+            # Historical plans without an explicit quality used the 1K pixel canvases.
+            quality = str(row.get('quality') or '1K').upper()
+            ratio = '1:1'
+            if row.get('role') == 'detail':
+                dimensions = read_image_dimensions(path)
+                if dimensions:
+                    ratio = nearest_ratio(*dimensions)
+            if quality == '2K':
+                width, height = ratio.split(':')
+                size = calculate_custom_canvas(width,height,quality)['size']
+            else:
+                size = resolve_size(ratio, quality, path)
         result.append({**row, "source": str(path), "sha": hashlib.sha256(path.read_bytes()).hexdigest(),
-                       "model": MODELS[0], "size": resolve_size("Adaptive", "2K", path) if row.get("role") == "detail" else "1024x1024"})
+                       "size": size})
     return result
 
 

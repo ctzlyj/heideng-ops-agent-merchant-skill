@@ -4,7 +4,6 @@ import json
 import os
 import time
 from pathlib import Path
-import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock, Event
 
@@ -59,14 +58,6 @@ def repair_request_budget(output, limit, error_type):
 
     return reserve, budget
 
-def adapter_argv(template, reference, output, prompt):
-    if not isinstance(template,list) or not template or any(not isinstance(x,str) for x in template):
-        raise ValueError('JoyAgent adapter must be a JSON argv array, never a shell string')
-    joined=' '.join(template)
-    if not all('{'+k+'}' in joined for k in ('reference','output','prompt')):
-        raise ValueError('Adapter must accept reference, prompt and output placeholders')
-    return [x.replace('{reference}',str(reference)).replace('{output}',str(output)).replace('{prompt}',prompt) for x in template]
-
 def request_repair_image(agent, model, kind, prompt, reference, adapter, temporary, timeout, *, repair_scope=None):
     # One paid response receipt, reusing the existing repair directory; no automatic re-submission.
     temporary=Path(temporary);path=temporary.with_suffix('.request.json')
@@ -79,20 +70,22 @@ def request_repair_image(agent, model, kind, prompt, reference, adapter, tempora
         raise agent.JdoWriteUncertainError('原图片响应文件缺失或改变，未再次付费。')
     if saved.get('status') in ('intent','unknown'):raise agent.JdoWriteUncertainError('原图片请求结果待核对，未再次付费。')
     if saved.get('status')=='rejected':raise ValueError('原请求已明确审核拒绝；由Agent设计新提示词，不重复旧请求。')
-    _save(temporary.with_suffix('.prompt.json'),{'fingerprint':identity,'kind':kind,'prompt':prompt})
-    saved={'status':'intent','fingerprint':identity}
+    if model is None:
+        raise agent.ModelRequestLimitError('当前维修范围没有新增生图批准；请先核对缺项')
+    selected = model.select_image_model() if callable(getattr(type(model),'select_image_model',None)) else 'gpt-image-2.5'
+    _save(temporary.with_suffix('.prompt.json'),{'fingerprint':identity,'kind':kind,'prompt':prompt,'model':selected})
+    saved={'status':'intent','fingerprint':identity,'model':selected,'size':agent.MATERIAL_IMAGE_SIZE}
     if repair_scope:saved['repairScope']=repair_scope
     _save(path,saved)
-    before=sum(model.image_model_stats().get('attempts',{}).values())
-    try:content=_request_repair_image_once(agent,model,kind,prompt,source,adapter,temporary,timeout)
+    try:
+        content = agent.request_material_image(model,kind,prompt,source,model=selected)
     except agent.ModelModerationBlocked:
         _save(path,{**saved,'status':'rejected'});raise
     except agent.ModelRequestLimitError:
         _save(path,{**saved,'status':'not-dispatched'});raise
-    except Exception as error:
-        attempted=sum(model.image_model_stats().get('attempts',{}).values())>before
-        _save(path,{**saved,'status':'unknown' if attempted or isinstance(error,agent.JdoWriteUncertainError) else 'not-dispatched'})
-        raise
+    except Exception:
+        _save(path,{**saved,'status':'unknown'})
+        raise agent.JdoWriteUncertainError('原图片请求结果待核对，不切换模型重复发送。') from None
     temporary.write_bytes(content)
     _save(path,{**saved,'status':'received','sha256':agent._file_sha256(temporary)})
     return content
@@ -103,27 +96,6 @@ def assert_no_unresolved_images(receipts, spu, kind, sku_ids, agent):
         scope=receipt.get('repairScope') or {}
         if not scope or (str(scope.get('spuId'))==str(spu) and family(scope.get('kind'))==family(kind) and set(map(str,scope.get('skuIds') or [])) & set(map(str,sku_ids))):
             raise agent.JdoWriteUncertainError('同槽位原图片请求未确认；更换参考图不能绕过原回执重提。')
-
-def _request_repair_image_once(agent, model, kind, prompt, reference, adapter, temporary, timeout):
-    before=sum(model.image_model_stats().get('attempts',{}).values())
-    try:
-        return agent.request_material_image(model,kind,prompt,reference,model='pool')
-    except (agent.ModelRequestLimitError,agent.ModelModerationBlocked,agent.JdoWriteUncertainError):raise
-    except Exception:
-        if sum(model.image_model_stats().get('attempts',{}).values())>before:
-            raise agent.JdoWriteUncertainError('图片请求已尝试但结果未确认；先核对原记录，不切换模型或适配器重复付费。') from None
-        if adapter is None or kind=='selling':raise ValueError('Image generation blocked before dispatch; inspect authorized adapter or reference') from None
-    argv=adapter_argv(adapter,reference,temporary,prompt)
-    model.reserve_image_request('JoyAgent-image(JoyAgent)')
-    try:completed=subprocess.run(argv,shell=False,capture_output=True,timeout=timeout)
-    except Exception:
-        model._record_model('JoyAgent-image(JoyAgent)',failed=True)
-        raise agent.JdoWriteUncertainError('图片适配器结果未确认，未重提。') from None
-    if completed.returncode or not temporary.is_file():
-        model._record_model('JoyAgent-image(JoyAgent)',failed=True)
-        raise agent.JdoWriteUncertainError('图片适配器未返回可核验结果，未重提。')
-    model._record_model('JoyAgent-image(JoyAgent)')
-    return temporary.read_bytes()
 
 def submit_repair_request(client,request,path,agent):
     from pop_safety import fingerprint
@@ -495,9 +467,16 @@ def run_rejected_repairs(args,agent=None):
         fee_scope = {'task': 'repair-rejected', 'shopIdentity': identity,
                      'directory': str(out.resolve()), 'referenceGranularity': granularity,
                      'targets': {str(r['skuId']): sorted(r['repairKinds']) for r in targets}}
-        quote = {'scope': fee_scope, 'units': units, 'estimatedPaidImageCount': len(units),
+        approval_file = getattr(args, 'fee_approval_file', None)
+        approval = json.loads(Path(approval_file).read_text(encoding='utf-8-sig')) if approval_file else {}
+        # Previous versions froze this precise target set without a model field: only 2.5 was available then.
+        if approval.get('scope') != fee_scope:
+            fee_scope.update(agent.model_scope())
+            fee_scope['imageSize'] = agent.MATERIAL_IMAGE_SIZE
+        quote = {**agent.image_credit_quote(dict.fromkeys(units, agent.MATERIAL_IMAGE_SIZE)),
+                 'scope': fee_scope, 'units': units, 'estimatedPaidImageCount': len(units),
                  'amount': None, 'actualAmount': None, 'provider': 'LTS4AI',
-                 'nextAction': '按图型、覆盖范围和已知计价条件报价；金额未知时请商家决定是否按最大请求次数结算。'}
+                 'nextAction': '优先复用已有素材。本次信息分图为 1K，两款模型均按 3 积分/张报价，按剩余图位确认。'}
         if not targets:
             status='needs-image-review' if image_review else 'jingmai-submitted-awaiting-review' if jingmai.get('submittedSlots') else 'appeal-only' if appeal_delivery else 'no-rejections'
             result={'status':status,'rows':[],'shopName':identity['shopName'],'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai,
@@ -524,38 +503,45 @@ def run_rejected_repairs(args,agent=None):
             _save(out/'repair-result.json',result)
             return result
         if units:
-            approval_file = getattr(args, 'fee_approval_file', None)
             if not approval_file:
                 return {**review_fields, 'status':'fee-approval-required', 'needsMerchantAction':True,
                         'feeQuote':quote, 'estimatedPaidImageCount':len(units), 'rows':[]}
             from heideng_merchant.image_budget import validate_approval
-            approval = json.loads(Path(approval_file).read_text(encoding='utf-8-sig'))
             validate_approval(approval, scope=fee_scope, units=units)
             if limit is not None and limit > approval['maxRequests']:
                 raise ValueError('请求上限超出商家已批准范围')
             limit = min(limit, approval['maxRequests']) if limit is not None else approval['maxRequests']
         else:
             limit = 0
-        from heideng_merchant.mature_image import merchant_key
-        key=os.environ.get(agent.PROVIDER.api_key_env) or merchant_key()
-        adapter=json.loads(Path(args.joyagent_adapter).read_text(encoding='utf-8')) if getattr(args,'joyagent_adapter',None) else None
-        if adapter is not None:
-            adapter_argv(adapter, Path('reference.png'), Path('output.png'), 'prompt')
-            if 'JoyAgent-image(JoyAgent)' not in ' '.join(adapter): raise ValueError('Explicit JoyAgent-image model required')
+        adapter = None
+        if getattr(args, 'joyagent_adapter', None):
+            raise ValueError('商家图片仅使用该商家的 LTS4AI 授权，不切换外部适配器')
         prior_image_receipts=[]
         for path in (out/'shared').glob('*/*.request.json'):
             receipt=json.loads(path.read_text(encoding='utf-8'))
             if receipt.get('status') in ('intent','unknown'):prior_image_receipts.append(receipt)
-        category=client.resolve_category();write_lock=Lock();model=agent.ModelClient(key,image_concurrency=min(20,getattr(args,'image_concurrency',20)),timeout=getattr(args,'timeout',180))
-        model.max_model_requests=limit
-        model.reserve_persistent_request, budget = repair_request_budget(out, limit, agent.ModelRequestLimitError)
-        model.cancel_event=Event()
-        text_checker=None
-        try:
-            import pop_attrs as _pa
-            text_checker=_pa.VisionAttrModel(key)
-            if not text_checker.models:text_checker.close();text_checker=None
-        except Exception:text_checker=None
+        category = client.resolve_category()
+        write_lock = Lock()
+        cancel_event = Event()
+        reserve, budget = repair_request_budget(out, limit, agent.ModelRequestLimitError)
+        model = None
+        text_checker = None
+        if units:
+            from heideng_merchant.mature_image import merchant_key
+            key = os.environ.get(agent.PROVIDER.api_key_env) or merchant_key()
+            model = agent.ModelClient(key,image_concurrency=min(20,getattr(args,'image_concurrency',20)),timeout=getattr(args,'timeout',180))
+            model.image_models = tuple(fee_scope.get('models') or ['gpt-image-2.5'])
+            model.max_model_requests = limit
+            model.reserve_persistent_request = reserve
+            model.cancel_event = cancel_event
+            try:
+                import pop_attrs as _pa
+                text_checker = _pa.VisionAttrModel(key)
+                if not text_checker.models:
+                    text_checker.close()
+                    text_checker = None
+            except Exception:
+                text_checker = None
         def shared_assets(key,members,kind):
             # One SPU + one SKU reference => one fresh image for every sibling rejected with it.
             spu,_,ref_id=key;lead=members[0]
@@ -564,10 +550,11 @@ def run_rejected_repairs(args,agent=None):
             group=out/'shared'/hashlib.sha256(json.dumps([spu,ref_id],ensure_ascii=False).encode()).hexdigest()[:20]
             reference_sku = references[str(lead['skuId'])][0]
             group.mkdir(parents=True,exist_ok=True);reference=overrides.get(reference_sku) or group/'reference.jpg'
-            if not reference.is_file():
-                url=agent._jd_image_url(scope['skuSources'].get(reference_sku, {}).get('logo'))
-                if not url:raise ValueError('Reliable SKU reference missing')
-                agent._download_reference(url,reference,getattr(args,'timeout',180))
+            with generation_locks.setdefault(str(reference), Lock()):
+                if not reference.is_file():
+                    url=agent._jd_image_url(scope['skuSources'].get(reference_sku, {}).get('logo'))
+                    if not url:raise ValueError('Reliable SKU reference missing')
+                    agent._download_reference(url,reference,getattr(args,'timeout',180))
             image=group/(kind+('.png' if kind=='transparent' else '.jpg'))
             generated=group/('white.jpg' if kind=='transparent' else image.name)
             linked_white = kind == 'transparent' and all('white' in member['repairKinds'] for member in members)
@@ -690,7 +677,7 @@ def run_rejected_repairs(args,agent=None):
                 if digest==agent._file_sha256(old_file):raise ValueError('Rejected image bytes cannot be replayed')
             upload_path=group/(kind+'-upload.json')
             with write_lock:
-                if model.cancel_event.is_set():raise agent.JdoWriteUncertainError('Repair stopped after unknown write; reconcile before any new write')
+                if cancel_event.is_set():raise agent.JdoWriteUncertainError('Repair stopped after unknown write; reconcile before any new write')
                 upload=json.loads(upload_path.read_text(encoding='utf-8')) if upload_path.exists() else {}
                 if upload and upload.get('sha256')!=digest:raise agent.JdoWriteUncertainError('Repair upload bytes changed')
                 if upload.get('status') in ('intent','unknown'):raise agent.JdoWriteUncertainError('Repair upload outcome unknown; do not replay')
@@ -701,9 +688,9 @@ def run_rejected_repairs(args,agent=None):
                         if not upload_file.exists(): upload_file.write_bytes(image.read_bytes())
                         resp=client.upload_image(upload_file,category)
                     except Exception:
-                        upload['status']='unknown';_save(upload_path,upload);model.cancel_event.set();raise agent.JdoWriteUncertainError('Repair upload result unknown') from None
+                        upload['status']='unknown';_save(upload_path,upload);cancel_event.set();raise agent.JdoWriteUncertainError('Repair upload result unknown') from None
                     if resp.get('imgName')!=upload_file.name or not resp.get('imgUrl'):
-                        upload['status']='unknown';_save(upload_path,upload);model.cancel_event.set();raise agent.JdoWriteUncertainError('Repair upload response cannot identify original file')
+                        upload['status']='unknown';_save(upload_path,upload);cancel_event.set();raise agent.JdoWriteUncertainError('Repair upload response cannot identify original file')
                     upload.update(status='accepted',url=agent._jd_image_url(resp['imgUrl']));_save(upload_path,upload)
                 ids=[row['skuId'] for row in fresh];current=agent._query_binding_materials(client,ids)
                 selected=[]
@@ -718,7 +705,7 @@ def run_rejected_repairs(args,agent=None):
                 _save(group/(kind+'-provenance.json'),{'sourceSha256':agent._file_sha256(reference),'newSha256':digest,'skuIds':selected,'auditReasons':{row['skuId']:row['slots'][kind]['auditReasons'] for row in fresh if row['skuId'] in selected},'request':request})
                 try:record=submit_repair_request(client,request,receipt_path,agent)
                 except agent.JdoWriteUncertainError:
-                    model.cancel_event.set();raise
+                    cancel_event.set();raise
                 if kind=='transparent':
                     backend=json.loads((group/'transparent.cutout.json').read_text(encoding='utf-8')).get('backend') if (group/'transparent.cutout.json').exists() else ('magenta-key' if (group/'magenta.jpg').exists() else 'fast')
                     if backend not in ('magenta-key','fast','legacy-flood'):
@@ -750,11 +737,15 @@ def run_rejected_repairs(args,agent=None):
                     for future in as_completed(futures):
                         try:records.extend(future.result())
                         except agent.JdoWriteUncertainError:
-                            model.cancel_event.set()
+                            cancel_event.set()
                             errors.append({'skuId':futures[future],'status':'unknown','reason':'Preserve receipt and reconcile exact request before retrying'})
                         except Exception as error:errors.append({'skuId':futures[future],'status':'blocked','failureClass':type(error).__name__,'reason':str(error)[:200] or 'Repair did not complete; inspect reference, adapter and owned receipts'})
-        finally:model.close()
-        result={**review_fields,'imagePromptRevisions':[{'spuId':spu,'kind':kind,'sha256':agent.image_prompt_revision(entry)} for spu,kinds in image_prompts.items() for kind,entry in kinds.items()], 'requestLimit':limit,'assetGroupCount':len(work),'failedAssetGroupCount':len(errors),'liveReusedSkuSlotCount':sum(1 for r in records if r.get('liveReuse')),'submittedSkuSlotCount':sum(1 for r in records if not r.get('liveReuse') and r.get('status') in ('submitted','pending','approved')),'status':'repair-incomplete' if image_review or errors or any(r['status'] in ('rejected','skipped-changed','unknown') for r in records) else 'repairs-submitted-awaiting-review','shopName':identity['shopName'],'rows':records,'errors':errors,'modelStats':model.image_model_stats(),'allApproved':bool(records) and not errors and not appeal_delivery and not image_review and all(r['status']=='approved' for r in records),'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai}
+        finally:
+            if model is not None:
+                model.close()
+            if text_checker is not None:
+                text_checker.close()
+        result={**review_fields,'imagePromptRevisions':[{'spuId':spu,'kind':kind,'sha256':agent.image_prompt_revision(entry)} for spu,kinds in image_prompts.items() for kind,entry in kinds.items()], 'requestLimit':limit,'assetGroupCount':len(work),'failedAssetGroupCount':len(errors),'liveReusedSkuSlotCount':sum(1 for r in records if r.get('liveReuse')),'submittedSkuSlotCount':sum(1 for r in records if not r.get('liveReuse') and r.get('status') in ('submitted','pending','approved')),'status':'repair-incomplete' if image_review or errors or any(r['status'] in ('rejected','skipped-changed','unknown') for r in records) else 'repairs-submitted-awaiting-review','shopName':identity['shopName'],'rows':records,'errors':errors,'modelStats':model.image_model_stats() if model is not None else {'usage':{},'attempts':{},'failures':{}},'allApproved':bool(records) and not errors and not appeal_delivery and not image_review and all(r['status']=='approved' for r in records),'productTextAppeals':appeal_delivery,'jingmaiFirst':jingmai}
         result['requestBudget'] = budget
         _save(out/'repair-result.json',result);return result
 

@@ -1,0 +1,29 @@
+{
+  "name": "heideng-merchant",
+  "expertType": "agent",
+  "agentName": "heideng-merchant",
+  "agents": ["./agents/heideng-merchant.md"],
+  "skills": ["./skills/heideng-merchant-beta"],
+  "author": {"name": "黑灯运营"},
+  "description": "An invited merchant's operations specialist for JD POP stores.",
+  "displayName": {"en": "Heideng Merchant", "zh": "黑灯电商运营专家"},
+  "profession": {"en": "Commerce operations specialist", "zh": "京东商家运营"},
+  "displayDescription": {
+    "en": "Manage JD POP listings, product images and commercial decisions with verified store identity and recoverable task receipts.",
+    "zh": "为受邀京东商家连接店铺、维护商品信息与图片，根据实际经营数据诊断问题，凭原始回执继续未完成的任务。"
+  },
+  "avatar": "avatars/heideng.png",
+  "categoryId": "07-SalesCommerce",
+  "defaultInitPrompt": {"en": "Help me connect my store.", "zh": "帮我连接我的店。"},
+  "plugin": "heideng-merchant",
+  "tags": [
+    {"en": "Store operations", "zh": "店铺运营"},
+    {"en": "Product content", "zh": "商品内容"},
+    {"en": "Business diagnosis", "zh": "经营诊断"}
+  ],
+  "quickPrompts": [
+    {"en": "Help me connect my store.", "zh": "帮我连接我的店。"},
+    {"en": "How can I improve my listings?", "zh": "看看我的商品最值得先改哪里。"},
+    {"en": "Help me maintain the product information scores for my store.", "zh": "帮我维护我这家店铺的商品信息分。"}
+  ]
+}

@@ -17,7 +17,7 @@ class KeyInputSession:
         self.value=value.strip() or None;self.remember=remember is True;self.done.set()
 
 
-def _prompt_local_page(timeout=300):
+def _prompt_local_page(timeout=300, *, beta=False):
     from http.server import HTTPServer, BaseHTTPRequestHandler
     from urllib.parse import parse_qs, urlsplit
     import webbrowser
@@ -34,11 +34,11 @@ def _prompt_local_page(timeout=300):
             valid_query=not parsed.query or parse_qs(parsed.query).get('session')==[session.csrf]
             if self.headers.get('Host')!=session.host or parsed.path!='/' or not valid_query or session.done.is_set():self.respond(403,'请求无效');return
             self.respond(200,f"""<!doctype html><meta charset=utf-8><title>黑灯商家安全输入</title>
-<h2>输入商家自己的 LTS4AI Key</h2><p>仅用于已确认范围和费用的生图任务。不读公司凭据，不粘贴到聊天。</p>
+<h2>{'验证黑灯内测资格' if beta else '输入商家自己的 LTS4AI Key'}</h2><p>{'请填写运营方分配给本商家的 LTS4AI 专用 Key，验证通过后保存在本机系统安全存储。' if beta else '仅用于已确认范围和费用的生图任务。不读公司凭据，不粘贴到聊天。'}</p>
 <form method=post action=/key><input type=hidden name=csrf value='{session.csrf}'>
 <input type=password name=key autocomplete=off maxlength=8192 required autofocus>
 <p>提交后，Key 将保存到本机系统安全存储。</p>
-<button type=submit>用于本次任务</button></form><p>关闭此页面或等待超时可取消。</p>""")
+<button type=submit>{'验证资格' if beta else '用于本次任务'}</button></form><p>关闭此页面或等待超时可取消。</p>""")
         def do_POST(self):
             try:
                 if self.path!='/key' or self.headers.get('Content-Type','').split(';')[0]!='application/x-www-form-urlencoded':raise SafetyError('merchant-key-input-request-refused')
@@ -61,14 +61,14 @@ def _prompt_local_page(timeout=300):
     finally:server.server_close()
 
 
-def _prompt_native_window(timeout=300, on_visible=None):
+def _prompt_native_window(timeout=300, on_visible=None, *, beta=False):
     import tkinter as tk
     from tkinter import font, ttk
 
     root = tk.Tk()
     try:
         root.withdraw()
-        root.title('黑灯生图 · 安全输入')
+        root.title('黑灯商家内测 · 资格验证' if beta else '黑灯生图 · 安全输入')
         root.resizable(False, False)
         background = '#f6f8fc'
         root.configure(background=background)
@@ -77,9 +77,9 @@ def _prompt_native_window(timeout=300, on_visible=None):
         title_font.configure(size=17, weight='bold')
         frame = tk.Frame(root, background=background, padx=26, pady=23)
         frame.pack(fill='both', expand=True)
-        tk.Label(frame, text='输入生图密钥', font=title_font, background=background,
+        tk.Label(frame, text='验证内测资格' if beta else '输入生图密钥', font=title_font, background=background,
                  foreground='#18243a').pack(anchor='w')
-        tk.Label(frame, text='用你的 LTS4AI Key 继续已确认的商品生图。',
+        tk.Label(frame, text='请输入运营方分配给本商家的 LTS4AI 专用 Key。' if beta else '用你的 LTS4AI Key 继续已确认的商品生图。',
                  background=background, foreground='#44516a').pack(anchor='w', pady=(8, 18))
         tk.Label(frame, text='LTS4AI API Key', background=background, foreground='#18243a').pack(anchor='w')
         entry = ttk.Entry(frame, width=44, show='●')
@@ -106,7 +106,7 @@ def _prompt_native_window(timeout=300, on_visible=None):
 
         buttons = tk.Frame(frame, background=background)
         buttons.pack(fill='x')
-        ttk.Button(buttons, text='继续生图', command=submit).pack(side='right')
+        ttk.Button(buttons, text='验证资格' if beta else '继续生图', command=submit).pack(side='right')
         ttk.Button(buttons, text='取消', command=cancel).pack(side='right', padx=(0, 8))
         root.bind('<Return>', submit)
         root.bind('<Escape>', cancel)

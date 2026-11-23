@@ -13,6 +13,8 @@ MODULES += ['test_listing_feasibility', 'test_commercial_task_context', 'test_ex
 
 MODULES += ['test_sample_delivery', 'test_sample_comparison', 'test_sample_upload_state']
 
+MODULES.append('test_dual_commercial_images')
+
 def main():
     with tempfile.TemporaryDirectory(prefix='merchant-mature-offline-') as home:
         env=clean_environment(Path(home));env['PYTHONIOENCODING']='utf-8'

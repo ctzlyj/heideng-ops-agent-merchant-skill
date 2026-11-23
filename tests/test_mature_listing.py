@@ -164,7 +164,9 @@ class MatureListingTests(unittest.TestCase):
     def test_merchant_adapter_uses_real_references_and_no_old_key_fallback(self):
         pg = module("photo_generation"); company = module("company_jpeg_edits")
         class Boundary:
-            def __init__(self, key=None): self.key = key
+            def __init__(self, key=None, model=None):
+                self.key = key
+                assert model == 'gpt-image-2.5'
             def edit(self, *, prompt, images, size="1024x1024"):
                 if prompt != "merchant prompt" or (len(images) != 1 or not isinstance(images[0], Path) or images[0].read_bytes() != jpeg()) or size != "1024x1024":
                     raise AssertionError("wrong merchant boundary")
@@ -542,7 +544,8 @@ print('offline imports and merchant defaults OK')
     def test_legacy_company_boundary_retains_original_start_pacing(self):
         company = module("company_jpeg_edits")
         class LocalImage:
-            def __init__(self, key): pass
+            def __init__(self, key, model):
+                assert model == 'gpt-image-2.5'
             def edit(self, **kwargs): return jpeg()
         boundary = types.ModuleType("heideng_merchant.mature_image"); boundary.MerchantImageClient = LocalImage
         clock = [0.0]; delays = []

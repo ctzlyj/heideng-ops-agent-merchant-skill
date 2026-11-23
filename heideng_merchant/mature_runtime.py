@@ -93,6 +93,8 @@ def child_environment(state, inherited=None):
     for name in ('HEIDENG_MERCHANT_LTS4AI_API_KEY', 'HEIDENG_MERCHANT_WEBCLI_BIN', 'HEIDENG_MERCHANT_BROWSER_CONFIG'):
         if name in original:
             result[name] = original[name]
+    if original.get('HEIDENG_MERCHANT_BETA_IMAGE_BLOCKED') in ('quota-exhausted', 'unbounded-key'):
+        result['HEIDENG_MERCHANT_BETA_IMAGE_BLOCKED'] = original['HEIDENG_MERCHANT_BETA_IMAGE_BLOCKED']
     if original.get('HEIDENG_MERCHANT_WEBCLI_COMMAND'):
         # An argv-prefix configuration, not an O2 alias or a credential.
         prefix = json.loads(original['HEIDENG_MERCHANT_WEBCLI_COMMAND'])
@@ -189,6 +191,7 @@ def capability_contract(capability, package_root=None):
     return {'status':row.get('migration','verification-required'), 'knownBlockers':row.get('knownBlockers',[])}
 
 def status(package_root=None):
+    from .image_models import MODELS, TIER_CREDITS
     rows = []
     for capability in ROUTES:
         try:
@@ -198,7 +201,7 @@ def status(package_root=None):
             rows.append({'capability': capability, 'matureImplementationReused': False, 'status': 'blocked-source-or-distribution-permission', 'liveMerchantVerified': False})
         except SafetyError as error:
             rows.append({'capability': capability, 'matureImplementationReused': False, 'status': str(error), 'liveMerchantVerified': False})
-    return {'architecture': 'mature-skill-dispatch', 'capabilities': rows, 'image': {'provider': 'lts4ai', 'endpoint': 'https://api.lts4ai.com/v1', 'model': 'gpt-image-2.5', 'paidLiveVerified': False}, 'videoGeneration': {'status': 'awaiting-external-provider', 'companyFallback': False}, 'merchantLiveActionsExecuted': False, 'additionalVerificationRequested': False}
+    return {'architecture': 'mature-skill-dispatch', 'capabilities': rows, 'image': {'provider': 'lts4ai', 'endpoint': 'https://api.lts4ai.com/v1', 'model': 'gpt-image-2.5', 'models':list(MODELS), 'creditsByQuality':TIER_CREDITS, 'paidLiveVerified': False}, 'videoGeneration': {'status': 'awaiting-external-provider', 'companyFallback': False}, 'merchantLiveActionsExecuted': False, 'additionalVerificationRequested': False}
 
 def collection_environment(state, arguments, environment):
     def option(name):

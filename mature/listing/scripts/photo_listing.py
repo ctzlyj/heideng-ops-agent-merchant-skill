@@ -358,11 +358,13 @@ def make_plan(root, reference=None, preview=False, only=None, design=None, redo=
 
 def generation_quote(root, manifest, tasks, redo=()):
     from photo_generation import generation_scope, pending_ids
-    scope = generation_scope(manifest, tasks)
+    from heideng_merchant.image_models import image_credit_quote
+    scope = generation_scope(manifest, tasks, root)
     units = pending_ids(tasks, root/'.generation', redo)
     return {'scope': scope, 'units': units, 'canSelectUnits': True, 'estimatedPaidImageCount': len(units),
             'reusedImageCount': len(tasks) - len(units), 'maxRequests': len(units),
-            'actualAmount': None, 'pricing': '按本账户有效报价计算金额上限，或经商家明确同意按请求数封顶',
+            **image_credit_quote({task['id']:task['size'] for task in tasks if task['id'] in units}),
+            'actualAmount': None, 'pricing': 'LTS4AI 按实际图像尺寸计积分，具体积分见本次报价。',
             'nextAction': ('已交办生成：简述本报价并立即打开本机费用确认窗口；商家只在窗口确认一次。只询价时仅展示报价。'
                            if units else '新增计费请求为零，直接复用已有图片。')}
 
@@ -1075,7 +1077,7 @@ def main(argv=None):
   elif command=='reconcile-images':
    from photo_generation import generation_scope, inspect_attempts
    plan=load(root/'plan.json',[])
-   result=inspect_attempts(plan,root/'.generation',generation_scope(read_manifest(root),plan),args.units)
+   result=inspect_attempts(plan,root/'.generation',generation_scope(read_manifest(root),plan,root),args.units)
   elif command=='review':result=review_package(root)
   elif command=='accept-images':result=accept_images(root,args.review_digest,confirm=args.confirm,reviewer=args.reviewer,evidence=args.evidence)
   elif command=='prepare':result=prepare_package(root,load(root/'reference.json'),confirm=args.confirm,digest=args.review_digest)

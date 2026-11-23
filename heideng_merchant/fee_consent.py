@@ -24,19 +24,23 @@ def verified_receipt(approval, state=None):
     return path
 
 
-def charge_attempt(approval, *, directory, fingerprint, intent):
+def charge_attempt(approval, *, directory, fingerprint, intent, unit=None):
     """Count an intent before dispatch, including copies of the same task directory."""
     path = verified_receipt(approval)
     with FileLock(path.with_suffix('.lock')):
         record = read_json(path)
         attempts = record['attempts']
         entry = {'directory': str(Path(directory).resolve()), 'intent':intent}
+        if approval.get('billing') == 'credits':
+            entry.update(unit=unit, credits=approval['creditCostsByUnit'][unit])
         if attempts.get(fingerprint) == entry:
             return
         if fingerprint in attempts:
             raise ValueError('原生图请求已预占，请先查原回执')
         if len(attempts) >= approval['maxRequests']:
             raise ValueError('已达到商家批准的计费请求上限')
+        if 'credits' in entry and sum(v['credits'] for v in attempts.values()) + entry['credits'] > approval['maxCredits']:
+            raise ValueError('已达到商家批准的积分上限')
         attempts[fingerprint] = entry
         atomic_json(path, record)
 
@@ -68,6 +72,7 @@ def _ask_merchant(message):
 
 def confirm_fee(quote, state, output, *, max_requests, billing='requests', price=None, selected_units=None, quote_path=None):
     from .image_budget import validate_terms
+    from .image_models import TIER_CREDITS
 
     if not isinstance(quote, dict):
         raise ValueError('需要原任务的图片报价')
@@ -95,6 +100,18 @@ def confirm_fee(quote, state, output, *, max_requests, billing='requests', price
         raise ValueError(f'当前待做 {len(pending)} 张，超过请求上限 {max_requests}；请先明确优先图位或安排复用，再确认费用')
     approval = dict(scope=scope, units=units, maxRequests=max_requests, billing=billing,
                     approvalRef='fee-' + uuid.uuid4().hex)
+    if 'creditCostsByUnit' in quote or billing == 'credits':
+        costs = quote.get('creditCostsByUnit')
+        if (not isinstance(costs,dict) or billing not in ('credits','requests') or
+                any(type(costs.get(k)) is not int or costs[k] not in TIER_CREDITS.values() for k in pending)):
+            raise ValueError('请使用原任务的逐图积分报价')
+        if type(max_requests) is not int or max_requests < 1:
+            raise ValueError('请指定获准的计费请求数')
+        billing = 'credits'
+        units = list(pending)
+        costs = {k:costs[k] for k in units}
+        approval.update(billing=billing, units=units, creditCostsByUnit=costs,
+                        maxCredits=sum(costs.values())+(max_requests-len(costs))*max(costs.values()))
     if price:
         approval.update({key: price.get(key) for key in ('currency','maxAmount','unitPriceUpperBound','priceEvidence')})
     validate_terms(approval, scope=scope, units=units or [])
@@ -123,7 +140,9 @@ def confirm_fee(quote, state, output, *, max_requests, billing='requests', price
         lines.append(f'其余 {len(deferred)} 张暂缓。若交付需整套图片，须补齐或复用后才能发布。')
     if scope.get('possibleDuplicateCharge'):
         lines.append('原请求结果仍未知，可能已经扣费。本次将另发请求，可能再次计费。')
-    if billing == 'amount':
+    if billing == 'credits':
+        lines.append(f"按画质计费：1K 每张 3 积分、2K 每张 4 积分、4K 每张 5 积分。本次预计 {sum(costs.values())} 积分，含返工最多 {approval['maxCredits']} 积分。实际扣减及可用余额以 LTS4AI 为准。")
+    elif billing == 'amount':
         lines.append(f"最高费用 {approval['maxAmount']} {approval['currency']}，每次最高 {approval['unitPriceUpperBound']}。")
     else:
         lines.append('金额未知；仅按上述请求次数封顶。')
