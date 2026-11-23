@@ -294,19 +294,19 @@ class SingleFlowTests(unittest.TestCase):
   shoplib = self.load('fixture_known_desktop', SOURCE/'app/shoplib.py')
   with tempfile.TemporaryDirectory() as temporary:
    root = Path(temporary)
-   desktop = root/'OneDrive'/'重定向桌面'
+   desktop = root/'OneDrive'/'重定向桌面🧰'
    desktop.mkdir(parents=True)
    state = root/'isolated'
-   browser_profile = state/'browser-profiles'/'store-a'
+   browser_profile = state/'browser-profiles'/'store-a🪴'
    browser_profile.mkdir(parents=True)
-   identity = {'shopName':'合成灯具店','venderId':'101','shopId':'303'}
+   identity = {'shopName':'合成灯具店💡','venderId':'101','shopId':'303'}
    entry = {**identity,'browserProfileDir':str(browser_profile),'browserChannel':'msedge'}
    env = {'HEIDENG_HOST_DESKTOP':str(desktop),'HEIDENG_MERCHANT_HOME':str(state),
           'JINGMAI_LINKER_HOME':str(state/'linker'),'USERPROFILE':str(root/'other-home')}
    with patch.dict(os.environ,env), patch.object(shoplib,'_desktop_browser',return_value=Path(sys.executable)), patch.object(
        shoplib,'load_registry',return_value={'profiles':{'store-a':entry}}):
     receipt = shoplib.ensure_desktop_shortcut('store-a',identity)
-    self.assertEqual(receipt['status'],'created')
+    self.assertEqual(receipt['status'],'created',receipt)
     path = Path(receipt['path'])
     self.assertEqual(path.parent,desktop)
     self.assertGreater(path.stat().st_size,0)

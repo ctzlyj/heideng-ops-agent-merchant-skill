@@ -60,6 +60,7 @@
     "heideng_merchant/merchant_key_store.py",
     "scripts/runtime_preflight.py",
     "heideng_merchant/host_connection_controller.py",
+    "heideng_merchant/windows_shortcut.py",
     "scripts/host_connection_controller.py",
     "heideng_merchant/merchant_experience.py"
   ]
