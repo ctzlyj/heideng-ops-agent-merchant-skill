@@ -28,7 +28,7 @@ def message(method, rid=None, **params):
 class ExpertMcpTests(unittest.TestCase):
     def setUp(self):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        (root/'expert-distribution.json').write_text(json.dumps({'version':'0.4.19','inviteDigests':['fixture']}))
+        (root/'expert-distribution.json').write_text(json.dumps({'version':(ROOT/'VERSION').read_text().strip(),'inviteDigests':['fixture']}))
         self.key = 'synthetic-injected-key'
         self.beta = Mock(SKILL=root)
         self.beta.EligibilityError = type('EligibilityError',(ValueError,),{})

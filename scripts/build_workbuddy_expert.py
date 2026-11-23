@@ -54,6 +54,7 @@ def build(output, invites=None, email='preview@example.invalid', *, integration_
         files = {p.relative_to(expert).as_posix():p.read_bytes()
                  for p in sorted((expert/SKILL/'references').glob('*.md'))}
         files[f'{SKILL}/resources/merchant.zip'] = archive.read_bytes()
+        files[f'{SKILL}/scripts/card.py'] = (ROOT/'workbuddy-jd-connector/card.py').read_bytes()
         for name in ('.mcp.json','avatars/heideng.png', 'agents/heideng-merchant.md', 'README.md',
                      f'{SKILL}/scripts/beta.py', f'{SKILL}/scripts/expert_mcp.py', f'{SKILL}/SKILL.md'):
             files[name] = (ROOT/'workbuddy-expert'/name).read_bytes()

@@ -16,7 +16,8 @@ class ExpertGuidanceTests(unittest.TestCase):
         messages = [json.loads(text) for text in re.findall(r'`(\{"arguments":\[.*?\]\})`', skill)]
         self.assertIn({'arguments':['sample-context']}, messages)
         self.assertIn('merchant_command', skill)
-        self.assertIn('远端京麦命令已关闭', skill)
+        self.assertIn('card-shop-identity', skill)
+        self.assertIn('京麦经营写入暂缓', skill)
         navigation = (notes/'references/experience-navigation.md').read_text(encoding='utf-8')
         links = re.findall(r'\[[^\]]+\]\(([^)]+)\)', navigation)
         content = '\n'.join((notes/'references'/link).read_text(encoding='utf-8') for link in links)

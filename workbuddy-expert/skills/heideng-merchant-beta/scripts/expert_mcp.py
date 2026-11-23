@@ -62,7 +62,8 @@ class MerchantService:
             nonlocal business
             proc = subprocess.run(cmd, env=env, stdin=subprocess.DEVNULL, capture_output=True,
                                   text=True, encoding='utf-8', errors='replace')
-            if len(cmd) >= 4 and Path(cmd[3]).name == 'merchant.py':
+            if len(cmd) >= 4 and (Path(cmd[3]).name == 'merchant.py' or
+                                  (argv == ['card-shop-identity'] and Path(cmd[3]).name == 'card.py' and cmd[-1] == 'identity')):
                 business = merchant_output(proc.stdout)
             return proc
         # argparse usage and command diagnostics must never become protocol output.

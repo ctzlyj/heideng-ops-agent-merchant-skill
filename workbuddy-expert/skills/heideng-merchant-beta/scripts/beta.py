@@ -113,13 +113,18 @@ def invoke(argv, *, skill=SKILL, home=None, lookup=token_usage, active=active_mo
         argv = ['status']
     if argv[0].startswith('-') or argv[0] == 'key' or (argv[0] == 'update' and argv[1:2] != ['usage']):
         raise EligibilityError('此操作由 WorkBuddy 专家依赖管理。')
-    parsed = build_parser().parse_args(argv)
-    if parsed.state is not None:
+    card_identity = argv == ['card-shop-identity']
+    parsed = None if card_identity else build_parser().parse_args(argv)
+    if parsed is not None and parsed.state is not None:
         raise EligibilityError('内测任务使用专家自己的商家状态。')
     blocked = qualify(key, config['inviteDigests'], lookup=lookup, active=active)
-    # This integration build has no published JD connector with a verified local
-    # profile contract. Keep ALL remote shop commands unavailable until that exists.
-    if parsed.command == 'run':
+    if card_identity:
+        card_state = (Path(home or Path.home())/'.heideng-wb-jd-card').resolve()
+        if not (card_state/'jd-card/current.json').is_file():
+            return {'status':'not-connected','matched':False,'readOnly':True}
+    # Only the card's exact read-only identity operation is available for connector
+    # integration. Shop selection, new authorization and writes have no MCP route.
+    if parsed is not None and parsed.command == 'run':
         args = list(parsed.arguments)
         if args[:1] == ['--']:
             args = args[1:]
@@ -148,6 +153,9 @@ def invoke(argv, *, skill=SKILL, home=None, lookup=token_usage, active=active_mo
         installed = verify_install(target)
         if not installed.get('valid') or installed['receipt']['archiveSha256'] != config['coreSha256']:
             raise EligibilityError('内测程序与专家发布清单不一致。')
+    if card_identity:
+        return run([sys.executable,'-I','-B',str(skill/'scripts/card.py'),'--core',str(target),
+                    '--state',str(card_state),'identity'],env=env).returncode
     # Transient process-only injection; never use the host's personal/provider key.
     image_capabilities = {'materials','listing','photo-listing','matrix-listing','link-replica','images','image-refresh'}
     if parsed.command == 'run' and args[:1] == ['generate'] and parsed.capability in image_capabilities:

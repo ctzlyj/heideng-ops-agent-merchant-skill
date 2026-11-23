@@ -1,4 +1,5 @@
 import hashlib
+from functools import partial
 import importlib.util
 import json
 import os
@@ -115,6 +116,7 @@ class WorkBuddyExpertTests(unittest.TestCase):
             self.assertEqual(len(config['agents']),1)
             self.assertEqual([n for n in z.namelist() if n.endswith('/SKILL.md')], [SKILL+'/SKILL.md'])
             self.assertLess(len(z.read(config['avatar'])),500_000)
+            self.assertEqual(z.read(SKILL+'/scripts/card.py'), (ROOT/'workbuddy-jd-connector/card.py').read_bytes())
             self.assertFalse(any(self.key.encode() in z.read(name) for name in z.namelist()))
             z.extractall(self.root/'workbuddy')
         skill = self.root/'workbuddy'/SKILL
@@ -136,6 +138,20 @@ class WorkBuddyExpertTests(unittest.TestCase):
                 self.assertEqual(runtime.invoke(['sample-context'],key=self.key,home=self.root,skill=skill,
                     lookup=lambda _:usage(),active=active,run=offline),0)
         self.assertEqual(len(installs),1)
+        # Use the packaged MCP dispatcher and the installed core in a real child
+        # process. A pending grant must reach the host intact with no remote read.
+        mcp = entry(skill/'scripts/expert_mcp.py')
+        service = mcp.MerchantService(runtime, self.key)
+        receipt = self.root/'.heideng-wb-jd-card/jd-card/current.json'
+        receipt.parent.mkdir(parents=True)
+        attempt = 'a'*24
+        receipt.write_text(json.dumps({'attempt':attempt,'profile':'wb-jd-'+attempt,'status':'pending'}))
+        local_invoke = partial(runtime.invoke, skill=skill, home=self.root,
+                               lookup=lambda _:usage(), active=active)
+        with patch.object(runtime, 'invoke', local_invoke):
+            result, failed = service.call(['card-shop-identity'])
+        self.assertTrue(failed)
+        self.assertEqual(result, {'status':'pending','matched':False})
         from heideng_merchant.distribution import install_archive, verify_install
         from heideng_merchant.safety import file_sha
         legacy = next((ROOT/'updates/artifacts').glob('*-0.4.10-*.zip'))
@@ -158,3 +174,20 @@ class WorkBuddyExpertTests(unittest.TestCase):
                               capture_output=True,text=True,encoding='utf-8',timeout=20)
         self.assertEqual(proc.returncode,2,proc.stderr)
         self.assertFalse(json.loads(proc.stdout)['businessExecuted'])
+
+    def test_expert_identity_only_uses_the_connected_cards_namespace(self):
+        def probe(cmd, *, env):
+            self.assertEqual(Path(cmd[3]), self.skill/'scripts/card.py')
+            self.assertEqual(cmd[4:], ['--core',str(self.root/'.heideng-wb-beta/program/heideng-ops-agent-merchant'),
+                                       '--state',str(self.root/'.heideng-wb-jd-card'),'identity'])
+            self.assertNotIn('HEIDENG_MERCHANT_LTS4AI_API_KEY',env)
+            return subprocess.CompletedProcess(cmd,0)
+        call = lambda: self.beta.invoke(['card-shop-identity'],skill=self.skill,home=self.root,key=self.key,
+                         lookup=lambda _:usage(),active=active,run=probe)
+        self.assertEqual(call(), {'status':'not-connected','matched':False,'readOnly':True})
+        marker = self.root/'.heideng-wb-jd-card/jd-card/current.json'
+        marker.parent.mkdir(parents=True)
+        marker.write_text('{}',encoding='utf-8')  # the adapter still has to verify this independently
+        with patch('heideng_merchant.distribution.verify_install',
+                   return_value={'valid':True,'receipt':{'archiveSha256':'c'*64}}):
+            self.assertEqual(call(),0)
