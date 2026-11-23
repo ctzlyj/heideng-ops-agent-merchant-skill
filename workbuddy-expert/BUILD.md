@@ -15,3 +15,5 @@ python scripts/build_workbuddy_expert.py --integration-only --invite-digests <�
 完整版本恢复送审前，应取得平台认可的京麦授权路径。如果采用 marketplace 连接器，取得已上架 source 后在 `dependencies.connectors` 声明，证明它产生的当前店铺授权能被同一台设备、同一商家状态内的业务工具消费，再联通核店、续用和断开。WorkBuddy 的 CLI 连接器检查清单要求覆盖 macOS 与 Linux 及 auth/status/unAuth；目前京东官方 0.3.7 二进制发行清单仅列 Windows x64 和 macOS ARM。先与平台确认现有连接器、独立连接器的平台范围，或官方支持的其他等效方案。
 
 [专家依赖声明](https://open.workbuddy.cn/docs/expert#声明方式) · [连接器规范](https://open.workbuddy.cn/docs/connector) · [京东 CLI 发行清单](https://mcp-open.jd.com/cli/version-policy.json)
+
+2026-11-23 开放平台智能客服答复，桌面端“自定义连接器”接收 MCP 配置，公开文档暂未给出上架前导入 `cli.json` 的卡片预览入口。项目已发邮件请开放平台人工确认定向内测的平台范围、撤权要求和预览方式，当前仍待人工答复。[开放平台联系渠道](https://open.workbuddy.cn/docs/contact)

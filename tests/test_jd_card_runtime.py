@@ -48,6 +48,9 @@ def fake_native(port, args):
         with socket.socket() as listener:
             listener.bind(('127.0.0.1',port))
             listener.listen(1)
+            # Keep the OS-assigned socket open from selection through receipt.
+            # Each login may immediately follow another successful TCP callback.
+            (home/'fixture-callback-port').write_text(str(listener.getsockname()[1]))
             print('https://open-oauth.jd.com/oauth2/to_login?synthetic=1', flush=True)
             conn, _ = listener.accept()
             with conn:
@@ -82,17 +85,29 @@ def fake_native(port, args):
 
 def fixture_card(port, args):
     base = [sys.executable,'-I','-B',str(Path(__file__).resolve())]
-    return load_card().main(args,native_command=[*base,'--fake-native',str(port)],
-                            worker_command=[*base,'--fake-card',str(port)],callback_port=port)
+    module = load_card()
+    class FixtureCard(module.Card):
+        def worker(self,attempt):
+            (self.home/'fixture-callback-port').unlink(missing_ok=True)
+            return super().worker(attempt)
+
+        def _owners(self):
+            if not self.callback_port:
+                try:
+                    self.callback_port = int((self.home/'fixture-callback-port').read_text())
+                except FileNotFoundError:
+                    # The synthetic native will atomically allocate its own port.
+                    return set()
+            return super()._owners()
+    with patch.object(module,'Card',FixtureCard):
+        return module.main(args,native_command=[*base,'--fake-native',str(port)],
+                           worker_command=[*base,'--fake-card',str(port)],callback_port=port)
 
 
 class CardTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
-        with socket.socket() as s:
-            s.bind(('127.0.0.1',0))
-            self.port = s.getsockname()[1]
-        self.command = [sys.executable,'-I','-B',str(Path(__file__).resolve()),'--fake-card',str(self.port),
+        self.command = [sys.executable,'-I','-B',str(Path(__file__).resolve()),'--fake-card','0',
                         '--state',str(self.root),'--core',str(ROOT)]
 
     def invoke(self, *args, success=True):
@@ -108,8 +123,13 @@ class CardTests(unittest.TestCase):
         began = time.monotonic()
         line = caller.stdout.readline()
         try:
-            self.assertEqual(line.strip(),'https://open-oauth.jd.com/oauth2/to_login?synthetic=1')
+            marker = self.root/'jd-card/current.json'
+            record = json.loads(marker.read_bytes()) if marker.exists() else {}
+            progress = {key:record[key] for key in ('status','renewal','initialized','nativeInitStarted',
+                                                    'nativeLoginStarted','nativeLoginFinished') if key in record}
+            self.assertEqual(line.strip(),'https://open-oauth.jd.com/oauth2/to_login?synthetic=1',progress)
             self.assertLess(time.monotonic()-began,10)
+            self.port = int((self.root/'cli-home/.jdo-cli/fixture-callback-port').read_text())
         finally:
             caller.kill()
             caller.wait(timeout=4)
@@ -229,6 +249,34 @@ class CardTests(unittest.TestCase):
         self.assertFalse(self.invoke('identity',success=False)['matched'])
         with socket.socket() as probe:
             probe.bind(('127.0.0.1',self.port))
+
+    def test_foreign_listener_is_preserved_and_original_preflight_can_resume(self):
+        marker = self.root/'jd-card/current.json'
+        with socket.socket() as foreign:
+            foreign.bind(('127.0.0.1',0))
+            foreign.listen(1)
+            self.command[self.command.index('--fake-card')+1] = str(foreign.getsockname()[1])
+            self.assertEqual(self.invoke('auth','--expect-vender-id','52',success=False)['status'],'callback-busy')
+            first = json.loads(marker.read_bytes())
+            self.assertFalse(first['nativeLoginStarted'])
+            self.assertIsNotNone(foreign.getsockname())
+        self.begin()
+        self.assertEqual(self.complete_callback()['attempt'],first['attempt'])
+        self.assertEqual(self.invoke('unAuth')['status'],'disconnected')
+
+    @unittest.skipUnless(os.name=='nt','Windows file sharing')
+    def test_receipt_publication_survives_concurrent_windows_reader(self):
+        card = load_card().Card(self.root,ROOT)
+        card.write({'sequence':1})
+        reader = card.receipt.open('rb')
+        release = threading.Timer(.15,reader.close)
+        release.start()
+        try:
+            card.write({'sequence':2})
+        finally:
+            release.join()
+            reader.close()
+        self.assertEqual(json.loads(card.receipt.read_bytes()),{'sequence':2})
 
 
 if __name__ == '__main__':

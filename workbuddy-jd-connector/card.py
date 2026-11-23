@@ -19,6 +19,15 @@ from urllib.parse import urlsplit
 class CardError(Exception):
     """Public fixed diagnostics only; never relay a credential or CLI log."""
 
+WORKER_FAILURES = frozenset({
+    'callback-busy','cannot-confirm-callback-stopped','identity-mismatch',
+    'official-command-failed','official-identity-unavailable','official-init-failed',
+    'official-login-ended-before-url','official-login-incomplete','official-login-receipt-mismatch',
+    'official-profile-mismatch','official-profile-not-active','official-receipt-unavailable',
+    'official-shop-not-active','unable-to-check-callback-owner','worker-operation-timed-out',
+    'worker-permission-denied','needs-reconciliation',
+})
+
 
 def _windows_process_parents():
     """Read native PID metadata without starting a Windows PowerShell session."""
@@ -100,7 +109,17 @@ class Card:
 
     def write(self, record):
         from heideng_merchant.safety import atomic_json
-        atomic_json(self.receipt, record)
+        # Windows readers temporarily deny rename/delete. Keep publishing a whole
+        # receipt atomically; a momentary status read must not abort an OAuth worker.
+        deadline = time.monotonic() + .6
+        while True:
+            try:
+                atomic_json(self.receipt, record)
+                return
+            except PermissionError as error:
+                if getattr(error,'winerror',None) not in (5,32,33) or time.monotonic() >= deadline:
+                    raise
+                time.sleep(.02)
 
     def environment(self):
         from heideng_merchant.mature_runtime import child_environment
@@ -253,6 +272,11 @@ class Card:
                 if self.credential_state(previous) == 'active':
                     raise CardError('already-connected')
                 stage = 'prepared'
+            elif stage == 'callback-busy' and previous.get('nativeLoginStarted') is False:
+                # A foreign listener stopped preflight, before the native login
+                # launched. Reuse the same profile when the merchant tries again.
+                stage = 'prepared'
+                renewal = previous.get('renewal',False)
             if stage not in ('disconnected','prepared','pending'):
                 raise CardError('existing-card-attempt-check-status-or-disconnect')
             record = previous if stage != 'disconnected' else self._new_record(previous, expected)
@@ -264,7 +288,7 @@ class Card:
             attempt = record['attempt']
             if stage != 'pending':
                 self.command()
-                self.write(dict(record,status='pending',renewal=renewal))
+                self.write(dict(record,status='pending',renewal=renewal,nativeLoginStarted=False,nativeLoginFinished=False))
                 flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP if os.name=='nt' else 0
                 try:
                     subprocess.Popen([*self.worker_command,'--state',str(self.state),'--core',str(self.core),
@@ -277,8 +301,12 @@ class Card:
         # to the original attempt without ever submitting a second authorization.
         while time.monotonic()-began < 8.5:
             current = self.current()
-            if current.get('attempt') != attempt or current.get('status') != 'pending':
+            if current.get('attempt') != attempt:
                 raise CardError('official-authorization-unavailable')
+            if current.get('status') != 'pending':
+                status = current.get('status')
+                raise CardError(status if isinstance(status,str) and status in WORKER_FAILURES
+                                else 'official-authorization-unavailable')
             if current.get('handoffPort'):
                 response = queue.Queue(maxsize=1)
                 def receive():
@@ -479,7 +507,15 @@ class Card:
                     raise CardError('identity-mismatch')
                 self._finish(attempt,status='ready',identity=identity,slotDigest=sha256(account[0].encode()).hexdigest())
             except (CardError,OSError,ValueError,subprocess.SubprocessError,RuntimeError) as error:
-                self._finish(attempt,status=str(error) if isinstance(error,CardError) else 'needs-reconciliation')
+                if isinstance(error,CardError):
+                    reason = str(error)
+                elif isinstance(error,subprocess.TimeoutExpired):
+                    reason = 'worker-operation-timed-out'
+                elif isinstance(error,PermissionError):
+                    reason = 'worker-permission-denied'
+                else:
+                    reason = 'needs-reconciliation'
+                self._finish(attempt,status=reason)
                 return 2
         return 0
 
@@ -511,7 +547,10 @@ class Card:
             if not url:
                 url = authorization_url(self.shoplib.strip_ansi(line))
         if handoff:handoff.close()
-        if not handoff or proc.wait(timeout=2) != 0:
+        code = proc.wait(timeout=2)
+        if not url:
+            raise CardError('official-login-ended-before-url')
+        if not handoff or code != 0:
             raise CardError('official-login-incomplete')
         return self.shoplib.extract_json(transcript) or {}
 
