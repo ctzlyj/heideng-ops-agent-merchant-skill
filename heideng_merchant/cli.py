@@ -35,6 +35,8 @@ def build_parser():
     sample.add_argument('--product-id')
     sample.add_argument('--task-id')
     sample.add_argument('--image-sha')
+    overlay = sub.add_parser('preview-overlay', help='在一个 SKU 的原尺寸底图上本地打样并保留图源与对照')
+    overlay.add_argument('--plan', type=Path, required=True)
     fee = sub.add_parser('confirm-image-fee', help='商家一次确认本次图片费用与计费请求上限')
     fee.add_argument('--quote', type=Path, required=True)
     fee.add_argument('--output', type=Path, required=True)
@@ -62,6 +64,26 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         state = args.state or installed_state(Path(__file__).resolve().parents[1])
+        if args.command == 'preview-overlay':
+            from .runtime_dependencies import runtime_python
+            interpreter = runtime_python(state)
+            # Unix virtual environments may symlink to the same system binary.
+            if interpreter.absolute() != Path(sys.executable).absolute():
+                import subprocess
+                from .safety import clean_environment
+                script = Path(__file__).resolve().parents[1] / 'scripts/merchant.py'
+                return subprocess.call([str(interpreter), '-I', '-B', str(script), '--state', str(state),
+                                        'preview-overlay', '--plan', str(args.plan.resolve())],
+                                       env=clean_environment(Path(state) / 'runtime-home'))
+            try:
+                from .overlay_preview import preview
+                result = preview(args.plan)
+            except ImportError:
+                raise SafetyError('请用本次源码安装入口补齐商家图片运行环境，再继续原样图') from None
+            except (ValueError, OSError, TypeError, KeyError) as error:
+                raise SafetyError(str(error)) from None
+            print(json.dumps(result, ensure_ascii=False))
+            return 0
         if args.command == 'sample-context':
             from .commercial_tasks import accepted_sample_context
             if any(value and not value.isdecimal() for value in (args.shop_id,args.vender_id,args.product_id)):
