@@ -23,9 +23,14 @@ with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT
         login=context.new_page();login.goto('https://passport.shop.jd.com/login/index.action')
         controller=HostConnectionController(state=d,shop_identity={'shopName':'fixture-shop'})
         controller.context=context;controller.page=login;controller.context_id='fixture';controller.channel='msedge';controller.profile=Path(d)/'browser-profiles/fixture'
+        for _ in range(5):
+            assert not controller._observe()['loggedIn']
+        assert login.url.startswith('https://passport.shop.jd.com/')
+        assert len(seen)==1 and context.pages==[login]
+        controller.check_workspace_after_login()
         observation=controller._observe()
         assert observation['loggedIn'] and observation['identity']=={'shopName':'fixture-shop'}
-        assert login.url.startswith('https://passport.shop.jd.com/')
+        assert context.pages==[login]
         assert controller.page.url.startswith('https://shop.jd.com/')
         assert set(seen)=={'https://passport.shop.jd.com/login/index.action','https://shop.jd.com/jdm/home'}
         sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'mature/connection/app'))

@@ -925,7 +925,10 @@ def _desktop_browser(channel):
 def _merchant_desktop():
     if os.name == 'nt':
         host_folder = os.environ.get('HEIDENG_HOST_DESKTOP')
-        return Path(host_folder) if host_folder else desktop_dir()
+        if host_folder:
+            return Path(host_folder)
+        from heideng_merchant.mature_runtime import windows_known_folder
+        return windows_known_folder(0x0010)
     if sys.platform == 'darwin':
         import pwd
         return Path(pwd.getpwuid(os.getuid()).pw_dir) / 'Desktop'
@@ -1022,14 +1025,15 @@ def ensure_desktop_shortcut(profile, identity):
     try:
         desktop = _merchant_desktop()
         if desktop is None:
-            return {'status': 'unavailable', 'reason': 'desktop-platform-unsupported'}
+            reason = 'desktop-directory-unavailable' if os.name == 'nt' else 'desktop-platform-unsupported'
+            return {'status': 'unavailable', 'reason': reason}
         directory = merchant_profile_directory(entry.get('browserProfileDir'))
         if not directory:
             return {'status': 'unavailable', 'reason': 'shop-browser-profile-unavailable'}
         executable = _desktop_browser(entry.get('browserChannel'))
         if not executable:
             return {'status': 'unavailable', 'reason': 'shop-browser-unavailable'}
-        if not desktop.is_dir() or desktop.resolve().is_relative_to(merchant_home()):
+        if not desktop.is_absolute() or not desktop.is_dir() or desktop.resolve().is_relative_to(merchant_home()):
             return {'status': 'unavailable', 'reason': 'desktop-directory-unavailable'}
         label = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', shop_name)[:70].strip(' .') or '店铺'
         key = hashlib.sha256(f'{merchant_home()}\n{vender_id}\n{shop_id}'.encode()).hexdigest()[:16]
@@ -1044,6 +1048,13 @@ def ensure_desktop_shortcut(profile, identity):
                     status = _write_browser_shortcut(path, command, marker)
                 except FileExistsError:
                     continue
+                if not path.is_file() or not path.stat().st_size:
+                    return {'status': 'unavailable', 'reason': 'desktop-shortcut-not-found'}
+                if os.name == 'nt':
+                    # The link was staged then renamed. Notify Explorer of its final path.
+                    import ctypes
+                    event = 0x00000002 if status == 'created' else 0x00002000  # SHCNE_CREATE / SHCNE_UPDATEITEM
+                    ctypes.windll.shell32.SHChangeNotify(event, 0x0005, ctypes.c_wchar_p(str(path)), None)
                 return {'status': status, 'path': str(path)}
         return {'status': 'unavailable', 'reason': 'desktop-shortcut-name-in-use'}
     except (OSError, RuntimeError, ValueError, ImportError, SafetyError, subprocess.TimeoutExpired):

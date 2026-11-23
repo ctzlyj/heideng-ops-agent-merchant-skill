@@ -8,12 +8,12 @@
   "files": {
     "app/browser_adapters.py": {
       "upstreamSha256": "2bd421e1de07c81af5d1bc1db9e473541640a47cc75a4dfb19026c5adc780580",
-      "sha256": "3ed2bda919e4dec6c037134e451dbc589d629bfd6b9983f0a9d6c1618c102b34",
+      "sha256": "3f3eea497bd1a46ad444c9a48ff96f89ce60f121cc72221d7c9c723d68d7ecc8",
       "adapted": true
     },
     "app/browser_auth.py": {
       "upstreamSha256": "b8377e77716588c906337c1d3d7e4aca7e897d5fde3f9eb82c38c06ec938dbaa",
-      "sha256": "a76c6fb3760d614a4faaea9d855ff569cbb8c1179dfbe7f6434bb9468f74ac96",
+      "sha256": "2d288e2242003bfe7106cc0e74fede507a8a275db588dfef5cb7ffe92defe1d6",
       "adapted": true
     },
     "app/redaction.py": {
@@ -23,12 +23,12 @@
     },
     "app/server.py": {
       "upstreamSha256": "fdbe3a272f6ebfec99dff8340da787c830f2373944d870f6404d7878fdb7bcd8",
-      "sha256": "bd4aea4ebb5028b416f2e97ccd20332adb39748092a67b6ab196bf6db74220fc",
+      "sha256": "d85d0dced8f212e2081fb87b2816ec3b85a8e1e9f35c6a4ebe760c404d065db1",
       "adapted": true
     },
     "app/shoplib.py": {
       "upstreamSha256": "3302e5f77efe076313b2d18f5bc8c41eedda3164e9835c6d1a466b704c48e1b2",
-      "sha256": "2a0a6ef5020fe86cb3514a5867d5ebbd810657323049c0b37977baaff52e0d82",
+      "sha256": "a5c449921d2f85afc8efed38352857b4fea5ccd7c91509d245e50991cc7df3a3",
       "adapted": true
     },
     "app/static/index.html": {
@@ -38,7 +38,7 @@
     },
     "scripts/linker.py": {
       "upstreamSha256": "fcc261f757b6de8c3cfdfb76216d54a448777dbd2d37eac54dfdf3b6bb3e74e0",
-      "sha256": "fac3def679c2e5f90b1468b47d456c2aa505dd9780402775932f7431bcc5aeee",
+      "sha256": "33c856404bace1adc043888880c29e6d0b8c7e573732d741c48e825361b784c6",
       "adapted": true
     },
     "scripts/browser_bridge.py": {
@@ -48,7 +48,7 @@
     },
     "references/browser-session.md": {
       "upstreamSha256": "dbafcf49a60b997e177cc41dc2d8ff3c692589a3fa05490af100327888934392",
-      "sha256": "7e6fa2fbf6672ee4af359260f9b23fa8a8f89747a6281e62eb8e8800cf987a3c",
+      "sha256": "eb4a32b3d451c0c0461ea5a068d5f35b822dc4fbd7faae6121ff035f00015bc0",
       "adapted": true
     },
     "references/usage.md": {

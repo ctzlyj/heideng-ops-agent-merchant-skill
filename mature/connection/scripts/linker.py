@@ -201,6 +201,15 @@ def cmd_cancel(_a):
     return _unwrap(*api("/api/cancel", {}))
 
 
+def cmd_login_completed(a):
+    current = cmd_job(a)
+    if not current.get('ok'):
+        return current
+    if (current.get('job') or {}).get('id') != a.job_id:
+        return {'ok': False, 'errorKind': 'task_changed', 'error': '原任务已改变，未操作其他店铺页面。'}
+    return _unwrap(*http_json('/api/login-completed', {'jobId': a.job_id}, token=get_token()))
+
+
 def cmd_verify(a):
     return _unwrap(*api("/api/verify", {"profile": a.profile}))
 
@@ -574,6 +583,10 @@ def main() -> int:
     p.add_argument("--timeout", type=int, default=3)
     p.add_argument("--interval", type=float, default=2.0)
     p.set_defaults(func=cmd_wait)
+
+    p = sub.add_parser('login-completed', help='商家已说明扫码登录完成，用原任务的现有页面核对工作台')
+    p.add_argument('--job-id', required=True)
+    p.set_defaults(func=cmd_login_completed)
 
     p = sub.add_parser("verify")
     p.add_argument("--profile", required=True)

@@ -131,7 +131,9 @@ def _observation(result):
     if not isinstance(result, dict) or type(result.get("loggedIn")) is not bool:
         raise BrowserError("invalid_observation")
     logged_in = result["loggedIn"]
-    identity = _identity(result.get("identity", {}), logged_in)
+    identity = _identity(result.get("identity", {}), False)
+    if logged_in and not identity["shopName"].strip():
+        raise BrowserError("invalid_observation")
     challenge = result.get("challenge", "")
     if not isinstance(challenge, str):
         raise BrowserError("invalid_observation")
@@ -204,6 +206,8 @@ class BuiltinBrowser:
     def observe(self):
         value=self._call('observe')
         return {'loggedIn':bool(value.get('loggedIn')),'identity':value.get('identity') or {},'challenge':value.get('challenge','')}
+    def check_workspace_after_login(self):
+        self.controller.check_workspace_after_login()
     def open_oauth(self,url):self._call('open_oauth',url=_url(url));self._oauth_confirm_handled=False;return {'status':'ok'}
     def confirm(self):
         if self._oauth_confirm_handled:raise BrowserError('action_pending')
@@ -470,8 +474,8 @@ class PlaywrightBrowser:
             self._check()
             current_url = self._perform(lambda: self._page.url)
             if not self._login_failed and current_url in (self._login_url, self._login_page_url):
-                if self._reuse_identity is not None and not self.observe()["loggedIn"]:
-                    raise BrowserError("identity_mismatch")
+                if self._reuse_identity is not None:
+                    self.observe()
                 return {"status": "ok"}
         self._start()
         if self._login_failed:
@@ -493,16 +497,20 @@ class PlaywrightBrowser:
         self._login_opened = True
         self._login_page_url = self._perform(lambda: self._page.url)
         if self._reuse_identity is not None:
-            observation = self.observe()
-            if not observation["loggedIn"]:
-                raise BrowserError("identity_mismatch")
+            self.observe()
         return result
 
     def observe(self):
         self._check()
         observation = _observation(self._perform(lambda: self._page.evaluate(self._identity_script)))
-        if self._reuse_identity is not None and observation["loggedIn"] and observation["identity"] != self._reuse_identity:
-            raise BrowserError("identity_mismatch")
+        if self._reuse_identity is not None and observation["loggedIn"]:
+            current = observation["identity"]
+            if any(value and value != self._reuse_identity[key] for key, value in current.items()):
+                raise BrowserError("identity_mismatch")
+            if not all(current.values()):
+                # A previously verified profile must still match the full live identity.
+                # Wait for the page to finish rendering without replacing this session.
+                return {"loggedIn": False, "identity": {}, "challenge": observation["challenge"]}
         return observation
 
     def _allow_authorization(self):
