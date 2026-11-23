@@ -4,7 +4,7 @@ Only page/session operations live here; shop identity, OAuth and authorization r
 in the mature connector. No cookie/storage/history/credential is read or exported.
 """
 from __future__ import annotations
-import json, os, secrets, sys, uuid, time
+import json, os, sys, uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 from .state import FileLock
@@ -64,7 +64,7 @@ class HostConnectionController:
         self._state_path=self.root/'session.json'
         self._state=None
         self._playwright=None;self.context=None;self.page=None;self.context_id=None;self.channel=None;self.profile=None;self.oauth_confirm_handled=False
-        self.owned_pages=[];self.oauth_identity=None;self.channel_reason='';self._workspace_probe=None;self._next_probe=0
+        self.oauth_identity=None;self.channel_reason=''
 
     def describe_contract(self):return _public(None)
 
@@ -102,10 +102,11 @@ class HostConnectionController:
             self._playwright=None
             raise
         self.context.set_default_timeout(15000)
-        pages=list(self.context.pages)
-        self.page=next((p for p in pages if not p.is_closed()),None) or self.context.new_page()
-        self.owned_pages=[p for p in pages if p.url=='about:blank']
-        if self.page not in self.owned_pages:self.owned_pages.append(self.page)
+        pages=[page for page in self.context.pages if not page.is_closed()]
+        self.page=next((page for page in pages if _trusted_shop_page(page.url) or
+                        urlsplit(page.url).hostname == 'aq.jd.com'), None)
+        if self.page is None:
+            self.page=next((page for page in pages if page.url == 'about:blank'), None) or self.context.new_page()
         self._save()
 
     def _default_channel(self):
@@ -129,19 +130,14 @@ class HostConnectionController:
         reused = bool(self._load())
         self._launch(action.get('browserChannel'))
         url=self.page.url
-        if reused and (url=='about:blank' or urlsplit(url).hostname=='passport.shop.jd.com'):
+        if reused and url=='about:blank':
             from playwright.sync_api import TimeoutError as PlaywrightTimeout
             try:
                 self.page.goto(WORKSPACE_URL, wait_until='domcontentloaded', timeout=10000)
             except PlaywrightTimeout:
                 pass
             url=self.page.url
-            if urlsplit(url).hostname in ('shop.jd.com','aq.jd.com'):
-                self.page.bring_to_front()
-                return self._result()
-        if url=='about:blank' or not _trusted_shop_page(url) or urlsplit(url).hostname=='passport.shop.jd.com' and not self.shop_identity.get('_loginComplete'):
-            # Opening the login page is only for a not-yet-authenticated session; never force logout.
-            if urlsplit(url).hostname=='passport.shop.jd.com' and self.shop_identity.get('_loginComplete'):return self._result()
+        if url=='about:blank' or (not _trusted_shop_page(url) and urlsplit(url).hostname!='aq.jd.com'):
             self.page.goto(LOGIN_URL,wait_until='domcontentloaded')
         # Do not select QR/password/SMS on the merchant's behalf.
         self.page.bring_to_front()
@@ -159,45 +155,29 @@ class HostConnectionController:
         if host in {'passport.jd.com','open-oauth.jd.com'} and self.oauth_identity:
             return self._result({'loggedIn':True,'identity':self.oauth_identity,'challenge':''})
         pages=getattr(self.context,'pages',[])
-        candidates=[self.page,*reversed(pages if isinstance(pages,(list,tuple)) else [])]
+        candidates=[self.page,*(p for p in reversed(pages if isinstance(pages,(list,tuple)) else []) if p is not self.page)]
         for page in candidates:
             if page.is_closed():continue
             parsed=urlsplit(page.url)
             if not _trusted_shop_page(page.url) or parsed.hostname=='passport.shop.jd.com':continue
             identity=_identity(page)
             if identity:
-                self.page=page;page.bring_to_front()
+                self.page=page
                 return self._result({'loggedIn':True,'identity':identity,'challenge':''})
-        # Only an owned session probe; no storage/History read and no refresh of the merchant's login page.
-        if host=='passport.shop.jd.com' and time.monotonic()>=self._next_probe:
-            self._next_probe=time.monotonic()+5
-            if self._workspace_probe is None or self._workspace_probe.is_closed():
-                self._workspace_probe=self.context.new_page();self.owned_pages.append(self._workspace_probe)
-                self.page.bring_to_front()
-            probe=self._workspace_probe
-            if (urlsplit(probe.url).hostname or '')=='aq.jd.com':
-                return self._result({'loggedIn':False,'identity':{},'challenge':'account-risk-blocked'})
-            # A workspace that is still rendering must not be reloaded every five seconds.
-            if _trusted_shop_page(probe.url) and urlsplit(probe.url).hostname!='passport.shop.jd.com':
-                return self._result({'loggedIn':False,'identity':{},'challenge':''})
-            try:
-                probe.goto(WORKSPACE_URL,wait_until='domcontentloaded',timeout=10000)
-                if urlsplit(probe.url).hostname=='aq.jd.com':
-                    probe.bring_to_front()
-                    return self._result({'loggedIn':False,'identity':{},'challenge':'account-risk-blocked'})
-                if _trusted_shop_page(probe.url) and urlsplit(probe.url).hostname!='passport.shop.jd.com':
-                    identity=_identity(probe)
-                    if identity:
-                        self.page=probe;probe.bring_to_front()
-                        return self._result({'loggedIn':True,'identity':identity,'challenge':''})
-            except Exception:
-                # An optional probe failing is not a failed login or permission to create another session.
-                return self._result({'loggedIn':False,'identity':{},'challenge':'','probeStatus':'temporarily-unavailable'})
-            finally:
-                if (self.page is not probe and not self.page.is_closed()
-                        and urlsplit(probe.url).hostname != 'aq.jd.com'):
-                    self.page.bring_to_front()
         return self._result({'loggedIn':False,'identity':{},'challenge':''})
+
+    def check_workspace_after_login(self):
+        """The merchant reported completing login. Reuse the existing page if it did not redirect."""
+        if self.page is None or self.page.is_closed():
+            return
+        if self._observe().get('loggedIn') or urlsplit(self.page.url).hostname != 'passport.shop.jd.com':
+            return
+        from playwright.sync_api import Error as PlaywrightError
+        try:
+            self.page.goto(WORKSPACE_URL, wait_until='domcontentloaded', timeout=10000)
+        except PlaywrightError:
+            # A network change can race the redirect; subsequent polls only read the current pages.
+            pass
 
     def _open_oauth(self,action):
         self._launch()
@@ -240,9 +220,13 @@ class HostConnectionController:
 
     def _close(self):
         if self.context is None:return {'ok':True}
-        for page in self.owned_pages:
-            if not page.is_closed():page.close()
-        self.context=None;self._playwright.stop();self._playwright=None
+        # This controller launched its own persistent browser. Graceful context closure
+        # lets Chromium flush the merchant's session to its original profile.
+        try:
+            self.context.close()
+        finally:
+            self._playwright.stop()
+            self.context=None;self._playwright=None
         return {'ok':True}
 
     def dispatch(self,request):

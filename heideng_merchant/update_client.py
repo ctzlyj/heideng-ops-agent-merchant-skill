@@ -4,7 +4,7 @@ import json, os, platform, re, shutil, subprocess, sys, time, uuid
 from pathlib import Path
 from .safety import SafetyError, atomic_json, read_json, safe_join, is_linked
 from .state import FileLock
-from .distribution import install_archive, verify_install, validate_archive, version_key, rollback, RECEIPT, SKILL_NAME
+from .distribution import install_archive, install_digest, verify_install, validate_archive, version_key, rollback, RECEIPT, SKILL_NAME
 from .update_catalog import GitSource, verify, canonical, digest, dependency_fingerprint
 
 INTERVAL = 24 * 3600
@@ -21,17 +21,22 @@ def configure(state, target, trust, host="unknown"):
     if is_linked(Path(target)): raise SafetyError("update-development-link-refused")
     root = area(state); path = root / "settings.json"
     if path.exists():
-        old = read_json(path)
-        if old["target"] != str(Path(target).resolve()): raise SafetyError("update-target-changed")
-        return old  # Pins do not change just because a new package changes its trust file.
-    if trust.get("schemaVersion") != 1 or not trust.get("keys"): raise SafetyError("update-trust-not-configured")
-    value = {"enabled": True, "target": str(Path(target).resolve()), "trust": trust, "host": host, "intervalSeconds": INTERVAL, "failures": 0, "nextCheckAt": 0, "status": "configured"}
-    atomic_json(path, value)
+        value = read_json(path)
+        if value["target"] != str(Path(target).resolve()): raise SafetyError("update-target-changed")
+        # Preserve the original trust pins and the merchant's update settings.
+    else:
+        if trust.get("schemaVersion") != 1 or not trust.get("keys"): raise SafetyError("update-trust-not-configured")
+        value = {"enabled": True, "target": str(Path(target).resolve()), "trust": trust, "host": host, "intervalSeconds": INTERVAL, "failures": 0, "nextCheckAt": 0, "status": "configured"}
+        atomic_json(path, value)
     installed = verify_install(Path(target))
     if installed["valid"]:
-        files = {n: safe_join(Path(target), n).read_bytes() for n in installed["receipt"]["files"] if "requirements" in n}
-        atomic_json(root / "installed-release.json", {"version": installed["version"], "sha256": installed["receipt"]["archiveSha256"], "dependencyFingerprint": dependency_fingerprint(files)})
-    capture_previous_version(state, Path(target))
+        receipt = installed["receipt"]
+        identity = {"sha256": receipt["archiveSha256"]} if "archiveSha256" in receipt else {"sourceManifestSha256": install_digest(receipt)}
+        previous = read_json(root / "installed-release.json", {})
+        if previous.get("version") != installed["version"] or any(previous.get(key) != val for key,val in identity.items()):
+            files = {n: safe_join(Path(target), n).read_bytes() for n in receipt["files"] if "requirements" in n}
+            capture_previous_version(state, Path(target))
+            atomic_json(root / "installed-release.json", {"version": installed["version"], **identity, "dependencyFingerprint": dependency_fingerprint(files)})
     return value
 
 def settings(state):
@@ -96,6 +101,12 @@ def release_path(state, release):
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", identifier): raise SafetyError("update-release-id-invalid")
     p = area(state) / "candidates" / (identifier + ".zip"); p.parent.mkdir(exist_ok=True); return p
 
+def release_matches(receipt, release):
+    if "archiveSha256" in receipt:
+        return receipt["archiveSha256"] == release.get("sha256")
+    return bool(receipt.get("sourceManifestSha256") and receipt["sourceManifestSha256"] == release.get("manifestSha256")
+                and receipt["version"] == release.get("version"))
+
 def check(state, *, source=None, force=False, now=None):
     now = time.time() if now is None else now; s = settings(state)
     if not s["enabled"] and not force: return {"status": "disabled"}
@@ -113,7 +124,7 @@ def check(state, *, source=None, force=False, now=None):
             version_key(x["version"])
             if x["version"] in by_version and x["sha256"] != by_version[x["version"]]: raise SafetyError("same-version-different-artifact")
             by_version[x["version"]] = x["sha256"]
-            if x["version"] == current["version"] and x["sha256"] != current["receipt"]["archiveSha256"]: raise SafetyError("same-version-different-artifact")
+            if x["version"] == current["version"] and not release_matches(current["receipt"],x): raise SafetyError("same-version-different-artifact")
         newer = [x for x in releases if version_key(x["version"]) > version_key(current["version"])]
         release = max(newer, key=lambda x: version_key(x["version"])) if newer else None
         if release:
@@ -127,7 +138,7 @@ def check(state, *, source=None, force=False, now=None):
             commits = {n.split('/')[1]: json.loads(b)['upstreamCommit'] for n,b in files.items() if n.startswith('mature/') and n.endswith('/provenance.json')}
             if commits != release.get('components', {}): raise SafetyError('update-component-manifest-mismatch')
             if release.get("manifestSha256") and __import__("hashlib").sha256(files["package-manifest.json"]).hexdigest() != release["manifestSha256"]: raise SafetyError("update-manifest-mismatch")
-        revoked = any(x.get("status") == "withdrawn" and x.get("sha256") == current["receipt"]["archiveSha256"] for x in payload["releases"])
+        revoked = any(x.get("status") == "withdrawn" and release_matches(current["receipt"],x) for x in payload["releases"])
         s = settings(state); s.update(lastCheckAt=now, nextCheckAt=now + s["intervalSeconds"], failures=0, status="downloaded" if release else "withdrawn-installed" if revoked else "up-to-date", candidate=release)
         s.pop("error", None)
         if revoked: s["notice"] = "installed-release-withdrawn; signed-recovery-or-newer-stable-required"
@@ -166,7 +177,7 @@ def usage(state, action, task_id, *, components=None, receipt=None, loaded_versi
             version = installed["version"]
             if loaded_version and loaded_version != version:
                 raise SafetyError('requested-loaded-version-snapshot-unavailable')
-            snapshot = root / "versions" / (version + "-" + installed["receipt"]["archiveSha256"][:16]) / SKILL_NAME
+            snapshot = root / "versions" / (version + "-" + install_digest(installed["receipt"])[:16]) / SKILL_NAME
             write_program_snapshot(state, target, installed["receipt"], snapshot)
 
         reg = read_json(snapshot / "registry.json", {})
@@ -204,9 +215,13 @@ def recover(state, *, source=None, confirm=False):
     s = settings(state); payload = load_catalog(state, source or source_for(state))
     current = verify_install(Path(s["target"]))
     history = read_json(Path(state) / "install-history.json", {}); previous = read_json(Path(history.get("previous") or ".") / RECEIPT, {})
-    allowed = next((x for x in payload.get("recoveries", []) if x.get("fromSha256") == current.get("receipt", {}).get("archiveSha256") and x.get("toSha256") == previous.get("archiveSha256")), None)
-    stable = any(x.get("status") == "stable" and x.get("sha256") == previous.get("archiveSha256") for x in payload["releases"])
-    if not allowed or not stable: raise SafetyError("signed-controlled-recovery-not-authorized")
+    if not current["valid"]: raise SafetyError("update-local-modifications-or-development-link")
+    original = current["receipt"]
+    from_hashes = {original["archiveSha256"]} if "archiveSha256" in original else {
+        row["sha256"] for row in payload["releases"] if release_matches(original,row)}
+    to_hashes = {row["sha256"] for row in payload["releases"] if row.get("status") == "stable" and release_matches(previous,row)}
+    if not any(x.get("fromSha256") in from_hashes and x.get("toSha256") in to_hashes for x in payload.get("recoveries", [])):
+        raise SafetyError("signed-controlled-recovery-not-authorized")
     with FileLock(area(state) / "usage.lock"):
         if active_usage(state): raise SafetyError("controlled-recovery-active-usage")
         result = rollback(Path(s["target"]), Path(state))  # Original verified backup path, no downgrade override.
@@ -252,7 +267,7 @@ def capture_previous_version(state, target):
     backup = _owned(history['previous'], Path(target).absolute(), 'backup', state)
     receipt = read_json(backup / RECEIPT, {})
     if receipt.get('skill') != SKILL_NAME: raise SafetyError('previous-update-receipt-invalid')
-    snapshot = area(state) / 'versions' / (receipt['version'] + '-' + receipt['archiveSha256'][:16]) / SKILL_NAME
+    snapshot = area(state) / 'versions' / (receipt['version'] + '-' + install_digest(receipt)[:16]) / SKILL_NAME
     write_program_snapshot(state, backup, receipt, snapshot)
 
     return snapshot
@@ -265,7 +280,7 @@ def write_program_snapshot(state, source, receipt, snapshot):
     with FileLock(area(state)/'snapshots.lock'):
         if (snapshot/RECEIPT).exists():
             check=verify_install(snapshot)
-            if not check['valid'] or check['receipt']['archiveSha256']!=receipt['archiveSha256']:raise SafetyError('usage-snapshot-modified')
+            if not check['valid'] or install_digest(check['receipt'])!=install_digest(receipt):raise SafetyError('usage-snapshot-modified')
             return snapshot
         expected=receipt['files'];existing={p.relative_to(snapshot).as_posix() for p in snapshot.rglob('*') if p.is_file()} if snapshot.exists() else set()
         if existing-set(expected):raise SafetyError('snapshot-local-extra-files')

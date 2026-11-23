@@ -38,7 +38,7 @@ jobs:
           --only-binary=:all: --no-cache-dir -r tests/mature-requirements.txt -r requirements-updates.txt
       - name: Installed merchant journey
         run: python -B tests/run_merchant_journey.py
-      - run: python tests/run_usability_offline.py
-      - run: python tests/run_mature_offline.py
-      - run: python scripts/build_release.py
-      - run: python -c "from pathlib import Path; from scripts.audit_release import audit; import json; print(json.dumps(audit(next(Path('dist').glob('heideng-ops-agent-merchant-*.zip')))))"
+      - name: Merchant usability from Git source
+        run: python -B tests/run_usability_offline.py --source-only
+      - name: Offline commerce regressions from Git source
+        run: python -B tests/run_mature_offline.py --source-only

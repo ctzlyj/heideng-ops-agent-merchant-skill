@@ -1,5 +1,6 @@
 """Replace specification images on one existing POP product using exact SKU identities."""
 from argparse import Namespace
+from contextlib import contextmanager
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
@@ -271,10 +272,40 @@ def media_space(api):
     return zone, cat
 
 
+def sku_edit_directory(identity, pid):
+    return merchant_home()/'work'/'sku-image-edits'/str(int(identity['venderId']))/str(int(pid))
+
+
+def gallery_write_directory(api, identity, pid):
+    listing_root = Path(getattr(api, 'STATE_ROOT', merchant_home()/'mature'/'listing'))
+    return listing_root/'outputs'/'gallery-writes'/str(int(identity['venderId']))/str(int(pid))
+
+
+@contextmanager
+def product_image_lock(gallery_directory, identity, pid):
+    # A full SKU schema also carries the main gallery. Use both existing lock files,
+    # always in this order, including when another worker still uses the older code.
+    with FileLock(gallery_directory/'gallery.lock'), FileLock(sku_edit_directory(identity, pid)/'edit.lock'):
+        yield
+
+
+def require_settled_edit(path, description):
+    if not path.exists():
+        return
+    record = read_json(path)
+    if not isinstance(record, dict) or record.get('status') not in ('verified', 'rejected'):
+        raise ValueError(f'本商品的{description}仍需按原任务回查，未发起新写入。回执：{path}')
+
+
+def require_no_pending_sku_edit(identity, pid):
+    require_settled_edit(sku_edit_directory(identity, pid)/'current.json', '规格图整版编辑')
+
+
 def run(api, get_detail, identity, pid, images, package=None, *, check_only=False, reconcile=False):
     from PIL import Image
-    directory = merchant_home()/'work'/'sku-image-edits'/str(identity['venderId'])/str(pid)
-    with FileLock(directory/'edit.lock'):
+    directory = sku_edit_directory(identity, pid)
+    gallery_directory = gallery_write_directory(api, identity, pid)
+    with product_image_lock(gallery_directory, identity, pid):
         record_path = directory/'current.json'
         prior = read_json(record_path, {})
         if reconcile or prior.get('status') in ('submitting', 'submitted', 'awaiting-readback'):
@@ -317,6 +348,7 @@ def run(api, get_detail, identity, pid, images, package=None, *, check_only=Fals
             inputs[sid] = file_sha(path)
         if prior.get('status') == 'verified' and prior.get('inputs') == inputs and old == prior['expected']:
             return readback(api, pid, prior)
+        require_settled_edit(gallery_directory/'current.json', '主图提交')
         zone, category = media_space(api)
         targets = {}
         store = {k:identity[k] for k in ('shopId','venderId','shopName','profile') if k in identity}

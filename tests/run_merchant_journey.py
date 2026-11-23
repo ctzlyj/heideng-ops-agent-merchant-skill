@@ -136,6 +136,9 @@ def main():
                                     '--offline','--no-auto-update']))
         assert installed['version'] == (ROOT/'VERSION').read_text().strip()
         target = home/'.workbuddy/skills/heideng-ops-agent-merchant'
+        receipt = json.loads((target/'.merchant-install.json').read_bytes())
+        assert receipt['sourceManifestSha256'] == receipt['files']['package-manifest.json']
+        assert 'archiveSha256' not in receipt
         run([__file__,target,home,'submit'])
         tasks = json.loads(run([target/'scripts/merchant.py','--state',state,'task-context','--shop-id','77',
                                 '--vender-id','99','--goal','sku-edit','--product-id','42']))
@@ -143,7 +146,11 @@ def main():
         task = tasks['tasks'][0]
         assert task['kind'] == 'sku-edit' and str(task['productId']) == '42'
         (home/'selected-task.json').write_text(json.dumps(task), encoding='utf-8')
-        print(run([__file__,target,home,'recover']).strip())
+        result = json.loads(run([__file__,target,home,'recover']))
+        sys.path.insert(0,str(ROOT/'tests'))
+        from run_gallery_journey import run_journey
+        result['singleSkuPilot'] = run_journey(run,target,home,state)
+        print(json.dumps(result))
 
 
 if __name__ == '__main__':

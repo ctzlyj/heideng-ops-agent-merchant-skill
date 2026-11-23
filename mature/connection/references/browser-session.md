@@ -39,7 +39,7 @@ Host 确认回报保留受限的 challenge，流程会提示平台本人步骤�
 
 重复轮询同动作先查是否已执行，不重复导航/确认；报告只消费一次，旧动作、重复、不同任务或 context 被拒绝。取消中断本任务等待，超时保留浏览器登录态。
 
-身份由当前工具读已经验证的页面接口或可靠 DOM，只回报店名、venderId、shopId。读不到可靠身份时让用户完成平台店铺选择或继续调查页面，不猜接口、不读 Cookie/历史、不提取授权码。真实 JoyCode 内置工具的 context 证明与跨域 SSO 尚未单独验收。
+身份由当前工具读经过核实的页面接口或可见的可靠店名节点。首次连接只读到真实店名时可以仅上报 shopName，数字 ID 留给后续官方 Profile 核验；已读到的 shopId、venderId 各自按原字段上报。复用显式指定身份的持久资料时，等待页面完整匹配原身份。真实 JoyCode 内置工具的 context 证明与跨域 SSO 尚未单独验收。
 
 Agent 可运行 `scripts/merchant.py run --entry scripts/browser_bridge.py connection -- --controller '<JSON argv>' --once --timeout 20`，通过 stdin 把私有动作交给已选定的任务局部浏览器控制器。地址不放进命令参数、普通 stdout 或日志；控制器只返回观察结果。桥接助手沿用 linker 当前服务连接和本机认证，不写死宿主端口或凭据。用户不需敲命令或配置控制器，Agent 按实时可用工具选择。
 

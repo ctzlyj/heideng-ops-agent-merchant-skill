@@ -19,16 +19,8 @@ import _common as common
 import detail_patch_update as detail_patch
 
 
-def capped_urls(plan, pid):
-    result = set()
-    for item in plan.get("capped") or []:
-        if int(item["productId"]) == int(pid):
-            result.add(item["url"])
-    return result
-
-
 def evaluate_product(
-    before, after, plan_product, plan, patches, new_urls, before_status, list_status
+    before, after, plan_product, plan, patches, uploads, before_status, list_status
 ):
     """Per-product main-image decision function."""
     problems = []
@@ -48,47 +40,30 @@ def evaluate_product(
         )
 
     retained_keys = set((patches.get(str(pid)) or {}).get("missingKeys") or [])
-    allowed_old = capped_urls(plan, pid)
-    for key in retained_keys:
-        allowed_old.add(plan["tasks"][key]["currentUrl"])
-    position_filter = set(plan.get("positionFilter") or [])
-    if position_filter:
-        # Positions outside the requested filter must stay exactly as they were.
-        for group_id, urls in before_groups.items():
-            for index, url in enumerate(urls, 1):
-                if index not in position_filter:
-                    allowed_old.add(url)
-
-    bad_old = sorted({url for url in after_urls if url not in new_urls and url not in allowed_old})
-    if bad_old:
-        problems.append("%d unplanned old images kept" % len(bad_old))
-
-    new_count = sum(1 for url in after_urls if url in new_urls)
-    planned_sources = {position["url"] for position in plan_product["positions"]}
-    retained_sources = {plan["tasks"][key]["currentUrl"] for key in retained_keys}
-    remaining_sources = (planned_sources - retained_sources) & set(after_urls)
-    if remaining_sources:
-        problems.append("%d planned source images still online" % len(remaining_sources))
-    distinct_new = {url for url in after_urls if url in new_urls}
-    expected_distinct = len(planned_sources - retained_sources)
-    if len(distinct_new) != expected_distinct:
-        problems.append("distinct new urls %d, expected %d" % (len(distinct_new), expected_distinct))
-
-    # Only groups that were planned are judged, and a group whose planned slots
-    # were all kept old on purpose (model rejection / filtered position) is fine.
-    planned_groups = {}
+    mapping = {}
     for item in plan_product["positions"]:
-        planned_groups.setdefault(item["group"], []).append(item)
-    groups_without_new = []
-    for gid, planned in planned_groups.items():
-        urls = after_groups.get(gid) or []
-        if any(url in new_urls for url in urls):
+        if item["key"] in retained_keys:
             continue
-        kept_on_purpose = planned and all(item["key"] in retained_keys for item in planned)
-        if not kept_on_purpose:
-            groups_without_new.append(gid)
-    if groups_without_new:
-        problems.append("groups without new image: %s" % ",".join(groups_without_new[:3]))
+        receipt = uploads.get(item["key"]) or {}
+        if receipt.get("status") != "succeeded" or not receipt.get("imgUrl"):
+            problems.append("missing accepted upload: " + item["key"])
+            continue
+        mapping[item["url"]] = common.clean_url(receipt["imgUrl"])
+    capped = {(str(item["group"]), int(item["position"])) for item in plan.get("capped") or []
+              if int(item["productId"]) == pid}
+    position_filter = set(plan.get("positionFilter") or [])
+    new_count = 0
+    if set(after_groups) != set(before_groups):
+        problems.append("gallery group identities changed")
+    for gid, urls in before_groups.items():
+        actual = after_groups.get(gid) or []
+        for index, old in enumerate(urls, 1):
+            allowed = index <= 9 and (not position_filter or index in position_filter) and (gid, index) not in capped
+            expected = mapping.get(old, old) if allowed else old
+            if index > len(actual) or actual[index - 1] != expected:
+                problems.append("group %s slot %d does not match its planned image" % (gid, index))
+            elif expected != old:
+                new_count += 1
 
     before_prices = {
         str(sku["skuId"]): (sku.get("priceInfo") or {}).get("jdPrice")
@@ -101,8 +76,8 @@ def evaluate_product(
     if before_prices != after_prices:
         problems.append("sku prices changed")
 
-    if (after.get("material") or {}).get("rectangleImages"):
-        problems.append("rectangle images present")
+    if (after.get("material") or {}).get("rectangleImages") != (before.get("material") or {}).get("rectangleImages"):
+        problems.append("rectangle images changed")
 
     after_status = common.status_int((after.get("productInfo") or {}).get("productStatus"))
     raw_status = list_status if list_status is not None else after_status
@@ -190,11 +165,6 @@ def main(argv):
     scopes = plan.get("scopes") or ["main"]
     uploads = common.load_json(run / "uploads.json") or {}
     patches = common.load_json(run / "patch-results.json") or {}
-    new_urls = {
-        common.clean_url(record["imgUrl"])
-        for record in uploads.values()
-        if record.get("status") == "succeeded"
-    }
     selected = common.plan_products(plan, argv[2:])
 
     cli = common.connect(job)
@@ -230,7 +200,7 @@ def main(argv):
 
         if product.get("positions"):
             main_entry = evaluate_product(
-                before, after, product, plan, patches, new_urls, before_status, statuses.get(pid)
+                before, after, product, plan, patches, uploads, before_status, statuses.get(pid)
             )
             entry.update(main_entry)
             problems.extend(main_entry["problems"])

@@ -11,6 +11,8 @@ MODULES.append('test_commerce_handoff')
 MODULES += ['test_workbuddy_expert', 'test_expert_guidance', 'test_expert_mcp', 'test_jd_card_runtime']
 
 def main():
+    source_only='--source-only' in sys.argv
+    modules=[*MODULES,'test_source_install','test_gallery_patch','test_overlay_preview']
     with tempfile.TemporaryDirectory(prefix='merchant-usability-offline-') as d:
         env=clean_environment(Path(d));env['PYTHONIOENCODING']='utf-8'
         code="""import sys,socket,ipaddress,unittest
@@ -26,5 +28,6 @@ suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName('tests.'+n
 result=unittest.TextTestRunner(verbosity=1).run(suite)
 raise SystemExit(0 if result.wasSuccessful() else 1)
 """
-        return subprocess.run([sys.executable,'-I','-B','-c','import sys;sys.path.insert(0,'+repr(str(ROOT))+');'+code,*MODULES],cwd=ROOT,env=env).returncode
+        guard='from tests.source_only import pause_bundle_fixtures;pause_bundle_fixtures();' if source_only else ''
+        return subprocess.run([sys.executable,'-I','-B','-c','import sys;sys.path.insert(0,'+repr(str(ROOT))+');'+guard+code,*modules],cwd=ROOT,env=env).returncode
 if __name__=='__main__':raise SystemExit(main())

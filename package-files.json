@@ -19,6 +19,8 @@
     "heideng_merchant/image_budget.py",
     "heideng_merchant/fee_consent.py",
     "heideng_merchant/sku_image_edit.py",
+    "heideng_merchant/overlay_preview.py",
+    "heideng_merchant/gallery_patch.py",
     "heideng_merchant/creative_images.py",
     "heideng_merchant/commerce_evidence.py",
     "SKILL.md",
@@ -41,6 +43,7 @@
     "references/experience-connection.md",
     "references/experience-diagnosis.md",
     "references/experience-images.md",
+    "references/overlay-preview.md",
     "references/experience-listing.md",
     "references/experience-materials.md",
     "references/experience-navigation.md",
@@ -57,6 +60,7 @@
     "heideng_merchant/merchant_key_store.py",
     "scripts/runtime_preflight.py",
     "heideng_merchant/host_connection_controller.py",
+    "heideng_merchant/windows_shortcut.py",
     "scripts/host_connection_controller.py",
     "heideng_merchant/merchant_experience.py"
   ]

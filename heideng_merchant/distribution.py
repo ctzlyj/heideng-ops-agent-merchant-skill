@@ -23,29 +23,36 @@ def version_key(value):
  return tuple(map(int,value.split('.')))
 
 def source_files(source):
- source=Path(source).resolve();files={}
- declaration=read_json(source/'package-files.json')
+ source=Path(source).resolve();files={};mature_hashes={}
+ declaration=read_json(safe_join(source,'package-files.json'))
  if declaration is not None:
   if declaration.get('schemaVersion')!=1 or not isinstance(declaration.get('files'),list):raise SafetyError('invalid-package-declaration')
   candidates=[*declaration['files'],'package-files.json']
-  mature=source/'mature'
+  mature=safe_join(source,'mature')
   if mature.exists():
    for component in sorted(mature.iterdir()):
     if not component.is_dir() or is_linked(component):raise SafetyError('linked-mature-source')
-    metadata=read_json(component/'provenance.json')
+    metadata=read_json(safe_join(component,'provenance.json'))
     if not isinstance(metadata,dict) or metadata.get('license') not in {'MIT','owner-authorized-distribution'}:raise SafetyError('mature-distribution-permission-required')
     if metadata.get('license')=='owner-authorized-distribution':
      permission=metadata.get('permissionRecord')
      if not permission or permission not in metadata.get('files',{}):raise SafetyError('mature-distribution-permission-record-required')
     for rel,record in metadata.get('files',{}).items():
      path=safe_join(component,rel)
-     if is_linked(path) or not path.is_file() or file_sha(path)!=record.get('sha256'):raise SafetyError('mature-source-modified')
-     candidates.append(path.relative_to(source).as_posix())
+     if not path.is_file():raise SafetyError('mature-source-modified')
+     name=path.relative_to(source).as_posix()
+     mature_hashes[name]=record.get('sha256')
+     candidates.append(name)
     candidates.append((component/'provenance.json').relative_to(source).as_posix())
+  total=0
   for name in sorted(set(candidates)):
    path=safe_join(source,name)
    if is_linked(path) or not path.is_file() or not admissible_file(name):raise SafetyError('unapproved-distribution-file')
-   data=path.read_bytes()
+   limit=min(16*1024*1024,MAX_BYTES-total)
+   with path.open('rb') as stream:data=stream.read(limit+1)
+   if len(data)>limit:raise SafetyError('expanded-package-too-large')
+   total+=len(data)
+   if name in mature_hashes and hashlib.sha256(data).hexdigest()!=mature_hashes[name]:raise SafetyError('mature-source-modified')
    files[name]=data if name.startswith("mature/") else data.replace(b"\r\n",b"\n")
   if not {'SKILL.md','VERSION'}<=files.keys():raise SafetyError('missing-package-entry')
   return files
@@ -61,11 +68,19 @@ def source_files(source):
  if not re.search(r'^name:\s*'+re.escape(SKILL_NAME)+r'\s*$',files['SKILL.md'].decode('utf-8-sig'),re.M):raise SafetyError('wrong-skill-identity')
  return files
 
-def build_bundle(source,output,version):
+def source_payload(source,version):
  version_key(version);files=source_files(source)
  if files['VERSION'].decode('utf-8-sig').strip()!=version:raise SafetyError('package-version-mismatch')
+ if MANIFEST in files:raise SafetyError('reserved-package-manifest')
  manifest={'schemaVersion':1,'skill':SKILL_NAME,'version':version,'files':{name:hashlib.sha256(raw).hexdigest() for name,raw in files.items()}}
  files[MANIFEST]=(json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode()
+ if len(files)>500:raise SafetyError('too-many-package-files')
+ if len({name.casefold() for name in files})!=len(files):raise SafetyError('duplicate-package-path')
+ if any(len(data)>16*1024*1024 for data in files.values()) or sum(map(len,files.values()))>MAX_BYTES:raise SafetyError('expanded-package-too-large')
+ return _validate_manifest(files)
+
+def build_bundle(source,output,version):
+ _,files=source_payload(source,version)
  output=Path(output);output.parent.mkdir(parents=True,exist_ok=True)
  with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_DEFLATED) as z:
   for name,raw in sorted(files.items()):
@@ -90,6 +105,9 @@ def validate_archive(archive):
     if item.file_size>16*1024*1024 or total>MAX_BYTES:raise SafetyError('expanded-package-too-large')
     raw[item.filename]=z.read(item)
  except (zipfile.BadZipFile,KeyError,OSError):raise SafetyError('invalid-package-archive') from None
+ return _validate_manifest(raw)
+
+def _validate_manifest(raw):
  try:manifest=json.loads(raw[MANIFEST])
  except (KeyError,ValueError):raise SafetyError('missing-package-manifest') from None
  if manifest.get('schemaVersion')!=1 or manifest.get('skill')!=SKILL_NAME:raise SafetyError('wrong-package-identity')
@@ -103,12 +121,24 @@ def validate_archive(archive):
  if not re.search(r'^name:\s*'+re.escape(SKILL_NAME)+r'\s*$',raw['SKILL.md'].decode('utf-8-sig'),re.M):raise SafetyError('wrong-skill-identity')
  return manifest,raw
 
+def install_digest(receipt):
+ # Older installations are identified by the exact archive. Source installs
+ # use the digest of the canonical file manifest, including every file hash.
+ if 'archiveSha256' in receipt and 'sourceManifestSha256' in receipt:raise SafetyError('invalid-install-identity')
+ if 'sourceManifestSha256' in receipt:
+  value=receipt['sourceManifestSha256']
+  if value!=receipt.get('files',{}).get(MANIFEST):raise SafetyError('invalid-install-identity')
+ else:value=receipt.get('archiveSha256')
+ if not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value):raise SafetyError('invalid-install-identity')
+ return value
+
 def verify_install(target):
  target=Path(target)
  if target.name!=SKILL_NAME or is_linked(target):return {'valid':False,'reason':'wrong-install-directory'}
  receipt=read_json(target/RECEIPT)
  if not isinstance(receipt,dict) or receipt.get('skill')!=SKILL_NAME:return {'valid':False,'reason':'unmanaged-directory'}
  try:
+  install_digest(receipt)
   expected=receipt['files'];actual=set()
   for p in target.rglob('*'):
    if is_linked(p):raise SafetyError('linked-install')
@@ -204,9 +234,19 @@ def _recover(target,state):
  (Path(state)/'install-journal.json').unlink(missing_ok=True)
 
 def install_archive(archive,target,state,*,expected_sha):
- target=_target(target);state=Path(state);state.mkdir(parents=True,exist_ok=True)
  if not re.fullmatch('[0-9a-f]{64}',str(expected_sha)) or file_sha(archive)!=expected_sha:raise SafetyError('archive-sha256-mismatch')
  manifest,raw=validate_archive(archive)
+ return _install_payload(target,state,manifest,raw,{'archiveSha256':expected_sha})
+
+def install_source(source,target,state):
+ source=Path(source)
+ version=(source/'VERSION').read_text(encoding='utf-8-sig').strip()
+ manifest,raw=source_payload(source,version)
+ return _install_payload(target,state,manifest,raw,{'sourceManifestSha256':hashlib.sha256(raw[MANIFEST]).hexdigest()})
+
+def _install_payload(target,state,manifest,raw,identity):
+ target=_target(target);state=Path(state);state.mkdir(parents=True,exist_ok=True)
+ hashes={name:hashlib.sha256(data).hexdigest() for name,data in raw.items()}
  with FileLock(state/'install.lock'):
   if busy(state):raise SafetyError('active-task-update-or-recovery-deferred')
   _recover(target,state)
@@ -217,15 +257,18 @@ def install_archive(archive,target,state,*,expected_sha):
    check_legacy_update(target,state,current['version'])
    quiesce_mature_connector(target,state)
    if current['version']==manifest['version']:
-    if current['receipt']['archiveSha256']==expected_sha:return {'status':'unchanged','version':manifest['version'],'target':str(target)}
+    receipt=current['receipt']
+    if 'archiveSha256' in identity and 'archiveSha256' in receipt:
+     same=identity['archiveSha256']==receipt['archiveSha256']
+    else:same=hashes==receipt['files']
+    if same:return {'status':'unchanged','version':manifest['version'],'target':str(target)}
     raise SafetyError('same-version-different-artifact')
    if version_key(manifest['version'])<=version_key(current['version']):raise SafetyError('downgrade-refused')
   if busy(state):raise SafetyError('active-task-update-deferred')
   ident=uuid.uuid4().hex;stage=target.parent/('.'+SKILL_NAME+'.stage-'+ident);backup=_new_backup(target,state,ident)
   stage.mkdir()
   for name,data in raw.items():p=safe_join(stage,name);p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
-  hashes={name:hashlib.sha256(data).hexdigest() for name,data in raw.items()}
-  atomic_json(stage/RECEIPT,{'skill':SKILL_NAME,'version':manifest['version'],'archiveSha256':expected_sha,'files':hashes,'stateRoot':str(Path(state).resolve())})
+  atomic_json(stage/RECEIPT,{'skill':SKILL_NAME,'version':manifest['version'],**identity,'files':hashes,'stateRoot':str(Path(state).resolve())})
   atomic_json(state/'install-journal.json',{'target':str(target),'stage':str(stage),'backup':str(backup)})
   had_previous=target.exists()
   try:

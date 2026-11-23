@@ -1,6 +1,10 @@
-# 黑灯运营智能体商家版 0.4.20
+# 黑灯运营智能体商家版 0.4.22 · GitHub 源码内测
 
-0.4.20 为授权工程联调版。开发样机可验证京东官方 CLI 的授权交接、同一 Profile 核店及本机断开；WorkBuddy 真实连接卡与完整专家送审仍待验证。独立图位可由 LTS4AI 的 gpt-image-2.6 和 gpt-image-2.5 同时处理。两款模型同画质同价：1K、2K、4K 分别为 3、4、5 积分/张。问“上次那张样图”时，宿主可从本机接受回执找回原图、目标 SKU 链接和上传状态，并解释对比图的来源。宿主在报价前核对发品规格和图位，把预算落实到商家选定的图片。新对话可以按店铺和商品查找样张、复刻和改图回执。经营诊断支持完整自然月和只有本期的报表。
+将下面这句话发给 WorkBuddy 即可安装。安装完成后，用自己的话说想做什么，例如“连上我的店，给这个商品先做一张样图”。
+
+> 请从 https://github.com/ctzlyj/heideng-ops-agent-merchant-skill/tree/codex/merchant-field-source-beta 安装黑灯运营智能体商家版，按这个链接的源码安装到 WorkBuddy，装好告诉我。
+
+本版支持在同一个登录页扫码，用商家自己的原图和贴图免费做样张，以及按一个指定 SKU 试发首图。样图、后台提交与买家端核验分别记录。市场专家的 0.4.20 授权卡仍在独立联调，审核期间小范围内测通过 GitHub 源码安装。
 
 同一个用户目录可以安装多个宿主。安装结果提供每个宿主的状态目录和首次验证命令，已安装入口也会读取自己的状态绑定。做商品信息分维护时，宿主可以从计划交接里单独提交短标题，并按已核验店铺用 `task-context` 找回原计划与回执。
 
@@ -8,13 +12,15 @@
 
 ## 给宿主 Agent 的安装入口
 
-商家告诉宿主“从 GitHub 安装黑灯商家版”即可。宿主使用商家已有仓库读取权限；常规安装核对默认分支和稳定索引，指定候选 PR 的内测使用该 PR 的 head 提交。在所选源码中读取 VERSION 并运行安装程序。向商家报告已装版本、使用的稳定或候选渠道以及可以交办的第一件事。
+宿主从给定的 GitHub tree 链接解析分支或提交。分支链接先解析为 40 位提交号；在临时目录 Git 检出该提交，核对 `git rev-parse HEAD` 与 `VERSION`，再运行根目录 `install.py`。公开源码可匿名读取。为仅取得源码，可用 `git clone --filter=blob:none --no-checkout --single-branch --branch codex/merchant-field-source-beta <仓库URL> <临时目录>`，在该目录执行 `git sparse-checkout set --no-cone "/*" "!/updates/artifacts/"` 和 `git checkout --detach <所选提交>`。宿主遇到分支更新也以商家链接指定的提交为准。
 
 ```text
-python install.py --host workbuddy --with-runtime --with-official
+python install.py --host workbuddy --with-runtime --with-official --no-auto-update
 ```
 
-标准在线安装会同时准备神经抠图依赖和固定 SHA 的 Lite 权重（首次约 214MiB）；离线安装不下载，未就绪项可稍后单独恢复，不影响其他能力。
+安装器直接按文件清单校验、安装源码。本内测用新提交链接升级，安装命令会关闭该安装的稳定归档自动更新。用安装回执的 `statusArgv` 核对版本和状态目录；向商家报告已装版本和确实还待准备的能力。标准在线安装会同时准备神经抠图依赖和固定 SHA 的 Lite 权重（首次约 214MiB）；离线或下载失败时，按回执单独恢复相应组件。
+
+若同机装有旧市场专家 `heideng-merchant-beta`，本次 GitHub 入口的名称是 `heideng-ops-agent-merchant`。宿主按安装回执的目录调用本版；旧任务、原授权和未知写入仍在它们各自的状态目录。接到“继续上次”时先定位原任务与平台结果，再判断本次还需要做什么。首次连接在商家实际交办后进行。
 
 Codex 用 `--host codex`，JoyCode 用 `--host joycode`；非标准安装位置使用宿主实际 `--skills-dir`。独立安装名与商家状态/Profile不覆盖内部版、个人Skill、商家记忆或任务结果。版本升级和同版本异包/哈希保护保持。
 
@@ -34,7 +40,7 @@ Codex 用 `--host codex`，JoyCode 用 `--host joycode`；非标准安装位置�
 
 0.3.1上一轮是文档、导航、元数据与分发局部优化；0.4.0仅新增软件持续更新机制，不是重新研发电商业务。静态资料/清单检查不等于真实商家授权、导入、写入、外部服务或各宿主实机通过；具体开发范围和未实测事实保存在源码docs/experience-navigation-0.3.1-2026-11-17.md，不作为产品长期禁止令。
 
-不创建Release、不改变仓库可见性、不通知商家。当前默认分支作为统一GitHub分发入口，商家需有相应仓库访问权限。
+本次源码内测使用页首候选链接。仓库默认分支和已有签名稳定索引仍对应其原有版本。
 
 ## 持续更新闭环
 

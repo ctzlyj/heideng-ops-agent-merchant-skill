@@ -925,7 +925,10 @@ def _desktop_browser(channel):
 def _merchant_desktop():
     if os.name == 'nt':
         host_folder = os.environ.get('HEIDENG_HOST_DESKTOP')
-        return Path(host_folder) if host_folder else desktop_dir()
+        if host_folder:
+            return Path(host_folder)
+        from heideng_merchant.mature_runtime import windows_known_folder
+        return windows_known_folder(0x0010)
     if sys.platform == 'darwin':
         import pwd
         return Path(pwd.getpwuid(os.getuid()).pw_dir) / 'Desktop'
@@ -938,46 +941,18 @@ def _write_browser_shortcut(path, command, marker):
     if is_linked(path) or path.exists() and not path.is_file():
         raise FileExistsError(path)
     if os.name == 'nt':
-        # A small native WSH process handles the Shell Link COM object; do not launch a
-        # PowerShell runtime or interpolate shop names, paths, or arguments into script code.
-        script = """
-var shell = new ActiveXObject("WScript.Shell");
-var env = shell.Environment("Process");
-if (env("JM_DESKTOP_EXISTING") == "existing") {
-    try {
-        var previous = shell.CreateShortcut(env("JM_DESKTOP_LINK"));
-        if (previous.Description != env("JM_DESKTOP_OWNER")) WScript.Quit(3);
-        if (previous.TargetPath.toLowerCase() == env("JM_DESKTOP_BROWSER").toLowerCase()
-            && previous.Arguments == env("JM_DESKTOP_ARGS")) WScript.Quit(4);
-    } catch (e) { WScript.Quit(3); }
-}
-var link = shell.CreateShortcut(env("JM_DESKTOP_STAGE"));
-link.TargetPath = env("JM_DESKTOP_BROWSER");
-link.Arguments = env("JM_DESKTOP_ARGS");
-link.Description = env("JM_DESKTOP_OWNER");
-link.Save();
-"""
+        from heideng_merchant.windows_shortcut import prepare_link
         existing = path.stat() if path.exists() else None
-        executable = Path(os.environ['SystemRoot']) / 'System32' / 'cscript.exe'
         with tempfile.TemporaryDirectory(dir=path.parent, prefix='.heideng-shortcut-') as directory:
             stage = Path(directory) / 'stage.lnk'
-            helper = Path(directory) / 'shortcut.js'
-            helper.write_text(script, encoding='ascii')
-            env = dict(os.environ, JM_DESKTOP_LINK=str(path), JM_DESKTOP_OWNER=marker,
-                       JM_DESKTOP_BROWSER=command[0], JM_DESKTOP_ARGS=subprocess.list2cmdline(command[1:]),
-                       JM_DESKTOP_STAGE=str(stage), JM_DESKTOP_EXISTING='existing' if existing else 'new')
-            result = subprocess.run([str(executable), '//Nologo', '//B', '//E:JScript', str(helper)],
-                                    env=env, capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=30)
-            if result.returncode == 3:
-                raise FileExistsError(path)
-            if result.returncode not in (0, 4):
-                raise OSError('windows-shortcut-write-failed')
+            changed = prepare_link(path if existing else None, stage, command[0],
+                                   subprocess.list2cmdline(command[1:]), marker)
             if existing:
                 current = path.stat()
                 if is_linked(path) or not os.path.samestat(existing, current) or (
                         current.st_mtime_ns, current.st_size) != (existing.st_mtime_ns, existing.st_size):
                     raise FileExistsError(path)
-            if result.returncode == 4:
+            if not changed:
                 return 'existing'
             if existing:
                 stage.replace(path)
@@ -1022,14 +997,15 @@ def ensure_desktop_shortcut(profile, identity):
     try:
         desktop = _merchant_desktop()
         if desktop is None:
-            return {'status': 'unavailable', 'reason': 'desktop-platform-unsupported'}
+            reason = 'desktop-directory-unavailable' if os.name == 'nt' else 'desktop-platform-unsupported'
+            return {'status': 'unavailable', 'reason': reason}
         directory = merchant_profile_directory(entry.get('browserProfileDir'))
         if not directory:
             return {'status': 'unavailable', 'reason': 'shop-browser-profile-unavailable'}
         executable = _desktop_browser(entry.get('browserChannel'))
         if not executable:
             return {'status': 'unavailable', 'reason': 'shop-browser-unavailable'}
-        if not desktop.is_dir() or desktop.resolve().is_relative_to(merchant_home()):
+        if not desktop.is_absolute() or not desktop.is_dir() or desktop.resolve().is_relative_to(merchant_home()):
             return {'status': 'unavailable', 'reason': 'desktop-directory-unavailable'}
         label = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', shop_name)[:70].strip(' .') or '店铺'
         key = hashlib.sha256(f'{merchant_home()}\n{vender_id}\n{shop_id}'.encode()).hexdigest()[:16]
@@ -1044,10 +1020,20 @@ def ensure_desktop_shortcut(profile, identity):
                     status = _write_browser_shortcut(path, command, marker)
                 except FileExistsError:
                     continue
+                if not path.is_file() or not path.stat().st_size:
+                    return {'status': 'unavailable', 'reason': 'desktop-shortcut-not-found'}
+                if os.name == 'nt':
+                    # The link was staged then renamed. Notify Explorer of its final path.
+                    import ctypes
+                    event = 0x00000002 if status == 'created' else 0x00002000  # SHCNE_CREATE / SHCNE_UPDATEITEM
+                    ctypes.windll.shell32.SHChangeNotify(event, 0x0005, ctypes.c_wchar_p(str(path)), None)
                 return {'status': status, 'path': str(path)}
         return {'status': 'unavailable', 'reason': 'desktop-shortcut-name-in-use'}
-    except (OSError, RuntimeError, ValueError, ImportError, SafetyError, subprocess.TimeoutExpired):
-        return {'status': 'unavailable', 'reason': 'desktop-shortcut-write-failed'}
+    except (OSError, RuntimeError, ValueError, ImportError, SafetyError, subprocess.TimeoutExpired) as exc:
+        failure = {'status': 'unavailable', 'reason': 'desktop-shortcut-write-failed'}
+        if hasattr(exc, 'hresult') and hasattr(exc, 'operation'):
+            failure.update(operation=exc.operation, hresult=exc.hresult)
+        return failure
 
 
 def create_verified_desktop_shortcut(profile, shop_name):

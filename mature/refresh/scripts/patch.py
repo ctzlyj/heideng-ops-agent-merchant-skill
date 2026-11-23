@@ -11,27 +11,20 @@ reconciled instead of being PATCHed again. Products run in parallel.
 import json
 import sys
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401  (hide jdo-cli console windows)
 import _common as common
-import image_patch_update as image_patch
+from heideng_merchant.gallery_patch import frozen_patch
+from heideng_merchant.safety import file_sha
 
 LOCK = threading.RLock()
 
 
 def position_index(value):
     return int(str(value).replace("pos", "").replace("front", "1"))
-
-
-def already_current(detail, url_map):
-    live = {url for urls in common.main_groups(detail).values() for url in urls}
-    remaining = set(url_map) & live
-    applied = set(url_map.values()) & live
-    return not remaining and bool(applied)
 
 
 def main(argv):
@@ -45,7 +38,7 @@ def main(argv):
         raise SystemExit("missing plan-batch.json; run build_plan.py first")
 
     cli = common.connect(job)
-    common.verify_identity(cli, job, run)
+    identity = common.verify_identity(cli, job, run)
 
     results_path = run / "patch-results.json"
     results = common.load_json(results_path) or {}
@@ -63,8 +56,6 @@ def main(argv):
 
     def patch_one(product):
         pid = int(product["productId"])
-        if (results.get(str(pid)) or {}).get("ok"):
-            return pid, results[str(pid)]
         url_map, missing, capped = {}, [], 0
         for position in product["positions"]:
             if position_index(position["position"]) > max_position:
@@ -72,6 +63,9 @@ def main(argv):
                 continue
             record = uploads.get(position["key"]) or {}
             if record.get("status") == "succeeded":
+                local = run / "generated" / (position["key"] + ".png")
+                if local.is_file() and file_sha(local) != record.get("sha256"):
+                    raise ValueError("本地成图已变更，请先核验本次修订的实际上传回执：" + position["key"])
                 url_map[position["url"]] = common.clean_url(record["imgUrl"])
             else:
                 missing.append(position["key"])
@@ -92,64 +86,13 @@ def main(argv):
                 }
             return pid, {"ok": False, "reason": "no uploaded images", "missingKeys": missing}
 
-        last_error = None
-        for attempt in range(4):
-            try:
-                before = common.apply_detail(cli, pid)
-                if already_current(before, url_map):
-                    return pid, {
-                        "ok": True,
-                        "problems": [],
-                        "replaced": len(url_map),
-                        "missingKeys": missing,
-                        "cappedPositions": capped,
-                        "reconciled": True,
-                    }
-                body, summary = image_patch.build_image_patch_payload(before, url_map)
-                if set(summary["mapping"]) != set(url_map):
-                    raise RuntimeError("planned images not fully replaced")
-                body_path = bodies / ("patch_%d.json" % pid)
-                body_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
-                cli.run_jdo_large(
-                    url="/rest/sp-product/v0/product-applies/{applyId}",
-                    method="PATCH",
-                    body_path=body_path,
-                    params={"applyId": str(pid)},
-                    skill_id="jdo-product-update",
-                    yes=True,
-                )
-                time.sleep(8)
-                after = common.apply_detail(cli, pid)
-                problems = image_patch.verify_patch(before, after, summary["mapping"])
-                expected_groups = {
-                    gid: [url_map.get(url, url) for url in urls]
-                    for gid, urls in common.main_groups(before).items()
-                }
-                after_groups = common.main_groups(after)
-                for gid, expected in expected_groups.items():
-                    if after_groups.get(gid) != expected:
-                        problems.append("group %s not fully new" % gid)
-                before_prices = {
-                    str(sku["skuId"]): (sku.get("priceInfo") or {}).get("jdPrice")
-                    for sku in before.get("skuList") or []
-                }
-                after_prices = {
-                    str(sku["skuId"]): (sku.get("priceInfo") or {}).get("jdPrice")
-                    for sku in after.get("skuList") or []
-                }
-                if before_prices != after_prices:
-                    problems.append("sku prices changed")
-                return pid, {
-                    "ok": not problems,
-                    "problems": problems,
-                    "replaced": len(summary["mapping"]),
-                    "missingKeys": missing,
-                    "cappedPositions": capped,
-                }
-            except Exception as exc:  # noqa: BLE001 - retry after reconcile
-                last_error = exc
-                time.sleep(15 + attempt * 15)
-        return pid, {"ok": False, "error": str(last_error)[:300], "missingKeys": missing}
+        baseline = common.load_json(run / "products" / str(pid) / "before-apply.json")
+        if not baseline:
+            raise ValueError("缺少原任务冻结的图组快照，无法定位上传素材对应的图位")
+        record = frozen_patch(cli, lambda product_id: common.apply_detail(cli, product_id),
+                              identity, pid, baseline, url_map, plan.get("positionFilter") or [],
+                              max_position, bodies, common.clean_url)
+        return pid, {**record, "missingKeys": missing, "cappedPositions": capped}
 
     workers = int(job.get("patchConcurrency") or 3)
     with ThreadPoolExecutor(max_workers=workers) as pool:

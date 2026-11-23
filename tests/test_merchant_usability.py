@@ -171,16 +171,30 @@ class UsabilityTests(MatureMaterialsTests):
         a=self.agent()
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);receipt=root/'unknown.json';receipt.write_text('{"status":"unknown"}')
-            code="import sys,time;from pathlib import Path;sys.path.insert(0,sys.argv[2]);import jd_material_agent as a;root=Path(sys.argv[1]);lock=a.pop_execution_lock(root);lock.__enter__();(root/'ready').write_text('ready');time.sleep(60)"
-            proc=subprocess.Popen([sys.executable,'-c',code,str(root),str(SOURCE/'scripts')],cwd=ROOT,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+            # A Windows venv launcher may have a different PID from the lock owner.
+            # Closing the harness pipe crashes the actual worker without unwinding its lock.
+            code="""import os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+import jd_material_agent as a
+root = Path(sys.argv[1])
+with a.pop_execution_lock(root):
+    (root / 'ready').write_text('ready')
+    sys.stdin.buffer.read(1)
+    os._exit(23)
+"""
+            proc=subprocess.Popen([sys.executable,'-c',code,str(root),str(SOURCE/'scripts')],cwd=ROOT,
+                                  stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
             try:
                 deadline=time.monotonic()+5
                 while not (root/'ready').exists() and proc.poll() is None and time.monotonic()<deadline:time.sleep(.02)
                 self.assertTrue((root/'ready').exists())
-                proc.terminate();proc.wait(timeout=5)
+                proc.stdin.close()
+                self.assertEqual(proc.wait(timeout=5), 23)
                 with a.pop_execution_lock(root):self.assertEqual(receipt.read_text(),'{"status":"unknown"}')
             finally:
-                if proc.poll() is None:proc.terminate();proc.wait(timeout=5)
+                proc.stdin.close()
+                if proc.poll() is None:proc.wait(timeout=5)
                 if proc.stderr:proc.stderr.close()
 
     def test_frozen_subset_keeps_original_batch_number_and_other_job_unknown_state(self):

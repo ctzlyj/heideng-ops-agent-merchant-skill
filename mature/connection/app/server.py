@@ -725,6 +725,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/cancel":
                 self.manager.cancel(str(body.get('jobId') or ''))
                 return self._send_json(200, {"ok": True})
+            if path == '/api/login-completed':
+                from browser_auth import BrowserAuthJob
+                job = self.manager.current()
+                if (not isinstance(job, BrowserAuthJob) or body.get('jobId') != job.id
+                        or not job.request_workspace_check()):
+                    return self._send_json(409, {'ok': False, 'error': '原连接当前没有等待网页登录，请读取原任务进度。'})
+                return self._send_json(200, {'ok': True, 'jobId': job.id, 'status': 'workspace_check_requested'})
             if path == '/api/browser-report':
                 job = self.manager.current()
                 if not job or body.get('jobId') != job.id:

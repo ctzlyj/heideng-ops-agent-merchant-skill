@@ -41,6 +41,8 @@ class BrowserAuthJob:
         self._done, self._cancelled = threading.Event(), threading.Event()
         self._commit_lock = threading.RLock()
         self._resume_event = threading.Event()
+        self._workspace_check_requested = threading.Event()
+        self._workspace_check_handled = False
         self._worker_thread = None
         self._cleanup_failed = False
 
@@ -153,6 +155,14 @@ class BrowserAuthJob:
             return False
         return bool((self.shop_name and name) or (self.expect_vender_id and (vid or name)))
 
+    def request_workspace_check(self):
+        """Acknowledge a merchant-reported login; only the original worker drives its page."""
+        if (self.browser_config.get('provider') != 'builtin' or self.stage != 'waiting_login'
+                or self.status != 'waiting' or self._shutdown_requested.is_set() or self._cancelled.is_set()):
+            return False
+        self._workspace_check_requested.set()
+        return True
+
     def _verify_and_commit(self):
         self._stage('verifying_cli', '正在实时核验这家店的 CLI 连接。', 'verifying')
         try:sl.require_auth_slot(self.profile,required=True)
@@ -197,6 +207,9 @@ class BrowserAuthJob:
             identity = None
             while not self._cancelled.is_set() and not self._shutdown_requested.is_set() and time.monotonic() < deadline:
                 try:
+                    if self._workspace_check_requested.is_set() and not self._workspace_check_handled:
+                        self._workspace_check_handled = True
+                        self.browser.check_workspace_after_login()
                     observation = self.browser.observe()
                 except Exception as exc:
                     # Login redirects can destroy an evaluation context. Repeat

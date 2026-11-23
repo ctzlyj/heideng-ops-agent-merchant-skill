@@ -1,11 +1,11 @@
 """Agent runs this one-repository installer; no employee services required."""
 from __future__ import annotations
-import argparse,json,os,sys,tempfile
+import argparse,json,os,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from heideng_merchant import VERSION,SKILL_NAME
-from heideng_merchant.distribution import build_bundle,install_archive,rollback
-from heideng_merchant.safety import SafetyError,file_sha,redact
+from heideng_merchant.distribution import install_archive,install_source,rollback
+from heideng_merchant.safety import SafetyError,redact
 from heideng_merchant.state import install_state
 from heideng_merchant.official import OfficialClient
 
@@ -31,14 +31,11 @@ def main(argv=None):
   existing_updates=read_json(state/'updates/settings.json',{})
   if existing_updates and existing_updates.get('target')!=str(target.resolve()):raise SafetyError('update-target-changed-use-explicit-isolated-state-or-maintenance-migration')
   if args.rollback:result=rollback(target,state)
+  elif args.archive:
+   if not args.sha256:raise SafetyError('downloaded-archive-needs-verified-sha256')
+   result=install_archive(Path(args.archive),target,state,expected_sha=args.sha256)
   else:
-   with tempfile.TemporaryDirectory(prefix='heideng-merchant-install-') as temporary:
-    if args.archive:
-     if not args.sha256:raise SafetyError('downloaded-archive-needs-verified-sha256')
-     archive=Path(args.archive);sha=args.sha256
-    else:
-     source=Path(__file__).resolve().parent;version=(source/'VERSION').read_text(encoding='utf-8-sig').strip();archive=build_bundle(source,Path(temporary)/'merchant.zip',version);sha=file_sha(archive)
-    result=install_archive(archive,target,state,expected_sha=sha)
+   result=install_source(Path(__file__).resolve().parent,target,state)
   client=OfficialClient(state)
   result['shopCapability']=client.shop_capability()
   if args.with_official and not args.offline:

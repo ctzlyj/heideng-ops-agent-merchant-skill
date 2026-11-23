@@ -2,7 +2,9 @@ import copy
 import json
 import os
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -66,6 +68,99 @@ class Platform:
             row['logo'] = result.get(key, row['logo'])
         if self.lose_response:
             raise TimeoutError('simulated response loss')
+
+
+class ProductImageExclusionTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(patch.dict(os.environ, {'HEIDENG_MERCHANT_HOME':str(self.root)}))
+        self.photo = self.root/'lamp.png'
+        Image.new('RGB',(480,480),'green').save(self.photo)
+        self.shop = {'profile':'fixture','shopName':'灯具店','venderId':99}
+        self.api = self.product(42)
+
+    def product(self, pid):
+        from tests.gallery_fixture import apply_patch
+        api = Platform(7, ['81'])
+        api.STATE_ROOT = self.root/'mature'/'listing'
+        api.detail['productInfo']['productId'] = pid
+        api.detail['skuList'][0]['productId'] = pid
+        api.detail['material']['mainImages'] = [{'uuid':'81','imageInfoList':[{'orderSort':1,'imgUrl':'original'}]}]
+        props = [{'key':'orderSort','value':'1'},{'key':'colorId','value':'81'},{'key':'imgUrl','value':'original'}]
+        api.schema.append({'componentCode':'WareSkuImg','value':[{'componentCode':'img','properties':props}]})
+        def publish(**kwargs):
+            result = apply_patch(api.detail,kwargs['body_path'])
+            props[-1]['value'] = api.detail['material']['mainImages'][0]['imageInfoList'][0]['imgUrl']
+            return result
+        api.run_jdo_large = publish
+        return api
+
+    def spec(self, **options):
+        return edit.run(self.api, lambda pid:copy.deepcopy(self.api.detail), self.shop,42,{'81':self.photo},**options)
+
+    def main_image(self, api=None, pid=42, read=None, **options):
+        from heideng_merchant.gallery_patch import pilot
+        api = api or self.api
+        reader = read or (lambda requested:copy.deepcopy(api.detail))
+        return pilot(api,reader,self.shop,pid,'81',self.photo,'original',**options)
+
+    def test_pending_full_schema_blocks_gallery_publish_but_each_original_can_reconcile(self):
+        self.api.lose_response = True
+        with self.assertRaises(TimeoutError):
+            self.spec()
+        with self.assertRaisesRegex(ValueError,'规格图整版编辑'):
+            self.main_image(publish=True)
+        self.assertEqual(self.main_image()['writes'],0)
+        self.assertEqual((self.api.edits,self.api.uploads),(1,1))
+        self.assertEqual(self.spec(reconcile=True)['status'],'verified')
+        self.assertTrue(self.main_image(publish=True)['ok'])
+
+    def test_pending_gallery_blocks_full_schema_with_no_second_upload(self):
+        def lost_response(**kwargs):
+            raise TimeoutError('synthetic patch receipt loss')
+        self.api.run_jdo_large = lost_response
+        with self.assertRaises(TimeoutError):
+            self.main_image(publish=True)
+        with self.assertRaisesRegex(ValueError,'主图提交'):
+            self.spec()
+        self.assertEqual((self.api.edits,self.api.uploads),(0,1))
+        self.assertEqual(self.spec(check_only=True)['writes'],0)
+        # A document from an older worker contains just the pending status. It still
+        # blocks a new write, but it may never obstruct reading back the first patch.
+        edit.atomic_json(edit.sku_edit_directory(self.shop,42)/'current.json',{'status':'submitted'})
+        self.assertEqual(self.main_image(reconcile=True)['status'],'awaiting-readback')
+        self.api.detail['material']['mainImages'][0]['imageInfoList'][0]['imgUrl'] = 'jfs/'+edit.file_sha(self.photo)
+        self.assertEqual(self.main_image(reconcile=True)['status'],'verified-in-edit-detail')
+
+    def test_same_product_waits_and_another_product_can_publish_while_edit_is_in_flight(self):
+        at_edit, release, started_gallery, entered_gallery = (threading.Event() for _ in range(4))
+        original = self.api.command_edit_product
+        def pause(args):
+            at_edit.set()
+            if not release.wait(8):
+                raise TimeoutError('test did not release full schema edit')
+            original(args)
+        def read_after_lock(_pid):
+            entered_gallery.set()
+            return copy.deepcopy(self.api.detail)
+        def publish_main():
+            started_gallery.set()
+            return self.main_image(read=read_after_lock,publish=True)
+        self.api.command_edit_product = pause
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pending_edit = pool.submit(self.spec)
+            try:
+                self.assertTrue(at_edit.wait(3))
+                pending_gallery = pool.submit(publish_main)
+                self.assertTrue(started_gallery.wait(3))
+                self.assertTrue(self.main_image(self.product(43),pid=43,publish=True)['ok'])
+                self.assertFalse(entered_gallery.wait(0.1))
+            finally:
+                release.set()
+            self.assertEqual(pending_edit.result(timeout=4)['status'],'verified')
+            self.assertTrue(pending_gallery.result(timeout=4)['ok'])
+            self.assertTrue(entered_gallery.is_set())
+        self.assertEqual((self.api.edits,self.api.uploads),(1,2))
 
 
 class SkuImageEditTests(unittest.TestCase):

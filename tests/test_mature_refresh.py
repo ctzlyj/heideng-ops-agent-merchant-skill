@@ -70,4 +70,76 @@ class MatureRefreshTests(unittest.TestCase):
    argv=['new_job.py',d,'--profile','fixture-profile','--vender-id','12345','--shop-name','fixture-shop','--products','1001,1002','--scope','main']
    new.main(argv);record=json.loads((Path(d)/'job.json').read_text(encoding='utf-8'));self.assertEqual(record['productIds'],[1001,1002]);self.assertFalse(record['detailWrite'])
    with self.assertRaises(SystemExit):new.main(argv)
+
+ def test_upload_unknown_result_is_not_replayed_after_restart(self):
+  from unittest.mock import Mock
+  from PIL import Image
+  common=load('_common',SOURCE/'scripts/_common.py')
+  upload=load('merchant_refresh_upload',SOURCE/'scripts/upload.py')
+  with tempfile.TemporaryDirectory() as d:
+   run=Path(d)
+   common.save_json(run/'job.json',{'profile':'fixture','venderId':15,'shopName':'fixture','productIds':[41]})
+   common.save_json(run/'plan-batch.json',{'tasks':{'blue':{'productId':41}}})
+   common.save_json(run/'internal-generation.json',{'blue':{'status':'succeeded'}})
+   (run/'generated').mkdir()
+   Image.new('RGB',(40,40),'blue').save(run/'generated/blue.png')
+   api=Mock()
+   api.get.side_effect=lambda skill,url,*args: {'data':[{'zoneType':1,'zoneId':15}]} if url.endswith('media-zones') else {'data':[{'status':1,'categoryId':2}]}
+   api.upload.side_effect=TimeoutError('response missing')
+   with patch.object(common,'connect',return_value=api),patch.object(common,'verify_identity'):
+    with self.assertRaises(SystemExit):upload.main(['upload.py',d])
+    self.assertEqual(common.load_json(run/'uploads.json')['blue']['status'],'unknown')
+    with self.assertRaisesRegex(RuntimeError,'原素材上传回执'):upload.main(['upload.py',d])
+    api.upload.assert_called_once()
+
+ def test_revised_source_does_not_reuse_old_url_or_stale_converted_file(self):
+  from hashlib import sha256
+  from unittest.mock import Mock
+  from PIL import Image
+  common=load('_common',SOURCE/'scripts/_common.py')
+  upload=load('merchant_refresh_upload',SOURCE/'scripts/upload.py')
+  with tempfile.TemporaryDirectory() as d:
+   run=Path(d); (run/'generated').mkdir()
+   common.save_json(run/'job.json',{'profile':'fixture','venderId':15,'shopName':'fixture','productIds':[41]})
+   common.save_json(run/'plan-batch.json',{'tasks':{'blue':{'productId':41}}})
+   common.save_json(run/'internal-generation.json',{'blue':{'status':'succeeded'}})
+   source=run/'generated/blue.png'; old=Image.new('RGB',(64,64),'red'); old.save(source,compress_level=0)
+   old.save(source.with_suffix('.upload.jpg'),format='JPEG')
+   orig_hash=sha256(source.read_bytes()).hexdigest()
+   common.save_json(run/'uploads.json',{'blue':{'status':'succeeded','imgUrl':'old','sha256':orig_hash}})
+   api=Mock()
+   sent=[]
+   def accept(zone,category,path):
+    sent.append(sha256(path.read_bytes()).hexdigest())
+    with Image.open(path) as im:self.assertGreater(im.getpixel((0,0))[2],200)
+    return {'imgUrl':'new'}
+   api.upload.side_effect=accept
+   with patch.object(common,'connect',return_value=api),patch.object(common,'verify_identity'),patch.object(upload,'media_space',return_value=('zone',2)):
+    upload.main(['upload.py',d])  # Historical unconverted input digest is sufficient.
+    api.upload.assert_not_called()
+    Image.new('RGB',(64,64),'blue').save(source,compress_level=0)
+    with patch.object(upload,'LIMIT',1024):
+     with self.assertRaisesRegex(RuntimeError,'实际上传文件'):upload.main(['upload.py',d])
+     api.upload.assert_not_called()
+     upload.main(['upload.py',d,'--replace-changed-images'])
+     result=common.load_json(run/'uploads.json')['blue']
+     self.assertEqual(result['previous'][0]['imgUrl'],'old')
+     self.assertEqual(result['sha256'],sha256(source.read_bytes()).hexdigest())
+     self.assertEqual(result['uploadSha256'],sent[0])
+     upload.main(['upload.py',d])
+     api.upload.assert_called_once()
+
+ def test_receipt_verifier_compares_each_approved_slot_and_preserves_reused_urls_elsewhere(self):
+  from copy import deepcopy
+  from tests.test_gallery_patch import detail
+  load('_common',SOURCE/'scripts/_common.py')
+  verify=load('merchant_refresh_verify',SOURCE/'scripts/verify.py')
+  before=detail(); after=deepcopy(before)
+  for group in after['material']['mainImages']:
+   group['imageInfoList'][0]['imgUrl']='new'
+  product={'productId':41,'title':'test','positions':[{'key':'asset','group':'blue','position':1,'url':'shared'}]}
+  args=(product,{'positionFilter':[1]}, {}, {'asset':{'status':'succeeded','imgUrl':'new'}},0,None)
+  self.assertTrue(verify.evaluate_product(before,after,*args)['ok'])
+  after['material']['mainImages'][0]['imageInfoList'][2]['imgUrl']='new'
+  self.assertFalse(verify.evaluate_product(before,after,*args)['ok'])
 if __name__=='__main__':unittest.main()

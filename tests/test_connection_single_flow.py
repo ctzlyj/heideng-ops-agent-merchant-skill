@@ -248,11 +248,16 @@ class SingleFlowTests(unittest.TestCase):
    browser_profile = state/'browser-profiles'/'owned profile'
    browser_profile.mkdir(parents=True)
    entry = {**identity,'browserProfileDir':str(browser_profile),'browserChannel':'msedge'}
+   def write_shortcut(path, command, marker):
+    if path.stem == '黑灯-fixture-store':
+     raise FileExistsError(path)
+    path.write_bytes(b'synthetic shortcut')
+    return 'created'
    with patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':str(state),'JINGMAI_LINKER_HOME':str(state/'linker')}), patch.object(
        shoplib,'load_registry',return_value={'profiles':{'fixture-profile':entry}}), patch.object(
        shoplib,'_merchant_desktop',return_value=desktop), patch.object(
        shoplib,'_desktop_browser',return_value=Path(sys.executable)), patch.object(
-       shoplib,'_write_browser_shortcut',side_effect=[FileExistsError(), 'created']) as write:
+       shoplib,'_write_browser_shortcut',side_effect=write_shortcut) as write:
     result = shoplib.ensure_desktop_shortcut('fixture-profile', identity)
     self.assertEqual(result['status'],'created')
     path=Path(result['path'])
@@ -261,6 +266,8 @@ class SingleFlowTests(unittest.TestCase):
     command=write.call_args.args[1]
     self.assertIn(f'--user-data-dir={browser_profile}',command)
     self.assertEqual(command[-1],'https://shop.jd.com/jdm/home')
+    with patch.object(shoplib,'_write_browser_shortcut',return_value='created'):
+     self.assertEqual(shoplib.ensure_desktop_shortcut('fixture-profile',identity)['reason'],'desktop-shortcut-not-found')
     entry['browserProfileDir']=str(desktop)
     self.assertEqual(shoplib.ensure_desktop_shortcut('fixture-profile',identity)['reason'],'shop-browser-profile-unavailable')
     self.assertEqual(write.call_count,2)
@@ -281,6 +288,30 @@ class SingleFlowTests(unittest.TestCase):
    self.assertEqual(path.read_bytes(),original)
    self.assertEqual(shoplib._write_browser_shortcut(path,second,'Heideng fixture A'),'created')
    self.assertEqual(shoplib._write_browser_shortcut(path,second,'Heideng fixture A'),'existing')
+
+ @unittest.skipUnless(os.name=='nt', 'Windows shell link')
+ def test_redirected_windows_desktop_receipt_points_to_the_created_link(self):
+  shoplib = self.load('fixture_known_desktop', SOURCE/'app/shoplib.py')
+  with tempfile.TemporaryDirectory() as temporary:
+   root = Path(temporary)
+   desktop = root/'OneDrive'/'重定向桌面🧰'
+   desktop.mkdir(parents=True)
+   state = root/'isolated'
+   browser_profile = state/'browser-profiles'/'store-a🪴'
+   browser_profile.mkdir(parents=True)
+   identity = {'shopName':'合成灯具店💡','venderId':'101','shopId':'303'}
+   entry = {**identity,'browserProfileDir':str(browser_profile),'browserChannel':'msedge'}
+   env = {'HEIDENG_HOST_DESKTOP':str(desktop),'HEIDENG_MERCHANT_HOME':str(state),
+          'JINGMAI_LINKER_HOME':str(state/'linker'),'USERPROFILE':str(root/'other-home')}
+   with patch.dict(os.environ,env), patch.object(shoplib,'_desktop_browser',return_value=Path(sys.executable)), patch.object(
+       shoplib,'load_registry',return_value={'profiles':{'store-a':entry}}):
+    receipt = shoplib.ensure_desktop_shortcut('store-a',identity)
+    self.assertEqual(receipt['status'],'created',receipt)
+    path = Path(receipt['path'])
+    self.assertEqual(path.parent,desktop)
+    self.assertGreater(path.stat().st_size,0)
+    self.assertEqual(shoplib.ensure_desktop_shortcut('store-a',identity),{'status':'existing','path':str(path)})
+    self.assertFalse((root/'other-home'/'Desktop').exists())
 
  def test_no_wait_result_exposes_actual_browser_channel(self):
   cli=self.load('flow_channel_receipt',SOURCE/'scripts/linker.py')

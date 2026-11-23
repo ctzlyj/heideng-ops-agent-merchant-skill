@@ -144,34 +144,35 @@ def apply_detail(product_id: int) -> dict[str, Any]:
     raise RuntimeError(f"apply-detail {product_id} failed: {last_error}")
 
 
-def patch_product(product_id: int, url_map: dict[str, str], confirm: str, body_dir: Path | None = None) -> dict[str, Any]:
+def patch_product(product_id: int, url_map: dict[str, str], confirm: str, body_dir: Path | None = None,
+                  all_matching_slots: bool = False) -> dict[str, Any]:
     if confirm != "PATCH_PRODUCT_IMAGES":
         raise cli.JdoError("image-only patch requires --confirm PATCH_PRODUCT_IMAGES")
-    before = apply_detail(product_id)
-    body, summary = build_image_patch_payload(before, url_map)
-    if not body["patchOperationList"]:
-        raise cli.JdoError(f"product {product_id} has no main image groups")
-    if not summary["replaced"]:
-        raise cli.JdoError(f"product {product_id}: no URLs matched the mapping")
-    body_dir = Path(body_dir) if body_dir else cli.STATE_ROOT / "outputs" / "image-patches"
-    body_path = body_dir / f"patch_{product_id}.json"
-    body_path.parent.mkdir(parents=True, exist_ok=True)
-    body_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
-    result = cli.run_jdo_large(
-        url="/rest/sp-product/v0/product-applies/{applyId}",
-        method="PATCH",
-        body_path=body_path,
-        params={"applyId": str(product_id)},
-        skill_id="jdo-product-update",
-        yes=True,
-    )
-    time.sleep(8)
-    after = apply_detail(product_id)
-    problems = verify_patch(before, after, summary["mapping"])
-    return {"productId": product_id, "ok": not problems, "problems": problems, "submit": result.get("data"), **summary}
+    from heideng_merchant.gallery_patch import mapped_patch
+    return mapped_patch(cli, apply_detail, cli.require_verified_jdo_store(), product_id, url_map,
+                        allow_shared=all_matching_slots, body_dir=body_dir)
 
 
 def main() -> int:
+    if sys.argv[1:2] == ['pilot-main-image']:
+        from heideng_merchant.gallery_patch import pilot
+        parser = argparse.ArgumentParser(description='核验一个 SKU 的首图，按商家交办试发一张本地成图')
+        parser.add_argument('--profile', required=True)
+        parser.add_argument('--store-config', type=Path, default=cli.STORE_CONFIG)
+        parser.add_argument('--product-id', type=int, required=True)
+        parser.add_argument('--sku-id', required=True)
+        parser.add_argument('--image', type=Path)
+        parser.add_argument('--expected-url', help='制作样张时从目标 SKU 读到的首图地址')
+        mode = parser.add_mutually_exclusive_group(required=True)
+        mode.add_argument('--check-only', action='store_true')
+        mode.add_argument('--reconcile', action='store_true')
+        mode.add_argument('--confirm', choices=['PUBLISH_ONE_SKU_FIRST_IMAGE'])
+        args = parser.parse_args(sys.argv[2:])
+        identity = cli.verify_configured_store_identity(args.store_config, args.profile)
+        result = pilot(cli, apply_detail, identity, args.product_id, args.sku_id, args.image, args.expected_url,
+                       publish=bool(args.confirm), reconcile=args.reconcile)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result['ok'] else 2
     if sys.argv[1:2] == ['replace-sku-images']:
         from heideng_merchant.sku_image_edit import run, unique
         parser = argparse.ArgumentParser(description='在原商品按 SKU 替换规格图')
@@ -201,12 +202,14 @@ def main() -> int:
     parser.add_argument("--url-map", type=Path, required=True, help="JSON file {oldUrl: newUrl}")
     parser.add_argument("--bodies-dir", type=Path)
     parser.add_argument("--confirm", default="")
+    parser.add_argument("--all-matching-slots", action="store_true",
+                        help="整商品换图已获准覆盖同一 URL 命中的全部分组与图位")
     args = parser.parse_args()
     cli.verify_configured_store_identity(args.store_config, args.profile)
     url_map = json.loads(args.url_map.read_text(encoding="utf-8"))
     results = []
     for pid_text in [x for x in args.product_ids.split(",") if x.strip()]:
-        results.append(patch_product(int(pid_text), url_map, args.confirm, args.bodies_dir))
+        results.append(patch_product(int(pid_text), url_map, args.confirm, args.bodies_dir, args.all_matching_slots))
         print(json.dumps(results[-1], ensure_ascii=False), flush=True)
     failed = [r for r in results if not r.get("ok")]
     print(json.dumps({"ok": not failed, "count": len(results), "failed": len(failed)}, ensure_ascii=False))

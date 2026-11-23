@@ -6,6 +6,25 @@ import tests.test_audit_connection_contracts as helpers
 from heideng_merchant.host_connection_controller import HostConnectionController,_identity
 
 class ObservationTests(unittest.TestCase):
+    def test_restored_qr_is_selected_even_when_chromium_starts_with_a_blank_tab(self):
+        with tempfile.TemporaryDirectory() as d:
+            controller = HostConnectionController(state=d, shop_identity={'shopName':'fixture'})
+            controller._state = {'contextId':'fixture','browserChannel':'msedge',
+                                 'profileDir':str(Path(d)/'browser-profiles'/'original'),
+                                 'shopIdentity':controller.shop_identity}
+            blank = Mock(url='about:blank')
+            qr = Mock(url='https://passport.shop.jd.com/login/index.action')
+            for page in (blank,qr):
+                page.is_closed.return_value = False
+            with patch('playwright.sync_api.sync_playwright') as playwright:
+                context = playwright.return_value.start.return_value.chromium.launch_persistent_context.return_value
+                context.pages = [blank,qr]
+                controller._open_login({})
+            self.assertIs(controller.page,qr)
+            context.new_page.assert_not_called()
+            qr.goto.assert_not_called()
+            blank.goto.assert_not_called()
+
     def test_menu_customer_service_is_not_shop_identity(self):
         page=Mock();page.evaluate.side_effect=[None,'客服']
         self.assertEqual(_identity(page),{})
@@ -15,29 +34,111 @@ class ObservationTests(unittest.TestCase):
         controller.page=login;controller.context=Mock(pages=[login,work]);login.is_closed.return_value=False;work.is_closed.return_value=False
         with patch('heideng_merchant.host_connection_controller._identity',side_effect=lambda p:{'shopName':'fixture'} if p is work else {}),patch.object(controller,'_result',side_effect=lambda x:x):result=controller._observe()
         self.assertTrue(result['loggedIn']);self.assertIs(controller.page,work);login.reload.assert_not_called()
-    def test_persistent_login_page_can_probe_workspace_without_reading_cookies(self):
+    def test_polling_never_creates_a_second_qr_or_navigates(self):
         with tempfile.TemporaryDirectory() as d:controller=HostConnectionController(state=d,shop_identity={'shopName':'fixture'})
-        login=Mock(url='https://passport.shop.jd.com/login/index.action');work=Mock(url='about:blank')
-        work.goto.side_effect=lambda *_a,**_k:setattr(work,'url','https://shop.jd.com/jdm/home')
-        login.is_closed.return_value=False;work.is_closed.return_value=False
-        controller.page=login;controller.context=Mock(pages=[login]);controller.context.new_page.return_value=work
-        with patch('heideng_merchant.host_connection_controller._identity',side_effect=lambda p:{'shopName':'fixture'} if p is work else {}),patch.object(controller,'_result',side_effect=lambda x:x):result=controller._observe()
-        self.assertTrue(result['loggedIn']);controller.context.cookies.assert_not_called()
-        work.goto.assert_called_once();login.reload.assert_not_called()
+        login = Mock(url='https://passport.shop.jd.com/login/index.action')
+        login.is_closed.return_value = False
+        controller.page = login
+        controller.context = Mock(pages=[login])
+        with patch.object(controller, '_result', side_effect=lambda extra=None: extra or {}):
+            for _ in range(30):
+                self.assertFalse(controller._observe()['loggedIn'])
+            with patch.object(controller, '_load', return_value={'contextId': 'saved'}):
+                controller._open_login({})
+        controller.context.new_page.assert_not_called()
+        controller.context.cookies.assert_not_called()
+        login.goto.assert_not_called()
+        login.reload.assert_not_called()
 
-    def test_optional_workspace_probe_timeout_keeps_original_login_pending(self):
+    def test_explicit_login_completion_reuses_original_page_and_waits_for_real_identity(self):
         with tempfile.TemporaryDirectory() as d:controller=HostConnectionController(state=d,shop_identity={'shopName':'fixture'})
-        login=Mock(url='https://passport.shop.jd.com/login/index.action');work=Mock(url='about:blank')
-        login.is_closed.return_value=False;work.is_closed.return_value=False;work.goto.side_effect=TimeoutError('synthetic probe timeout')
-        controller.page=login;controller.context=Mock(pages=[login]);controller.context.new_page.return_value=work
-        with patch.object(controller,'_result',side_effect=lambda x:x):
-            result=controller._observe();again=controller._observe()
-        self.assertFalse(result['loggedIn']);self.assertFalse(again['loggedIn']);self.assertIs(controller.page,login)
-        controller.context.new_page.assert_called_once();work.goto.assert_called_once();login.reload.assert_not_called()
+        page = Mock(url='https://passport.shop.jd.com/login/index.action')
+        page.is_closed.return_value = False
+        page.goto.side_effect = lambda url, **kwargs: setattr(page, 'url', url)
+        controller.page = page
+        controller.context = Mock(pages=[page])
+        with patch.object(controller, '_result', side_effect=lambda x:x), patch(
+                'heideng_merchant.host_connection_controller._identity', side_effect=[{}, {'shopName':'fixture'}]):
+            controller.check_workspace_after_login()
+            self.assertFalse(controller._observe()['loggedIn'])
+            self.assertEqual(controller._observe()['identity'], {'shopName':'fixture'})
+        page.goto.assert_called_once()
+        controller.context.new_page.assert_not_called()
 
 class LateProofTests(unittest.TestCase):
     setUp=helpers.AuditConnectionTests.setUp
     tearDown=helpers.AuditConnectionTests.tearDown
+    def test_new_host_observation_accepts_only_name_until_official_verification(self):
+        import browser_adapters, browser_auth
+        name = '合成灯具店'
+        observed = browser_adapters._observation({'loggedIn':True, 'identity':{'shopName':name}})
+        identity = observed['identity']
+        job = browser_auth.BrowserAuthJob('fixture',name,expect_vender_id='110')
+        self.assertTrue(job._browser_matches(identity))
+        self.assertFalse(job._matches(identity))
+        self.assertFalse(job._matches({**identity,'venderId':'220'}))
+        self.assertTrue(job._matches({**identity,'venderId':'110','shopId':'330'}))
+        for invalid in ({}, {'shopName':name,'venderId':'bad'}, {'shopName':'  '}):
+            with self.assertRaises(browser_adapters.BrowserError):
+                browser_adapters._observation({'loggedIn':True, 'identity':invalid})
+
+    def test_reuse_waits_for_delayed_public_identity_and_blocks_wrong_shop(self):
+        import browser_adapters as adapter
+        expected = {'venderId':'110','shopId':'330','shopName':'合成灯具店'}
+        browser = adapter.PlaywrightBrowser({'identityScript':'() => ({})','identityScriptVerified':True})
+        browser._page = Mock()
+        browser._reuse_identity = expected
+        for evidence in ({'shopName': expected['shopName']}, expected, {**expected,'venderId':'220'}):
+            browser._page.evaluate.return_value = {'loggedIn':True,'identity':evidence}
+            if evidence.get('venderId') == '220':
+                with self.assertRaises(adapter.BrowserError):
+                    browser.observe()
+            else:
+                self.assertEqual(browser.observe()['loggedIn'], evidence == expected)
+        browser._page.goto.assert_not_called()
+
+    def test_login_completion_signal_is_bound_to_live_job_and_consumed_once(self):
+        import browser_auth
+        browser = Mock()
+        job = browser_auth.BrowserAuthJob('fixture','合成灯具店',browser=browser,poll_interval=0.001)
+        self.assertFalse(job.request_workspace_check())
+        def observe():
+            self.assertTrue(job.request_workspace_check())
+            if browser.observe.call_count == 3:
+                job._cancelled.set()
+            return {'loggedIn':False,'identity':{}}
+        browser.observe.side_effect = observe
+        with patch.object(browser_auth.sl,'mark_auth_pending'):
+            job.run()
+        browser.check_workspace_after_login.assert_called_once()
+        browser.open_login.assert_called_once()
+        browser.open_oauth.assert_not_called()
+        args = type('Args',(),{'job_id':'old-job'})()
+        with patch.object(self.cli,'cmd_job',return_value={'ok':True,'job':{'id':'different-job'}}), patch.object(self.cli,'http_json') as send:
+            self.assertEqual(self.cli.cmd_login_completed(args)['errorKind'],'task_changed')
+            send.assert_not_called()
+
+    def test_completion_command_uses_the_existing_local_service(self):
+        import browser_auth, server
+        from argparse import Namespace
+        job = browser_auth.BrowserAuthJob('fixture','合成灯具店')
+        job._stage('waiting_login','等待扫码')
+        with server.create_httpd(port=0) as service:
+            server.Handler.manager.job = job
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with patch.object(self.cli,'BASE',f'http://127.0.0.1:{service.server_port}'), patch.object(self.cli,'ensure_server') as start:
+                    result = self.cli.cmd_login_completed(Namespace(job_id=job.id))
+                    self.assertEqual(result['status'],'workspace_check_requested')
+                    self.assertTrue(job._workspace_check_requested.is_set())
+                    self.assertEqual(self.cli.cmd_login_completed(Namespace(job_id='another'))['errorKind'],'task_changed')
+                    job._stage('waiting_oauth','官方授权')
+                    self.assertFalse(self.cli.cmd_login_completed(Namespace(job_id=job.id))['ok'])
+                    start.assert_not_called()
+            finally:
+                service.shutdown()
+                thread.join(5)
     def test_named_login_binds_late_verified_vender_slot_without_copy_when_account_matches(self):
         import server
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'JDO_HOME':d,'JINGMAI_LINKER_HOME':str(Path(d)/'linker')},clear=True):
