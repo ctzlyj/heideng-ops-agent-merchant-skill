@@ -181,6 +181,12 @@ class BuiltinBrowser:
         from heideng_merchant.host_connection_controller import HostConnectionController
         self.controller=HostConnectionController(shop_identity=shop_identity)
         self.profile_directory=None;self.profile_channel=None;self.profile_channel_reason=None;self._context_id=None;self._closed=False;self._oauth_confirm_handled=False
+    def prepare_launch(self):
+        try:
+            self.controller._launch()
+        finally:
+            self.profile_channel = self.controller.channel
+            self.profile_channel_reason = self.controller.channel_reason
     def _call(self,kind,**payload):
         if self._closed and kind!='close':raise BrowserError('closed')
         result=self.controller.dispatch({'action':{'kind':kind,**payload}})
@@ -409,13 +415,15 @@ class PlaywrightBrowser:
         self._check(page=False)
         if self._context is not None:
             return
+        from heideng_merchant.host_connection_controller import BrowserStartError, prepare_isolated_browser_home, startup_kind
+        prepare_isolated_browser_home()
         sync_playwright = None
         try:
             from playwright.sync_api import sync_playwright
         except Exception:
             pass
         if sync_playwright is None:
-            raise BrowserError("provider_unavailable")
+            raise BrowserStartError("browser_python_dependency")
         self._thread_id = threading.get_ident()
 
         def launch():
@@ -427,10 +435,10 @@ class PlaywrightBrowser:
             runtime["refs"] += 1
             self._runtime_held = True
             if self._user_data_dir is None:
-                self._engine = self._playwright.chromium.launch(headless=self._headless,channel=None if self.profile_channel=='chromium' else self.profile_channel)
+                self._engine = self._playwright.chromium.launch(headless=self._headless,chromium_sandbox=True,channel=None if self.profile_channel=='chromium' else self.profile_channel)
                 self._context = self._engine.new_context()
             else:
-                self._context = self._playwright.chromium.launch_persistent_context(self._user_data_dir, headless=self._headless,channel=None if self.profile_channel=='chromium' else self.profile_channel)
+                self._context = self._playwright.chromium.launch_persistent_context(self._user_data_dir, headless=self._headless,chromium_sandbox=True,channel=None if self.profile_channel=='chromium' else self.profile_channel)
                 # The launcher-created blank page belongs to this task. Restored
                 # nonblank pages are not ours and must survive adapter.close().
                 self._owned_pages.extend(page for page in self._context.pages if page.url == "about:blank")
@@ -441,10 +449,15 @@ class PlaywrightBrowser:
             self._owned_pages.append(self._page)
 
         try:
-            self._perform(launch, "provider_unavailable")
-        except BrowserError:
-            self._release_runtime()
-            raise
+            launch()
+            return
+        except Exception as exc:
+            kind = startup_kind(exc, 'driver' if self._playwright is None else 'channel')
+        self._release_runtime()
+        raise BrowserStartError(kind) from None
+
+    def prepare_launch(self):
+        self._start()
 
     def _release_runtime(self):
         if not self._runtime_held:

@@ -2,8 +2,19 @@
 from __future__ import annotations
 import argparse,json,os,sys
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parent))
-from heideng_merchant import VERSION,SKILL_NAME
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT))
+if __name__=='__main__' and sys.platform=='darwin':
+ # The common metadata helper lives in __init__.py; check it before the first import.
+ for entry in (ROOT/'heideng_merchant', ROOT/'heideng_merchant/__init__.py'):
+  if getattr(entry.stat(),'st_flags',0) & 0x40000000:
+   print(json.dumps({'status':'blocked','error':'macos-cloud-file-not-local','path':str(entry),'nextAction':'在访达中选择“现在下载”，下载后重新安装。'},ensure_ascii=False))
+   raise SystemExit(2)
+from heideng_merchant import VERSION,SKILL_NAME,CloudFileUnavailable,check_entry_modules,require_local
+if __name__=='__main__':
+ try:check_entry_modules(ROOT,('distribution','safety','state','official'))
+ except CloudFileUnavailable as error:
+  print(json.dumps(error.receipt(),ensure_ascii=False));raise SystemExit(2)
 from heideng_merchant.distribution import install_archive,install_source,rollback
 from heideng_merchant.safety import SafetyError,redact
 from heideng_merchant.state import install_state
@@ -26,7 +37,11 @@ def main(argv=None):
  args=p.parse_args(argv)
  try:
   if sys.version_info<(3,11):raise SafetyError('python-3.11-or-newer-required-agent-install-official-runtime')
-  target=target_directory(args.host,args.home,args.skills_dir);state=install_state(target,args.home,args.state)
+  if not args.archive and not args.rollback:
+   require_local(ROOT,parents=True)
+   for name in ('VERSION','package-files.json','SKILL.md'):
+    require_local(ROOT/name)
+  target=target_directory(args.host,args.home,args.skills_dir);state=install_state(target,args.home,args.state,check_runtime=not(args.offline or args.rollback))
   from heideng_merchant.safety import read_json
   existing_updates=read_json(state/'updates/settings.json',{})
   if existing_updates and existing_updates.get('target')!=str(target.resolve()):raise SafetyError('update-target-changed-use-explicit-isolated-state-or-maintenance-migration')
@@ -35,7 +50,7 @@ def main(argv=None):
    if not args.sha256:raise SafetyError('downloaded-archive-needs-verified-sha256')
    result=install_archive(Path(args.archive),target,state,expected_sha=args.sha256)
   else:
-   result=install_source(Path(__file__).resolve().parent,target,state)
+   result=install_source(ROOT,target,state)
   client=OfficialClient(state)
   result['shopCapability']=client.shop_capability()
   if args.with_official and not args.offline:
@@ -63,7 +78,7 @@ def main(argv=None):
   from heideng_merchant.update_client import configure, set_enabled, status as update_status
   trust_path=target/'updates/trust.json'
   if trust_path.is_file():
-   configure(state,target,json.loads(trust_path.read_text(encoding='utf-8')),host=args.host if not args.skills_dir else 'explicit-skills-dir')
+   configure(state,target,read_json(trust_path),host=args.host if not args.skills_dir else 'explicit-skills-dir')
    if args.no_auto_update:set_enabled(state,False)
    result['automaticUpdates']=update_status(state)
   else:result['automaticUpdates']={'enabled':False,'reason':'publisher-trust-not-configured'}
@@ -71,6 +86,8 @@ def main(argv=None):
   from heideng_merchant.mature_runtime import status as mature_status
   result['matureCapabilities']=mature_status()
   print(json.dumps(redact(result),ensure_ascii=False));return 0
+ except CloudFileUnavailable as error:
+  print(json.dumps(error.receipt(),ensure_ascii=False));return 2
  except (SafetyError,OSError,ValueError) as error:
   result={'status':'blocked','error':redact(str(error)),'internalVersionUntouched':True}
   if isinstance(error,SafetyError) and str(error)=='same-version-different-artifact':

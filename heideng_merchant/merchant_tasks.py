@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 
 from .merchant_experience import task_summary
+from . import require_local
 from .safety import atomic_json, is_linked, read_json
 from .state import FileLock, merchant_home
 
@@ -87,7 +88,7 @@ def _repair_context(state, directory, identity_key, record=None):
 
 def _legacy_repair_directories(state):
     # Older versions did not index standalone repairs. Limit discovery to the merchant's own materials tree.
-    base = Path(state) / 'work' / 'materials'
+    base = require_local(Path(state) / 'work' / 'materials',parents=True)
     if is_linked(base) or is_linked(base.parent):
         return
     for folder, children, names in os.walk(base):
@@ -97,11 +98,13 @@ def _legacy_repair_directories(state):
         if 'repair-scope.json' in names:
             yield directory
             children.clear()
+        for child in children:
+            require_local(directory/child)
 
 
 def task_context(state, shop_id, vender_id, task_id=None, *, goal=None, product_id=None, source_product_id=None):
     """Return a scoped handoff; never infer that a local process is still running."""
-    index = Path(state) / 'merchant-tasks'
+    index = require_local(Path(state) / 'merchant-tasks',parents=True)
     matches = []
     indexed_repairs = set()
     commands = ('auto-maintain','maintain-short-titles','repair-rejected','reconcile-receipts')

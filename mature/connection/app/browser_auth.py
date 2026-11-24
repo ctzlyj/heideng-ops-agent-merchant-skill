@@ -51,6 +51,7 @@ class BrowserAuthJob:
                            'expectVenderId': self.expect_vender_id, 'status': self.status,
                            'stage': self.stage, 'message': self.message, 'identity': self.identity,
                            'desktopShortcut': self.desktop_shortcut,
+                           'browserProfileDir': str(getattr(self.browser, 'profile_directory', '') or ''),
                            'error': self.error, 'errorKind': self.error_kind,
                            'browserChannel': getattr(self.browser, 'profile_channel', '') or '',
                            'browserSelectionReason': getattr(self.browser, 'profile_channel_reason', '') or '',
@@ -96,8 +97,12 @@ class BrowserAuthJob:
             try:
                 self._verify_and_commit()
                 return
-            except sl.VerifyError:
-                if self.oauth_navigation_attempted:
+            except sl.VerifyError as exc:
+                if (getattr(self.login, 'native_receipt_seen', False) is True
+                        or getattr(self.login, 'error_kind', '') == 'native_receipt_pending' or exc.kind == 'native_receipt_pending'):
+                    message = self.login.message if self.login.error_kind == 'native_receipt_pending' else exc.message
+                    self._finish('failed','paused',message,'native_receipt_pending')
+                elif self.oauth_navigation_attempted:
                     self._finish('failed','paused','连接已暂停，授权结果须核对原Profile；没有持续后台执行。','callback_unknown')
                 elif self.status != 'failed':
                     self._finish('failed','paused','尚未打开授权页，可沿用原店铺会话继续。','oauth_not_opened')
@@ -165,11 +170,11 @@ class BrowserAuthJob:
 
     def _verify_and_commit(self):
         self._stage('verifying_cli', '正在实时核验这家店的 CLI 连接。', 'verifying')
-        try:sl.require_auth_slot(self.profile,required=True)
+        try:sl.require_auth_slot(self.profile,required=True,job_id=self.id)
         except sl.VerifyError:
             from server import recover_owned_auth_slot
             recover_owned_auth_slot(self.profile,self.id)
-            sl.require_auth_slot(self.profile,required=True)
+            sl.require_auth_slot(self.profile,required=True,job_id=self.id)
         identity = sl.verify_profile(self.profile)
         if not self._matches(identity):
             sl.mark_auth_rejected(self.profile)
@@ -194,12 +199,16 @@ class BrowserAuthJob:
             self._finish('failed', 'deferred', '后台任务不发起扫码或授权。', 'background')
             return
         try:
-            sl.mark_auth_pending(self.profile, self.id, self.expect_vender_id, self.shop_name,
-                                 exact_shop_name=bool(self.confirmed_shop_name))
             if self.browser is None:
                 from browser_adapters import create_browser
                 self.browser = create_browser(self.browser_config)
             builtin = self.browser_config.get('provider') == 'builtin'
+            prepare = getattr(self.browser, 'prepare_launch', None)
+            if self.browser_config.get('provider') in ('builtin', 'playwright') and callable(prepare):
+                self._stage('checking_browser_runtime', '正在检查本机浏览器通道和商家专用资料。')
+                prepare()
+            sl.mark_auth_pending(self.profile, self.id, self.expect_vender_id, self.shop_name,
+                                 exact_shop_name=bool(self.confirmed_shop_name))
             self._stage('waiting_browser', '正在打开商家专用京麦登录页，请保持当前命令运行，不要手工发起OAuth。' if builtin else '正在等待当前 Agent 接管任务浏览器，尚未打开扫码页面。')
             self.browser.open_login(self.shop_name or self.expect_vender_id)
             self._stage('waiting_login', LOGIN_HINT)
@@ -247,7 +256,7 @@ class BrowserAuthJob:
                 return
             self._stage('waiting_oauth', '网页登录已确认，正在自动连接官方 CLI。')
             self.login = self.login_factory(self.profile, self.shop_name, self.expect_vender_id,
-                                            defer_registry=True, timeout=max(1,int(self.phase_deadline(self.oauth_timeout)-time.monotonic())))
+                                            force=False, defer_registry=True, timeout=max(1,int(self.phase_deadline(self.oauth_timeout)-time.monotonic())))
             self.login.require_exact_shop_name = bool(self.confirmed_shop_name)
             self.login.proof_job_id=self.id
             self.login.start()
@@ -257,17 +266,18 @@ class BrowserAuthJob:
             if self.login.status in ('failed', 'mismatch', 'cancelled'):
                 self._finish(self.login.status, self.login.status, self.login.message, self.login.error_kind)
                 return
-            self.oauth_navigation_attempted = True
-            self.browser.open_oauth(self.login.url)
-            self.login.url = ''  # navigation consumed; no persistent URL receipt
-            try:
-                response = self.browser.confirm() or {}
-            except Exception as exc:
-                if getattr(exc, 'kind', '') not in ('challenge', 'confirmation_unconfigured'):
-                    raise
-                response = {'challenge': '平台要求本人确认，请在当前授权页面完成'}
-            if response.get('challenge'):
-                self._stage('waiting_oauth_confirmation', '请在授权页面完成：' + safe_text(response['challenge']))
+            if self.login.url:
+                self.oauth_navigation_attempted = True
+                self.browser.open_oauth(self.login.url)
+                self.login.url = ''  # navigation consumed; no persistent URL receipt
+                try:
+                    response = self.browser.confirm() or {}
+                except Exception as exc:
+                    if getattr(exc, 'kind', '') not in ('challenge', 'confirmation_unconfigured'):
+                        raise
+                    response = {'challenge': '平台要求本人确认，请在当前授权页面完成'}
+                if response.get('challenge'):
+                    self._stage('waiting_oauth_confirmation', '请在授权页面完成：' + safe_text(response['challenge']))
             deadline = self.phase_deadline(self.oauth_timeout)
             while not self._cancelled.is_set() and not self._shutdown_requested.is_set() and time.monotonic() < deadline:
                 if self.login._done.wait(self.poll_interval):
@@ -326,7 +336,10 @@ class BrowserAuthJob:
                 self._resume_event.set()  # Let the original worker close only its resources.
                 return
             except sl.VerifyError as exc:
-                if exc.kind == 'credential_isolation':
+                if (exc.kind in ('credential_isolation', 'native_receipt_pending')
+                        or getattr(self.login, 'error_kind', '') == 'native_receipt_pending'
+                        or getattr(self.login, 'native_receipt_seen', False) is True
+                        or self.error_kind == 'callback_unknown'):
                     self._finish('failed', 'verifying_cli', exc.message, exc.kind)
                     return
                 proc = getattr(self.login, 'proc', None)

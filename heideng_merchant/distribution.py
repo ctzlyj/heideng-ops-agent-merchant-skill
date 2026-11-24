@@ -2,7 +2,7 @@
 from __future__ import annotations
 import hashlib,json,os,re,shutil,stat,tempfile,time,uuid,zipfile
 from pathlib import Path
-from . import SKILL_NAME
+from . import SKILL_NAME,require_local
 from .safety import is_linked,SafetyError,safe_join,file_sha,atomic_json,read_json
 from .state import FileLock
 
@@ -23,7 +23,7 @@ def version_key(value):
  return tuple(map(int,value.split('.')))
 
 def source_files(source):
- source=Path(source).resolve();files={};mature_hashes={}
+ source=require_local(source,parents=True).resolve();files={};mature_hashes={}
  declaration=read_json(safe_join(source,'package-files.json'))
  if declaration is not None:
   if declaration.get('schemaVersion')!=1 or not isinstance(declaration.get('files'),list):raise SafetyError('invalid-package-declaration')
@@ -142,6 +142,7 @@ def verify_install(target):
   expected=receipt['files'];actual=set()
   for p in target.rglob('*'):
    if is_linked(p):raise SafetyError('linked-install')
+   require_local(p)
    if p.is_file() and p.name!=RECEIPT and '__pycache__' not in p.parts and p.suffix not in ('.pyc','.pyo'):actual.add(p.relative_to(target).as_posix())
   if set(expected)!=actual:raise SafetyError('local-file-set-changed')
   for name,sha in expected.items():
@@ -240,7 +241,7 @@ def install_archive(archive,target,state,*,expected_sha):
 
 def install_source(source,target,state):
  source=Path(source)
- version=(source/'VERSION').read_text(encoding='utf-8-sig').strip()
+ version=require_local(source/'VERSION',parents=True).read_text(encoding='utf-8-sig').strip()
  manifest,raw=source_payload(source,version)
  return _install_payload(target,state,manifest,raw,{'sourceManifestSha256':hashlib.sha256(raw[MANIFEST]).hexdigest()})
 

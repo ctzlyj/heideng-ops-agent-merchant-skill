@@ -1,6 +1,7 @@
 """Cross-process locks and an independent state namespace."""
 import os,time,threading
 from pathlib import Path
+from . import require_local
 from .safety import is_linked,SafetyError
 
 class FileLock:
@@ -22,6 +23,7 @@ class FileLock:
  def require_owned(self,path):
   if not self.acquired or self.stream is None or self.stream.closed or self.path.resolve()!=Path(path).resolve() or self.owner_thread!=threading.get_ident():raise SafetyError('existing-same-owner-install-guard-required')
  def __enter__(self):
+  require_local(self.path,parents=True)
   self.path.parent.mkdir(parents=True,exist_ok=True)
   if is_linked(self.path):raise SafetyError('linked-lock')
   self.stream=self.path.open('a+b')
@@ -64,7 +66,7 @@ def installed_state(package, default=None):
     return default or merchant_home()
 
 
-def install_state(target, home=None, explicit=None):
+def install_state(target, home=None, explicit=None, *, check_runtime=False):
     from hashlib import sha256
     from .safety import atomic_json, read_json
 
@@ -86,8 +88,10 @@ def install_state(target, home=None, explicit=None):
             with FileLock(alternate / 'installation-target.lock'):
                 if owner(alternate) not in (None, target):
                     raise SafetyError('isolated-state-target-mismatch')
+                if check_runtime: require_local(alternate/'runtime-venv/pyvenv.cfg',parents=True)
                 atomic_json(alternate / 'installation-target.json', {'target': target})
             return alternate
+        if check_runtime: require_local(root/'runtime-venv/pyvenv.cfg',parents=True)
         atomic_json(root / 'installation-target.json', {'target': target})
     return root
 

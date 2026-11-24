@@ -2,10 +2,42 @@
 from __future__ import annotations
 import json, os, re, subprocess, sys, venv
 from pathlib import Path
+from . import require_local
 from .safety import SafetyError, clean_environment, file_sha, read_json, safe_join
 from .state import FileLock
 
 REQUIREMENT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*\])?(?:[<>=!~]=?[A-Za-z0-9.*]+(?:,[<>=!~]=?[A-Za-z0-9.*]+)*)?')
+
+# Reserved child exits used only before starting a new local browser job. The
+# outer dispatcher can then release its install lease to repair this runtime.
+BROWSER_REPAIR_EXITS = {73: 'isolated-python', 74: 'greenlet', 75: 'cryptography', 76: 'playwright', 77: 'playwright-driver'}
+
+
+def connection_python_problem(state):
+    """Check the interpreter actually running linker.py, including native extensions."""
+    if Path(sys.prefix).resolve() != (Path(state) / 'runtime-venv').resolve():
+        return 73
+    import importlib
+    for code, module, symbol in ((74, 'greenlet', 'greenlet'),
+                                 (75, 'cryptography.hazmat.primitives.asymmetric.ed25519', 'Ed25519PublicKey'),
+                                 (76, 'playwright.sync_api', 'sync_playwright')):
+        try:
+            getattr(importlib.import_module(module), symbol)
+        except (ImportError, OSError, AttributeError):
+            return code
+    # Detect missing shipped driver files without starting a second driver process.
+    # Use the installed wheel's manifest so a different distribution layout is
+    # left to the actual launch check.
+    from importlib.metadata import PackageNotFoundError, distribution
+    try:
+        package = distribution('playwright')
+    except PackageNotFoundError:
+        return 76
+    for member in package.files or ():
+        if member.as_posix() in ('playwright/driver/node', 'playwright/driver/node.exe', 'playwright/driver/package/cli.js'):
+            if not package.locate_file(member).is_file():
+                return 77
+    return None
 
 def bridge_python(inherited=None):
     """Resolve existing 3.12 before isolation, without running business or login."""
@@ -38,6 +70,8 @@ def bridge_python(inherited=None):
 def runtime_python(state):
     directory = Path(state)/'runtime-venv'
     path = directory/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
+    require_local(directory/'pyvenv.cfg',parents=True)
+    require_local(path,parents=True)
     if directory.exists() and (not path.is_file() or not (directory/'pyvenv.cfg').is_file()):
         raise SafetyError('merchant-runtime-invalid')
     if path.is_file() and 'include-system-site-packages = false' not in (directory/'pyvenv.cfg').read_text(encoding='utf-8').lower():
@@ -45,13 +79,15 @@ def runtime_python(state):
     return path if path.is_file() else Path(sys.executable)
 
 def requirements_for_sources(package_root, optional=None):
-    if optional not in (None,"cutout","updates"):raise SafetyError("unknown-public-dependency-group")
+    if optional not in (None,"cutout","updates","connection-browser"):raise SafetyError("unknown-public-dependency-group")
     core = Path(package_root)/'requirements-updates.txt'
     update_requirements = core.read_text(encoding='utf-8').splitlines() if core.is_file() else []
     if optional == "updates": return update_requirements
     root = Path(package_root)/'mature' 
     requirements = set(update_requirements)
     for source in sorted(root.iterdir()) if root.is_dir() else []:
+        if optional == 'connection-browser' and source.name != 'materials':
+            continue
         metadata = read_json(source/'provenance.json', {})
         filenames=['requirements.txt']
         if optional=='cutout' and source.name=='materials':filenames.append('requirements-cutout.txt')
@@ -68,7 +104,11 @@ def requirements_for_sources(package_root, optional=None):
                     continue
                 if not REQUIREMENT.fullmatch(value):
                     raise SafetyError('standard-public-package-requirement-required')
+                if optional == 'connection-browser' and re.split(r'[\[<>=!~]', value, 1)[0].lower() != 'playwright':
+                    continue
                 requirements.add(value)
+    if optional == 'connection-browser' and not any(x.lower().startswith('playwright') for x in requirements):
+        raise SafetyError('merchant-browser-runtime-requirements-unavailable')
     return sorted(requirements)
 
 def ensure_core(state, package_root):
@@ -135,7 +175,18 @@ def prepare_runtime(state, package_root, optional=None):
         interpreter = runtime_python(state)
         environment = clean_environment(state/'runtime-home')
         environment.update(PIP_CONFIG_FILE=os.devnull,PIP_DISABLE_PIP_VERSION_CHECK='1',PYTHONIOENCODING='utf-8')
-        command = [str(interpreter), '-I', '-m', 'pip', '--isolated', '--disable-pip-version-check', 'install', '--index-url', 'https://pypi.org/simple', '--only-binary=:all:', '--no-cache-dir', '--retries', '0', '--timeout', '30', *requirements]
+        if optional == 'connection-browser':
+            # Another host task may have completed the repair while this caller
+            # was releasing its read lease. Verify the actual venv before pip.
+            probe = ('import sys; sys.path.insert(0, sys.argv[1]); '
+                     'from heideng_merchant.runtime_dependencies import connection_python_problem; '
+                     'sys.exit(connection_python_problem(sys.argv[2]) or 0)')
+            ready = subprocess.run([str(interpreter), '-I', '-B', '-c', probe, str(Path(package_root).resolve()), str(state)],
+                                   env=environment, timeout=30, capture_output=True)
+            if ready.returncode == 0:
+                return {'status':'ready','interpreter':str(interpreter),'dependencyScope':optional,'businessOrPaidCalls':False}
+        repair = ['--force-reinstall'] if optional == 'connection-browser' else []
+        command = [str(interpreter), '-I', '-m', 'pip', '--isolated', '--disable-pip-version-check', 'install', '--index-url', 'https://pypi.org/simple', '--only-binary=:all:', '--no-cache-dir', '--retries', '0', '--timeout', '30', *repair, *requirements]
         try:
             result = subprocess.run(command, env=environment, timeout=900, capture_output=True, text=True, encoding='utf-8', errors='replace')
         except (OSError, subprocess.TimeoutExpired):
@@ -150,4 +201,4 @@ def prepare_runtime(state, package_root, optional=None):
         check = subprocess.run([str(interpreter), '-I', '-c', probe, inputs], env=environment, timeout=60, capture_output=True)
         if check.returncode:
             raise SafetyError('merchant-isolated-dependency-import-failed')
-    return {'status':'prepared','interpreter':str(interpreter),'independent':True,'index':'https://pypi.org/simple','businessOrPaidCalls':False,'dependencyScope':'core-plus-cutout' if optional=='cutout' else 'core-only'}
+    return {'status':'prepared','interpreter':str(interpreter),'independent':True,'index':'https://pypi.org/simple','businessOrPaidCalls':False,'dependencyScope':{'cutout':'core-plus-cutout','connection-browser':'connection-browser'}.get(optional,'core-only')}

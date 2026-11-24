@@ -13,6 +13,89 @@ LOGIN_URL='https://passport.shop.jd.com/login/index.action'
 WORKSPACE_URL='https://shop.jd.com/jdm/home'
 CHANNELS=('chrome','msedge','chromium')
 
+BROWSER_START_HINTS = {
+    'browser_python_dependency': '当前连接进程无法加载 Playwright 或其本机依赖。请用商家隔离运行环境恢复连接。',
+    'browser_driver_failed': 'Playwright Python 已加载，驱动进程未能启动。请核对当前 Python 架构与隔离环境中的 Playwright driver。',
+    'browser_channel_missing': '所选浏览器通道未安装或其程序文件不可用。请核对该通道的本机安装位置。',
+    'browser_host_permission': '当前宿主没有启动此浏览器所需的本机权限。请在允许启动浏览器的本机宿主复测 browser-check；保留原店铺资料。',
+    'browser_profile_busy': '原商家专用浏览器资料正被其他进程占用。请回到持有该资料的原窗口或连接任务。',
+    'browser_isolated_home_unavailable': '无法准备商家隔离环境的 AppData 目录，请核对本机商家状态目录的写入权限。',
+    'browser_channel_launch_failed': '驱动可用，浏览器通道未能启动。请用 browser-check 在临时商家资料中复测所选通道。',
+    'browser_cleanup_failed': '本机浏览器或驱动未能确认退出，请核对这次任务的临时窗口。',
+}
+
+
+class BrowserStartError(Exception):
+    def __init__(self, kind):
+        self.kind = kind
+        self.hint = BROWSER_START_HINTS[kind]
+        super().__init__(self.hint)
+
+
+def prepare_isolated_browser_home():
+    """Chrome on Windows needs the declared Local AppData folder before its driver can attach."""
+    if sys.platform != 'win32':
+        return
+    from .safety import SafetyError, safe_join
+    state = Path(os.environ.get('HEIDENG_MERCHANT_HOME') or '')
+    home = state / 'runtime-home'
+    if not state.is_absolute() or any(Path(os.environ.get(key) or '') != home for key in ('HOME', 'USERPROFILE')):
+        return
+    for key, relative in (('LOCALAPPDATA','runtime-home/AppData/Local'), ('APPDATA','runtime-home/AppData/Roaming')):
+        # A host-supplied personal AppData or redirected path belongs to the host.
+        if Path(os.environ.get(key) or '') != state / relative:
+            continue
+        try:
+            safe_join(state, relative).mkdir(parents=True, exist_ok=True)
+        except (OSError, SafetyError):
+            raise BrowserStartError('browser_isolated_home_unavailable') from None
+
+
+def startup_kind(exc, phase):
+    # Provider output can contain command lines and profile paths. Only emit fixed diagnoses.
+    message = str(exc).casefold()
+    if (isinstance(exc, PermissionError) or 'operation not permitted' in message or 'permission denied' in message
+            or 'access is denied' in message or ('bootstrap_check_in' in message and '1100' in message)
+            or ('sandbox' in message and 'mach-' in message and ('deny' in message or 'denied' in message))):
+        return 'browser_host_permission'
+    if phase == 'driver':
+        return 'browser_driver_failed'
+    if any(text in message for text in ('singletonlock', 'processsingleton', 'user data directory is already in use')):
+        return 'browser_profile_busy'
+    if (isinstance(exc, FileNotFoundError) or any(text in message for text in
+            ("executable doesn't exist", 'executable does not exist', 'executable not found'))
+            or ('distribution' in message and 'not found' in message)):
+        return 'browser_channel_missing'
+    return 'browser_channel_launch_failed'
+
+
+def check_local_browser(channel=None):
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='heideng-browser-check-') as directory:
+        controller = HostConnectionController(state=directory)
+        failure = None
+        try:
+            controller._launch(channel, local_only=True)
+            controller.page.goto('about:blank', wait_until='domcontentloaded')
+            ready = controller.page.url == 'about:blank' and controller.page.evaluate('() => 2 + 2') == 4
+            if not ready:
+                raise BrowserStartError('browser_channel_launch_failed')
+        except BrowserStartError as error:
+            failure = error.kind
+        except Exception as error:
+            failure = startup_kind(error, 'channel')
+        finally:
+            try:
+                controller._close()
+            except Exception:
+                failure = failure or 'browser_cleanup_failed'
+        result = {'ok': failure is None, 'browserChannel': controller.channel or channel,
+                  'merchantLoginStarted': False, 'businessExecuted': False}
+        if failure:
+            return {**result, 'status': 'blocked', 'stage': 'checking_browser_runtime',
+                    'errorKind': failure, 'error': BROWSER_START_HINTS[failure]}
+        return {**result, 'status':'browser-ready', 'page':'about:blank'}
+
 def _public(value):
     return {'actions':['open_login','observe','open_oauth','confirm','close'],'loginUrl':LOGIN_URL,
             'merchantChoosesLoginMethod':True,'challenges':['login','qr','sms','captcha','account-risk-blocked','verification'],
@@ -75,9 +158,9 @@ class HostConnectionController:
         if self._state and set(self._state)!={'contextId','profileDir','browserChannel','shopIdentity'}:self._state=None
         return self._state
 
-    def _launch(self,channel=None):
+    def _launch(self,channel=None,*,local_only=False):
         if self.context is not None:return
-        from playwright.sync_api import sync_playwright
+        prepare_isolated_browser_home()
         state=self._load()
         if state:
             if state.get('shopIdentity')!=self.shop_identity:raise RuntimeError('connection-profile-belongs-to-another-shop')
@@ -90,17 +173,30 @@ class HostConnectionController:
         expected=(self.home/'browser-profiles').resolve()
         if not directory.is_relative_to(expected):raise RuntimeError('merchant-owned-profile-required')
         if directory is None:raise RuntimeError('merchant-owned-profile-required')
-        directory.mkdir(parents=True,exist_ok=True)
-        self._playwright=sync_playwright().start()
+        try:
+            directory.mkdir(parents=True,exist_ok=True)
+        except PermissionError:
+            raise BrowserStartError('browser_host_permission') from None
+        try:
+            from playwright.sync_api import sync_playwright
+        except (ImportError, OSError):
+            raise BrowserStartError('browser_python_dependency') from None
+        try:
+            self._playwright=sync_playwright().start()
+        except Exception as error:
+            raise BrowserStartError(startup_kind(error, 'driver')) from None
         try:
             self.context=self._playwright.chromium.launch_persistent_context(
                 str(directory), channel=None if self.channel=='chromium' else self.channel,
                 headless=False, accept_downloads=False, timeout=20000,
+                offline=local_only, chromium_sandbox=True,
                 args=['--no-first-run','--no-default-browser-check'])
-        except Exception:
-            self._playwright.stop()
-            self._playwright=None
-            raise
+        except Exception as error:
+            try:
+                self._playwright.stop()
+            finally:
+                self._playwright=None
+            raise BrowserStartError(startup_kind(error, 'channel')) from None
         self.context.set_default_timeout(15000)
         pages=[page for page in self.context.pages if not page.is_closed()]
         self.page=next((page for page in pages if _trusted_shop_page(page.url) or
@@ -219,14 +315,16 @@ class HostConnectionController:
         return self._result()
 
     def _close(self):
-        if self.context is None:return {'ok':True}
+        if self.context is None and self._playwright is None:return {'ok':True}
         # This controller launched its own persistent browser. Graceful context closure
         # lets Chromium flush the merchant's session to its original profile.
         try:
-            self.context.close()
+            if self.context is not None:self.context.close()
         finally:
-            self._playwright.stop()
-            self.context=None;self._playwright=None
+            try:
+                if self._playwright is not None:self._playwright.stop()
+            finally:
+                self.context=None;self._playwright=None
         return {'ok':True}
 
     def dispatch(self,request):
@@ -252,6 +350,8 @@ def main(argv=None):
             if len(raw)>65536:raise ValueError('request-too-large')
             request=json.loads(raw)
             result=controller.dispatch(request)
+        except BrowserStartError as error:
+            result={'ok':False,'error':error.kind,'hint':error.hint}
         except Exception as error:
             # Never echo URLs, page bodies, browser responses or credentials.
             result={'ok':False,'error':'connection-controller-'+type(error).__name__}

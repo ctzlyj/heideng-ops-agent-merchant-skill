@@ -218,12 +218,29 @@ def cmd_shortcut(a):
     return sl.create_verified_desktop_shortcut(a.profile, a.shop)
 
 
+def check_browser_python(config):
+    if config.get('provider', 'host') not in ('builtin', 'playwright'):
+        return
+    if os.environ.get('HEIDENG_MANAGED_CONNECTION_RUNTIME') == '1':
+        from heideng_merchant.runtime_dependencies import connection_python_problem
+        code = connection_python_problem(os.environ['HEIDENG_MERCHANT_HOME'])
+        if code:
+            raise SystemExit(code)  # No browser job, OAuth process or merchant login has started.
+
+
+def cmd_browser_check(a):
+    check_browser_python({'provider': 'builtin'})
+    from heideng_merchant.host_connection_controller import check_local_browser
+    return check_local_browser(a.channel)
+
+
 def cmd_connect(a):
     payload = {"shopName": a.shop or "", "profile": a.profile or "", "venderId": a.vender_id or ""}
     if a.no_open:
         payload['browserConfig'] = {'provider': 'host'}
     elif 'browserConfig' not in payload:
         payload['browserConfig']={'provider':'builtin','shopIdentity':{'shopName':a.shop or '','venderId':a.vender_id or ''}}
+    check_browser_python(payload['browserConfig'])
     data = _unwrap(*api("/api/connect", payload))
     if data.get('jobId'):
         sl.save_pending({'jobId': data['jobId'], 'profile': data['profile'], 'query': a.shop,
@@ -263,7 +280,8 @@ def wait_job(timeout: int, interval: float = 2.0, *, job_id='', profile='', vend
             event_key=(job.get('status'),job.get('stage'),job.get('errorKind'),job.get('message'))
             if event_key != emitted:
                 emitted=event_key
-                descriptions={'waiting_browser':'正在打开商家专用京麦页；尚未证明窗口可见。',
+                descriptions={'checking_browser_runtime':'正在核对本机驱动、浏览器通道和商家资料权限。',
+                              'waiting_browser':'正在打开商家专用京麦页；尚未证明窗口可见。',
                               'waiting_login':'请在京麦页自行登录；当前命令仍在等待。',
                               'checking_browser_identity':'正在核对网页登录的店铺。',
                               'waiting_oauth':'正在衔接本次官方授权，不需要复制链接。',
@@ -332,11 +350,52 @@ def remember_shop(profile, query, shop_name, ident, shortcut_path=""):
     sl.save_registry(reg)
 
 
+def _reconcile_original(pending, query, shop_name, vender_id):
+    original = pending['profile']
+    try:
+        try:
+            sl.require_auth_slot(original, required=True, job_id=pending['jobId'])
+        except sl.VerifyError:
+            from server import recover_owned_auth_slot
+            recover_owned_auth_slot(original, pending['jobId'])
+            sl.require_auth_slot(original, required=True, job_id=pending['jobId'])
+        identity = sl.verify_profile(original)
+        sl.assert_profile_proof(original, identity)
+        expected_exact = pending.get('confirmedShopName')
+        if ((vender_id and identity.get('venderId') != vender_id)
+                or (shop_name and not sl.name_matches(shop_name,[identity.get('shopName','')]))
+                or (expected_exact and identity.get('shopName') != expected_exact)):
+            return {'ok':False,'status':'mismatch','profile':original,'message':'原 Profile 核店与目标不符。'}
+        from heideng_merchant.mature_runtime import merchant_profile_directory
+        directory = merchant_profile_directory(pending.get('browserProfileDir'))
+        channel = pending.get('browserChannel')
+        if directory and channel in ('chrome','msedge','chromium'):
+            sl.update_registry(original, identity, extra={'browserProfileDir':str(directory),'browserChannel':channel})
+        else:
+            sl.update_registry(original, identity)
+        if expected_exact:
+            remember_shop(original, query, shop_name, identity)
+        sl.clear_pending(pending['jobId'])
+        return {'ok':True,'status':'ready','profile':original,'identity':identity,'reconciledOriginal':True}
+    except sl.VerifyError as exc:
+        kind = 'native_receipt_pending' if 'native_receipt_pending' in (pending.get('outcome'),exc.kind) else 'callback_unknown'
+        return {'ok':False,'status':'paused','errorKind':kind,'profile':original,'jobId':pending['jobId'],
+                'message':exc.message,'retryAllowed':False}
+
+
 def _cmd_ensure_shop(a, wait_timeout=None):
     blocker = _env_blockers()
     if blocker:
         return blocker
     res = sl.resolve(a.shop)
+    if res['status'] not in ('needs_auth', 'error'):
+        return res
+    pending = sl.load_pending()
+    unsettled = (pending.get('jobId') and pending.get('profile') and pending.get('processRunning') is False
+                 and pending.get('outcome') in ('callback_unknown', 'native_receipt_pending'))
+    if (unsettled and res.get('status') in ('error', 'needs_auth') and sl.norm(a.shop) == sl.norm(pending.get('query') or '')
+            and not getattr(a, 'confirmed_shop_name', '') and getattr(a,'profile',None) in (None, '', pending['profile'])):
+        return _reconcile_original(pending, a.shop, pending.get('shopName'), pending.get('venderId'))
     if res["status"] != "needs_auth":
         return res
     if a.no_auth:
@@ -352,7 +411,6 @@ def _cmd_ensure_shop(a, wait_timeout=None):
     vender_id = res.get("venderId") or (q if q.isdigit() else "")
     if not shop_name and not vender_id:
         return {"ok": False, "status": "error", "error": "无法确定店铺名称或 venderId"}
-    pending=sl.load_pending()
     confirmed_name = (getattr(a, 'confirmed_shop_name', '') or '').strip()
     browser_identity = {'shopName': shop_name, 'venderId': vender_id}
     same_query = bool(pending.get('query')) and sl.norm(pending['query']) == sl.norm(q)
@@ -377,28 +435,8 @@ def _cmd_ensure_shop(a, wait_timeout=None):
         browser_identity = pending['browserShopIdentity']
     same_target=(bool(shop_name) and pending.get('shopName')==shop_name) or (bool(vender_id) and pending.get('venderId')==vender_id)
     same_pending=bool(same_target and (not a.profile or a.profile==pending.get('profile')))
-    if same_pending and pending.get('processRunning') is False and pending.get('outcome')=='callback_unknown':
-        original=pending.get('profile')
-        try:
-            try:sl.require_auth_slot(original,required=True)
-            except sl.VerifyError:
-                from server import recover_owned_auth_slot
-                recover_owned_auth_slot(original,pending.get('jobId'))
-                sl.require_auth_slot(original,required=True)
-            identity=sl.verify_profile(original)
-            sl.assert_profile_proof(original,identity)
-            expected_exact = pending.get('confirmedShopName')
-            if (vender_id and identity.get('venderId')!=vender_id) or (shop_name and not sl.name_matches(shop_name,[identity.get('shopName','')])) or (expected_exact and identity.get('shopName') != expected_exact):
-                return {'ok':False,'status':'mismatch','profile':original,'message':'原Profile核店与目标不符，未重发授权。'}
-            sl.update_registry(original,identity)
-            if pending.get('confirmedShopName'):
-                remember_shop(original,q,shop_name,identity)
-            sl.clear_pending(pending.get('jobId'))
-            return {'ok':True,'status':'ready','profile':original,'identity':identity,'reconciledOriginal':True}
-        except sl.VerifyError as exc:
-            return {'ok':False,'status':'paused','errorKind':'callback_unknown','profile':original,
-                    'message':'原授权回执尚未核实，已保留原Profile；未重复发起OAuth。','retryAllowed':False}
-    if wait_timeout is not None:ensure_embedded_server()
+    if same_pending and unsettled:
+        return _reconcile_original(pending, q, shop_name, vender_id)
     resume=bool(getattr(a,'resume',False)) or (same_pending and not getattr(a,'fresh',False))
     payload = {"shopName": shop_name, "profile": profile, "venderId": vender_id,
                'resume': resume}
@@ -412,6 +450,18 @@ def _cmd_ensure_shop(a, wait_timeout=None):
         payload['browserConfig']={'provider':'builtin','shopIdentity':browser_identity}
         if confirmed_name or (same_query and pending.get('confirmedShopName')):
             payload['browserConfig']['confirmedShopName'] = shop_name
+    # A running original job already owns its driver and browser profile.
+    active_job = None
+    if (os.environ.get('HEIDENG_MANAGED_CONNECTION_RUNTIME') == '1'
+            and payload['browserConfig'].get('provider') in ('builtin', 'playwright')
+            and same_pending and resume and pending.get('processRunning') is not False and server_info()):
+        status, data = http_json('/api/job', token=get_token())
+        if status == 200:
+            active_job = data.get('job') or {}
+    if not (active_job and pending.get('jobId') and active_job.get('id') == pending['jobId']
+            and active_job.get('status') in ('starting', 'waiting', 'verifying')):
+        check_browser_python(payload['browserConfig'])
+    if wait_timeout is not None:ensure_embedded_server()
     started = _unwrap(*api("/api/connect", payload))
     if started.get('status') == 'ready':
         return started
@@ -496,7 +546,10 @@ def cmd_ensure_shop(a):
     if snapshot and result and result.get('status') != 'ready':
         pending=sl.load_pending()
         if pending.get('jobId')==snapshot.get('id'):
-            sl.save_pending({**pending,'stage':snapshot.get('stage'),'processRunning':False,'outcome':snapshot.get('errorKind')})
+            updated = {**pending,'stage':snapshot.get('stage'),'processRunning':False,'outcome':snapshot.get('errorKind')}
+            if snapshot.get('browserProfileDir') and snapshot.get('browserChannel') in ('chrome','msedge','chromium'):
+                updated.update(browserProfileDir=snapshot['browserProfileDir'], browserChannel=snapshot['browserChannel'])
+            sl.save_pending(updated)
     if (result and result.get('status') == 'ready' and 'desktopShortcut' not in result
             and not getattr(a, 'no_auth', False) and result.get('profile')):
         identity = result.get('identity') or {name: result.get(name) for name in ('shopName', 'shopId', 'venderId')}
@@ -536,6 +589,10 @@ def cmd_doctor(a):
 def main() -> int:
     parser = argparse.ArgumentParser(description="Jingmai CLI shop linker client")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser('browser-check', help='用临时商家资料和本地空白页检查浏览器通道')
+    p.add_argument('--channel', choices=('chrome','msedge','chromium'))
+    p.set_defaults(func=cmd_browser_check)
 
     for name, fn in (("ensure", cmd_ensure), ("state", cmd_state), ("job", cmd_job), ("cancel", cmd_cancel)):
         sub.add_parser(name).set_defaults(func=fn)
@@ -598,8 +655,11 @@ def main() -> int:
     p.set_defaults(func=cmd_shortcut)
 
     args = parser.parse_args()
+    from heideng_merchant import CloudFileUnavailable
     try:
         result = args.func(args)
+    except CloudFileUnavailable as exc:
+        result = {'ok': False, **exc.receipt()}
     except Exception as exc:
         result = {"ok": False, "status": "error", "error": safe_text(exc)}
     sys.stdout.reconfigure(encoding="utf-8")

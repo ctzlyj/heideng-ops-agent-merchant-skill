@@ -3,6 +3,7 @@
   "files": [
     "heideng_merchant/__init__.py",
     "heideng_merchant/cli.py",
+    "heideng_merchant/cli_diagnostics.py",
     "heideng_merchant/merchant_tasks.py",
     "heideng_merchant/commercial_tasks.py",
     "heideng_merchant/sample_delivery.py",

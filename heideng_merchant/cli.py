@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, json, sys
 from pathlib import Path
-from . import VERSION, SKILL_NAME
+from . import VERSION, SKILL_NAME, CloudFileUnavailable, check_entry_modules, require_local
 from .state import installed_state
 from .safety import SafetyError, redact
 from .mature_runtime import ROUTES, MatureSourceUnavailable, run, status
@@ -12,6 +12,7 @@ def build_parser():
     parser.add_argument('--state', type=Path, default=None)
     sub = parser.add_subparsers(dest='command', required=True)
     st=sub.add_parser('status');st.add_argument('--detail',action='store_true',help='维护者查看完整来源与能力清单')
+    sub.add_parser('doctor-cli', help='在临时目录用已校验的京麦 CLI 检查本机启动和官方公开 HTTPS')
     k=sub.add_parser('key',help='merchant OS secret maintenance, never prints a key')
     k.add_argument('action',choices=('forget',))
     u = sub.add_parser('update', help='software maintenance only; never business scheduling')
@@ -62,8 +63,21 @@ def main(argv=None):
             stream.reconfigure(encoding='utf-8', errors='backslashreplace')
     parser = build_parser()
     args = parser.parse_args(argv)
+    can_schedule = args.command != 'update'
     try:
         state = args.state or installed_state(Path(__file__).resolve().parents[1])
+        require_local(state,parents=True)
+        read_modules = {'status':('update_client','update_catalog','merchant_experience'),
+                        'update':('update_client','update_catalog'),
+                        'task-context':('merchant_tasks','merchant_experience','commercial_tasks')}
+        if args.command in read_modules:
+            check_entry_modules(Path(__file__).resolve().parents[1],read_modules[args.command])
+        if args.command == 'doctor-cli':
+            from .cli_diagnostics import public_cli_check
+            from .official import OfficialClient
+            result = public_cli_check(OfficialClient(state))
+            print(json.dumps(result, ensure_ascii=False))
+            return 0 if result['status'] == 'verified' else 2
         if args.command == 'preview-overlay':
             from .runtime_dependencies import runtime_python
             interpreter = runtime_python(state)
@@ -152,6 +166,7 @@ def main(argv=None):
         if args.command == 'status':
             from .update_client import consume_notice
             try: notice = consume_notice(state)
+            except CloudFileUnavailable: raise
             except Exception: notice = {'reason':'update-status-unavailable','businessUsable':True,'action':'diagnose-updater-settings-without-resetting-trust'}
             from .merchant_experience import merchant_status
             result={'skill':SKILL_NAME,'version':VERSION,'architecture':'mature-skill-dispatch','merchantSummary':merchant_status(VERSION),'softwareUpdateNotice':notice}
@@ -159,6 +174,10 @@ def main(argv=None):
             print(json.dumps(result,ensure_ascii=False))
             return 0
         return run(args.capability, args.arguments, state=state, entry=args.entry)
+    except CloudFileUnavailable as error:
+        can_schedule = False
+        print(json.dumps(error.receipt(),ensure_ascii=False))
+        return 2
     except MatureSourceUnavailable as error:
         from .merchant_experience import error_summary
         print(json.dumps({'status': 'blocked', 'error': redact(str(error)), 'capability': error.capability, 'builtinFallback': False, **error_summary(error)}, ensure_ascii=False))
@@ -169,7 +188,7 @@ def main(argv=None):
         return 2
 
     finally:
-        if args.command != 'update':
+        if can_schedule:
             try:
                 from .update_client import maybe_schedule
                 maybe_schedule(state)

@@ -3,6 +3,7 @@ from hashlib import sha256
 import os
 from pathlib import Path
 import sys
+from . import require_local
 
 from .safety import SafetyError, atomic_json, is_linked, read_json, safe_join
 from .state import FileLock, merchant_home
@@ -45,10 +46,13 @@ def _files(base, *filenames):
     """Do not traverse symlinks, browser data, image caches, or nested sample packages."""
     if not base.is_dir() or any(is_linked(p) for p in (base, *base.parents)):
         return
+    require_local(base,parents=True)
     for folder, children, names in os.walk(base):
         path = Path(folder)
         children[:] = [c for c in children if not c.startswith('.') and not is_linked(path/c)
                        and c not in {'browser-profiles','node_modules','uploads','sources','实拍图','已接受样张'}]
+        for child in children:
+            require_local(path/child)
         for filename in filenames:
             if filename in names and not is_linked(path/filename):
                 yield path/filename
@@ -61,6 +65,7 @@ def _entry(kind, directory, identifier, receipt):
 
 
 def _records(folder, pattern):
+    require_local(folder,parents=True)
     for path in folder.glob(pattern):
         if is_linked(path):
             continue
