@@ -9,7 +9,7 @@
   "files": {
     "scripts/jd_material_agent.py": {
       "upstreamSha256": "80cb83c2865958934423eac3479b709c263f718171df45f3b4a7c242378ce4de",
-      "sha256": "92c509dae4fd927be0c2b212e7d2d2baaac3f634af29ee7701e9db989230e853",
+      "sha256": "48d13cc7a39253870167759e18a13c9d2e78a068e9357086990fcee7884f4729",
       "adapted": true
     },
     "scripts/jdo_bridge_probe.py": {
@@ -29,7 +29,7 @@
     },
     "scripts/pop_browser.py": {
       "upstreamSha256": "62dea491ea45732c77cde919a296ddb98cbb3e3735135543079d9f3e30b4e719",
-      "sha256": "63769b7476ba471d18fa3e33c2dcaea5736a65e5a7a34d979ab23981f2be2614",
+      "sha256": "3583328ee90afca693bd1865553abfe3f633e4fc5929fb8f058d8685a6d469b4",
       "adapted": true
     },
     "scripts/pop_cutout.py": {
@@ -52,9 +52,15 @@
       "sha256": "cef351545dfd9e12ce2d502976a2345af18e6221399376a8670e5729361b00ca",
       "adapted": true
     },
+    "scripts/pop_title_batches.py": {
+      "upstreamSha256": null,
+      "sha256": "b8607c8a681fc21d74e0262761f3ce28181b30f5503a27f94ec98b7684db729f",
+      "adapted": true,
+      "derivedFrom": "merchant short-title import batching using the original POP workbook template"
+    },
     "scripts/pop_workflow.py": {
       "upstreamSha256": "42d028b27a38c8e92da77ef67c3cb4992e7bb6cfd2e1e252e0ee90f094fe0099",
-      "sha256": "1633982f8933af0e9dbda03da2b3aa5b1ed5578ed9189e1d4d95633bd4c3155e",
+      "sha256": "bf39b8e927823d109db0fa562c7001eb7a9b46fcdfe1f525a8af956e4e3e68a0",
       "adapted": true
     },
     "assets/商品导入短标题模板.xlsx": {
@@ -84,8 +90,8 @@
     },
     "references/short-title-import.md": {
       "upstreamSha256": "da2d0825aae2899564d3fa64d2c4026ad2934d4eb78aadb14fb1d55773b464d1",
-      "sha256": "da2d0825aae2899564d3fa64d2c4026ad2934d4eb78aadb14fb1d55773b464d1",
-      "adapted": false
+      "sha256": "50d9d7ac96bcfc9490483e4eceeec1fd5ccc7809ec84070cb475066dbc64e98a",
+      "adapted": true
     },
     "references/short-title-browser-import.md": {
       "upstreamSha256": "bcdc82d8a79cdfdac9bc0d67f60da70549b1cb63665fbc58b003014ae313d31d",

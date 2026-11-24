@@ -114,6 +114,32 @@ def execute_stage(target, home, stage):
                               'merchantTechnicalHints':None, 'host':'scripted synthetic host'}))
 
 
+def run_collection_example(run, target, home, state):
+    from hashlib import sha256
+    from shlex import split
+    from openpyxl import Workbook
+
+    out = home / '采集任务'
+    out.mkdir()
+    source = home / '商品 来源表.xlsx'
+    wb = Workbook()
+    wb.active.append(['synthetic'])
+    wb.active.append([None, 'Synthetic product', '10000000000001'] + [None] * 9 +
+                     ['https://item.jd.com/10000000000001.html'])
+    wb.save(source)
+    wb.close()
+    registry = json.loads((target / 'registry.json').read_bytes())
+    collection = next(item for item in registry['capabilities'] if item['id'] == 'collection')
+    example = split(collection['merchantCommands'][0])
+    values = {'<output>': str(out), '<source.xlsx>': str(source)}
+    report = json.loads(run([target/'scripts/merchant.py', '--state', state, *(values.get(arg, arg) for arg in example)]))
+    assert report['sha256'] == sha256(source.read_bytes()).hexdigest() and report['sourceProducts'] == 1
+    manifests = list((state/'mature/collection/batches').glob('*/keyword_tasks.json'))
+    assert len(manifests) == 1
+    assert '10000000000001' in manifests[0].read_text(encoding='utf-8')
+    return report['sourceProducts']
+
+
 def main():
     if len(sys.argv) == 4:
         execute_stage(Path(sys.argv[1]),Path(sys.argv[2]),sys.argv[3])
@@ -150,6 +176,7 @@ def main():
         sys.path.insert(0,str(ROOT/'tests'))
         from run_gallery_journey import run_journey
         result['singleSkuPilot'] = run_journey(run,target,home,state)
+        result['collectionExampleProducts'] = run_collection_example(run, target, home, state)
         print(json.dumps(result))
 
 
