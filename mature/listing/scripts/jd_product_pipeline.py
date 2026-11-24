@@ -950,6 +950,9 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main() -> int:
+    if sys.argv[1:2] == ['shop-copy']:
+        from heideng_merchant.shop_copy_command import main as owned_copy_main
+        return owned_copy_main(sys.argv[2:])
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")

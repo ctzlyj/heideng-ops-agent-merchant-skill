@@ -13,6 +13,9 @@ def build_parser():
     sub = parser.add_subparsers(dest='command', required=True)
     st=sub.add_parser('status');st.add_argument('--detail',action='store_true',help='维护者查看完整来源与能力清单')
     sub.add_parser('doctor-cli', help='在临时目录用已校验的京麦 CLI 检查本机启动和官方公开 HTTPS')
+    locations = sub.add_parser('shop-locations', help='查看店铺登记位置与所属安装')
+    locations.add_argument('--shop')
+    locations.add_argument('--other-install', action='append', type=Path, default=[])
     k=sub.add_parser('key',help='merchant OS secret maintenance, never prints a key')
     k.add_argument('action',choices=('forget',))
     u = sub.add_parser('update', help='software maintenance only; never business scheduling')
@@ -27,7 +30,7 @@ def build_parser():
     task.add_argument('--shop-id', required=True)
     task.add_argument('--vender-id', required=True)
     task.add_argument('--task-id')
-    task.add_argument('--goal', choices=['materials','listing','sample','creative','sku-edit','diagnosis'])
+    task.add_argument('--goal', choices=['materials','listing','sample','creative','sku-edit','diagnosis','shop-copy'])
     task.add_argument('--product-id', help='目标商品 SPU')
     task.add_argument('--source-product-id', help='复刻来源 SPU')
     sample = sub.add_parser('sample-context', help='找回已认可的原样图、对应规格链接和上传回执')
@@ -72,6 +75,11 @@ def main(argv=None):
                         'task-context':('merchant_tasks','merchant_experience','commercial_tasks')}
         if args.command in read_modules:
             check_entry_modules(Path(__file__).resolve().parents[1],read_modules[args.command])
+        if args.command == 'shop-locations':
+            can_schedule = False
+            from .shop_locations import locate_shops
+            print(json.dumps(locate_shops(state, args.shop, args.other_install), ensure_ascii=False))
+            return 0
         if args.command == 'doctor-cli':
             from .cli_diagnostics import public_cli_check
             from .official import OfficialClient

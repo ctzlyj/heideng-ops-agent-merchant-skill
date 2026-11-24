@@ -4,7 +4,7 @@ Only page/session operations live here; shop identity, OAuth and authorization r
 in the mature connector. No cookie/storage/history/credential is read or exported.
 """
 from __future__ import annotations
-import json, os, sys, uuid
+import json, os, re, sys, uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 from .state import FileLock
@@ -136,12 +136,47 @@ def _identity(page):
     return {}
 
 
+def page_identity(page):
+    """Only return visible official workspace identity and its explicitly named identifiers."""
+    if page.is_closed() or not _trusted_shop_page(page.url) or urlsplit(page.url).hostname == 'passport.shop.jd.com':
+        return {}
+    url = page.url
+    identity = _identity(page)
+    if not identity:
+        return {}
+    try:
+        ids = page.evaluate(r"""(name) => {
+          const elems = [...document.querySelectorAll('.shop-menu-accountV1__right-account-top-name,#shop-base-name,[data-shop-name]')]
+            .filter(el => el.getClientRects().length && getComputedStyle(el).visibility === 'visible'
+                && el.innerText.trim() === name);
+          if (!elems.length) return {};
+          const text = document.body.innerText;
+          const fields = {};
+          for (const [key, attr, label] of [
+            ['shopId','data-shop-id',/当前店铺(?:ID|编号)\s*[:：]\s*(\d+)\b/gi],
+            ['venderId','data-vender-id',/当前(?:商家|商户)(?:ID|编号)\s*[:：]\s*(\d+)\b/gi]]) {
+            const values = new Set(elems.map(el=>el.getAttribute(attr)).filter(v=>/^\d+$/.test(v)));
+            for (const match of text.matchAll(label)) values.add(match[1]);
+            if (values.size > 1) return {ambiguous:true};
+            if (values.size === 1) fields[key] = [...values][0];
+          }
+          return fields;
+        }""",identity['shopName'])
+    except Exception:
+        ids = {}
+    if page.url != url or isinstance(ids,dict) and ids.get('ambiguous'):
+        return {}
+    if not isinstance(ids,dict):
+        return identity
+    return {**identity, **{k:v for k,v in ids.items() if k in ('shopId','venderId') and isinstance(v,str) and re.fullmatch('[0-9]+',v)}}
+
+
 class HostConnectionController:
-    def __init__(self,state=None,shop_identity=None):
+    def __init__(self,state=None,shop_identity=None,*,workspace_key=None):
         self.shop_identity=shop_identity or {}
         home=Path(state or os.environ['HEIDENG_MERCHANT_HOME']).resolve()
         import hashlib
-        identity_key=str(self.shop_identity.get('venderId') or self.shop_identity.get('shopName') or 'pending-shop')
+        identity_key=workspace_key or str(self.shop_identity.get('venderId') or self.shop_identity.get('shopName') or 'pending-shop')
         self.home=home;self.root=home/'browser-controller'/hashlib.sha256(identity_key.encode()).hexdigest()[:16]
         self.root.mkdir(parents=True,exist_ok=True)
         self._state_path=self.root/'session.json'
@@ -161,18 +196,31 @@ class HostConnectionController:
     def _launch(self,channel=None,*,local_only=False):
         if self.context is not None:return
         prepare_isolated_browser_home()
+        if channel is not None and channel not in CHANNELS:
+            raise ValueError('invalid-browser-channel')
         state=self._load()
+        if channel and state and state.get('browserChannel') != channel:
+            # Different Chromium products must not open each other's persistent profile.
+            self.root=self.root/('channel-'+channel)
+            self.root.mkdir(parents=True,exist_ok=True)
+            self._state_path=self.root/'session.json'
+            self._state=None
+            state=self._load()
+            if state and state.get('browserChannel') != channel:
+                raise RuntimeError('recorded-browser-channel-mismatch')
         if state:
             if state.get('shopIdentity')!=self.shop_identity:raise RuntimeError('connection-profile-belongs-to-another-shop')
             self.context_id=state['contextId'];self.channel=state['browserChannel'];self.profile=Path(state['profileDir']);self.channel_reason='reused-shop-session'
         else:
             self.context_id='merchant-connection-'+uuid.uuid4().hex
             self.profile=self.home/'browser-profiles'/('connection-'+uuid.uuid4().hex[:12])
-            self.channel=channel or self._default_channel();self.channel_reason='explicit-request' if channel else 'system-default-https'
-        directory=self.profile.resolve()
-        expected=(self.home/'browser-profiles').resolve()
-        if not directory.is_relative_to(expected):raise RuntimeError('merchant-owned-profile-required')
-        if directory is None:raise RuntimeError('merchant-owned-profile-required')
+            self.channel=channel or self._default_channel()
+            self.channel_reason='explicit-request' if channel else getattr(self,'_default_reason','system-default-https')
+        from .safety import safe_join
+        expected=self.home/'browser-profiles'
+        if not self.profile.is_absolute() or self.profile == expected or not self.profile.is_relative_to(expected):
+            raise RuntimeError('merchant-owned-profile-required')
+        directory=safe_join(expected,self.profile.relative_to(expected).as_posix())
         try:
             directory.mkdir(parents=True,exist_ok=True)
         except PermissionError:
@@ -206,12 +254,34 @@ class HostConnectionController:
         self._save()
 
     def _default_channel(self):
-        if os.name!='nt':return 'chrome'
+        if os.name!='nt':
+            self._default_reason='supported-browser-default'
+            return 'chrome'
+        # Ask the shell for the HTTPS handler, including ProgIds registered per installation.
+        try:
+            import ctypes
+            from ctypes import wintypes
+            query = ctypes.WinDLL('shlwapi').AssocQueryStringW
+            query.argtypes = [wintypes.DWORD,wintypes.DWORD,wintypes.LPCWSTR,wintypes.LPCWSTR,
+                              wintypes.LPWSTR,ctypes.POINTER(wintypes.DWORD)]
+            size = wintypes.DWORD(32768)
+            output = ctypes.create_unicode_buffer(size.value)
+            if query(0x1000,2,'https','open',output,ctypes.byref(size)) == 0:
+                from ntpath import basename
+                channel = {'chrome.exe':'chrome','msedge.exe':'msedge'}.get(basename(output.value).casefold())
+                if channel:
+                    return channel
+        except (OSError, AttributeError):
+            pass
         try:
             import winreg
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice') as key:
-                return 'chrome' if 'chrome' in str(winreg.QueryValueEx(key,'ProgId')[0]).lower() else 'msedge'
-        except OSError:return 'chrome'
+                handler = str(winreg.QueryValueEx(key,'ProgId')[0]).casefold()
+                if 'msedge' in handler or 'microsoftedge' in handler:return 'msedge'
+                if 'chrome' in handler:return 'chrome'
+        except OSError:pass
+        self._default_reason='supported-browser-default'
+        return 'chrome'
 
     def _save(self):
         from .safety import atomic_json
@@ -256,7 +326,7 @@ class HostConnectionController:
             if page.is_closed():continue
             parsed=urlsplit(page.url)
             if not _trusted_shop_page(page.url) or parsed.hostname=='passport.shop.jd.com':continue
-            identity=_identity(page)
+            identity=page_identity(page)
             if identity:
                 self.page=page
                 return self._result({'loggedIn':True,'identity':identity,'challenge':''})

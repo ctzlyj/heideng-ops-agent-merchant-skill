@@ -13,6 +13,7 @@ ROUTES = {
     'listing': ('listing', 'scripts/jd_product_pipeline.py'),
     'photo-listing': ('listing', 'scripts/photo_listing.py'),
     'link-replica': ('listing', 'scripts/hot_replica_publish.py'),
+    'shop-copy': ('listing', 'scripts/jd_product_pipeline.py'),
     'video-handoff': ('video', 'scripts/local_handoff.py'),
     'matrix-listing': ('listing', 'scripts/matrix_listing.py'),
     'images': ('listing', 'scripts/image_patch_update.py'),
@@ -130,9 +131,21 @@ def merchant_profile_directory(value):
     """Optional browser metadata, never cookies: only this merchant's owned directory."""
     home=os.environ.get('HEIDENG_MERCHANT_HOME')
     if not home or not isinstance(value,(str,Path)) or not str(value):return None
-    state=Path(home).resolve();path=Path(value).resolve()
-    if not path.is_relative_to(state/'browser-profiles') or not path.is_dir():return None
+    root=Path(home).resolve()/'browser-profiles';path=Path(value)
+    if not path.is_absolute() or path == root or not path.is_relative_to(root):return None
+    try:path=safe_join(root,path.relative_to(root).as_posix())
+    except SafetyError:return None
+    if not path.is_dir():return None
     return path
+
+def unique_browser_directory(entries, directory, identity):
+    if not directory:return False
+    for item in entries.values():
+        if not isinstance(item,dict) or not item.get('browserProfileDir'):continue
+        if Path(item['browserProfileDir']).resolve() == directory and any(
+                str(item.get(k) or '') != str(identity.get(k) or '') for k in ('shopId','venderId','shopName')):
+            return False
+    return True
 
 def registered_browser_profile(profile, identity):
     home=os.environ.get('HEIDENG_MERCHANT_HOME')
@@ -144,7 +157,8 @@ def registered_browser_profile(profile, identity):
     if not str(identity.get('venderId') or '') or str(entry.get('venderId'))!=str(identity.get('venderId')):return None
     if entry.get('shopName')!=identity.get('shopName'):return None
     if identity.get('shopId') and str(entry.get('shopId'))!=str(identity.get('shopId')):return None
-    return merchant_profile_directory(entry.get('browserProfileDir'))
+    directory = merchant_profile_directory(entry.get('browserProfileDir'))
+    return directory if unique_browser_directory(registry['profiles'],directory,entry) else None
 
 def browser_profile_channel(profile_dir):
     home = os.environ.get('HEIDENG_MERCHANT_HOME')
@@ -186,7 +200,7 @@ def source_path(capability, entry=None, package_root=None):
 
 def capability_contract(capability, package_root=None):
     registry = read_json(Path(package_root or PACKAGE_ROOT)/'registry.json', {})
-    key = {'photo-listing':'listing','matrix-listing':'listing','price-update':'comparison','short-title':'materials','link-replica':'listing','video-handoff':'video','video-binding':'video','image-refresh':'images'}.get(capability, capability)
+    key = {'photo-listing':'listing','matrix-listing':'listing','price-update':'comparison','short-title':'materials','link-replica':'listing','shop-copy':'listing','video-handoff':'video','video-binding':'video','image-refresh':'images'}.get(capability, capability)
     row = next((x for x in registry.get('capabilities', []) if x.get('id')==key), {})
     return {'status':row.get('migration','verification-required'), 'knownBlockers':row.get('knownBlockers',[])}
 
@@ -309,6 +323,8 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
     arguments = list(arguments)
     if arguments[:1] == ['--']:
         arguments = arguments[1:]
+    if capability == 'shop-copy' and path.name == 'jd_product_pipeline.py':
+        arguments = ['shop-copy', *arguments]
     if capability=='collection':
         source_path('diagnosis',package_root=root)
         source_path('listing',package_root=root)

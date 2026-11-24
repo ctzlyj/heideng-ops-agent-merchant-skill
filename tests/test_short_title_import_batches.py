@@ -56,7 +56,7 @@ class LocalImportPage:
         self.details = {}
         self.reject = set()
         self.lose_create = None
-        self.page = Mock()
+        self.page = Mock(url=module.WARE_LIST_URL)
         self.drawer = Mock()
         self.page.on.side_effect = self.on_response
         self.page.expect_response.side_effect = self.expect_response

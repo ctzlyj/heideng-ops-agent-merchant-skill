@@ -1,10 +1,10 @@
-# 黑灯运营智能体商家版 0.4.25 · GitHub 源码内测
+# 黑灯运营智能体商家版 0.4.26 · GitHub 源码内测
 
 0.4.25 会把短标题导入表按每批最多 5,000 条、文件最多 5 MiB 自动处理。平台明确退回的行改好后也走相同规则，商家可以保留原表。采集商品来源表的安装内示例已统一使用 `--input`。
 
 将下面这句话发给 WorkBuddy 即可安装。安装完成后，用自己的话说想做什么，例如“连上我的店，给这个商品先做一张样图”。
 
-> 请从 https://github.com/ctzlyj/heideng-ops-agent-merchant-skill/tree/codex/short-title-import-batches 安装黑灯运营智能体商家版，按这个链接的源码安装到 WorkBuddy，装好告诉我。
+> 请从 https://github.com/ctzlyj/heideng-ops-agent-merchant-skill/tree/codex/shop-copy-field-fixes 安装黑灯运营智能体商家版，按这个链接的源码安装到 WorkBuddy，装好告诉我。
 
 本版支持在同一个登录页扫码，用商家自己的原图和贴图免费做样张，以及按一个指定 SKU 试发首图。样图、后台提交与买家端核验分别记录。市场专家的 0.4.20 授权卡仍在独立联调，审核期间小范围内测通过 GitHub 源码安装。
 
@@ -16,9 +16,11 @@ Mac 上已有连接的商家，继续使用原安装回执绑定的状态目录�
 
 本地 WorkBuddy/JoyCode/Codex 等宿主 Agent 理解和规划商家自然语言任务；黑灯提供电商经验导航、独立安装更新、协作边界和成熟执行工具。**经验目录不是能力白名单，status/run只是一个受保护的成熟包装器。**
 
+0.4.26 可以按原安装查店铺登记，给已经连上的指定店铺单独补验网页和桌面入口。商家把自己有权管理的老店商品复制到新店时，可以先选一件，核对商家编码、库存、分规格主图、两端详情和配送规则，看到差异再决定下一步。[自家店铺复制一件商品](references/owned-shop-copy.md)
+
 ## 给宿主 Agent 的安装入口
 
-宿主从给定的 GitHub tree 链接解析分支或提交。分支链接先解析为 40 位提交号；在临时目录 Git 检出该提交，核对 `git rev-parse HEAD` 与 `VERSION`，再运行根目录 `install.py`。公开源码可匿名读取。为仅取得源码，可用 `git clone --filter=blob:none --no-checkout --single-branch --branch codex/short-title-import-batches <仓库URL> <临时目录>`，在该目录执行 `git sparse-checkout set --no-cone "/*" "!/updates/artifacts/"` 和 `git checkout --detach <所选提交>`。宿主遇到分支更新也以商家链接指定的提交为准。
+宿主从给定的 GitHub tree 链接解析分支或提交。分支链接先解析为 40 位提交号；在临时目录 Git 检出该提交，核对 `git rev-parse HEAD` 与 `VERSION`，再运行根目录 `install.py`。公开源码可匿名读取。为仅取得源码，可用 `git clone --filter=blob:none --no-checkout --single-branch --branch codex/shop-copy-field-fixes <仓库URL> <临时目录>`，在该目录执行 `git sparse-checkout set --no-cone "/*" "!/updates/artifacts/"` 和 `git checkout --detach <所选提交>`。宿主遇到分支更新也以商家链接指定的提交为准。
 
 ```text
 python install.py --host workbuddy --with-runtime --with-official --no-auto-update

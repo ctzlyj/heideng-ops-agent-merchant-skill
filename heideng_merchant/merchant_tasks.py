@@ -102,6 +102,43 @@ def _legacy_repair_directories(state):
             require_local(directory/child)
 
 
+def _owned_copy_tasks(state, shop_id, vender_id, task_id):
+    from .safety import safe_join
+    import re
+    base = safe_join(Path(state),'work/shop-copies')
+    for root in base.glob('*'):
+        if not re.fullmatch('[a-f0-9]{24}',root.name) or is_linked(root):
+            continue
+        index = safe_join(root,'current.json')
+        record = read_json(index,{})
+        key = record.get('taskId','')
+        if (_shop(record.get('targetShop',{})) != (shop_id,vender_id) or (task_id and key!=task_id)
+                or not re.fullmatch('[0-9a-f]{64}',key) or key[:24]!=root.name):
+            continue
+        revision = record.get('revision','')
+        if not re.fullmatch('[0-9a-f]{64}',revision):
+            continue
+        source_path = safe_join(root, f'revisions/{revision[:24]}/source.json')
+        source = read_json(source_path,{})
+        if (source.get('sha256') != revision or source.get('targetShop')!=record['targetShop'] or
+                source.get('sourceProductId')!=record.get('sourceProductId') or source.get('sourceShop')!=record.get('sourceShop')):
+            continue
+        receipt = safe_join(root,'publication/result.json')
+        intent = safe_join(root,'publication/publish-body.submit-state.json')
+        data = read_json(receipt,{}).get('data')
+        response = data if isinstance(data,dict) else {}
+        saved = read_json(intent,{})
+        target_id = response.get('productId') or saved.get('productId') or record.get('existingTargetId')
+        submitted = any(s.get('productId') or s.get('applyId') for s in (response,saved))
+        yield {'kind':'shop-copy','taskId':key,'goal':'自家两店复制商品','taskDirectory':str(root),
+               'shopIdentity':record['targetShop'],'sourceShop':record['sourceShop'],'sourceProductId':record['sourceProductId'],
+               'productId':str(target_id) if target_id else None,
+               'state':'submitted' if submitted else
+                       'needs-reconciliation' if intent.exists() else 'existing-target' if target_id else 'local-plan',
+               'originalScope':str(source_path), 'updatedAt':max(p.stat().st_mtime for p in (index,receipt,intent) if p.is_file()),
+               'nextAction':'从所属目标店和原 taskId 继续；已有目标或未决提交时先只读对账。'}
+
+
 def task_context(state, shop_id, vender_id, task_id=None, *, goal=None, product_id=None, source_product_id=None):
     """Return a scoped handoff; never infer that a local process is still running."""
     index = require_local(Path(state) / 'merchant-tasks',parents=True)
@@ -164,6 +201,8 @@ def task_context(state, shop_id, vender_id, task_id=None, *, goal=None, product_
             matches.append(entry)
     from .commercial_tasks import commercial_tasks
     matches.extend(commercial_tasks(state, shop_id, vender_id))
+    if goal in (None, 'shop-copy'):
+        matches.extend(_owned_copy_tasks(state, shop_id, vender_id, task_id))
     if goal in (None, 'diagnosis'):
         from .commerce_evidence import saved_handoffs
         matches.extend(saved_handoffs(state, shop_id, vender_id, product_id, task_id))

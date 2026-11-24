@@ -248,6 +248,9 @@ class SingleFlowTests(unittest.TestCase):
    browser_profile = state/'browser-profiles'/'owned profile'
    browser_profile.mkdir(parents=True)
    entry = {**identity,'browserProfileDir':str(browser_profile),'browserChannel':'msedge'}
+   from heideng_merchant.shop_workspace import MARKER, verification
+   entry['browserVerification'] = verification('fixture-profile',identity,browser_profile,'msedge','workspace-page')
+   (browser_profile/MARKER).write_text(json.dumps(entry['browserVerification']),encoding='utf-8')
    def write_shortcut(path, command, marker):
     if path.stem == '黑灯-fixture-store':
      raise FileExistsError(path)
@@ -301,6 +304,9 @@ class SingleFlowTests(unittest.TestCase):
    browser_profile.mkdir(parents=True)
    identity = {'shopName':'合成灯具店💡','venderId':'101','shopId':'303'}
    entry = {**identity,'browserProfileDir':str(browser_profile),'browserChannel':'msedge'}
+   from heideng_merchant.shop_workspace import MARKER, verification
+   entry['browserVerification'] = verification('store-a',identity,browser_profile,'msedge','workspace-page')
+   (browser_profile/MARKER).write_text(json.dumps(entry['browserVerification']),encoding='utf-8')
    env = {'HEIDENG_HOST_DESKTOP':str(desktop),'HEIDENG_MERCHANT_HOME':str(state),
           'JINGMAI_LINKER_HOME':str(state/'linker'),'USERPROFILE':str(root/'other-home')}
    with patch.dict(os.environ,env), patch.object(shoplib,'_desktop_browser',return_value=Path(sys.executable)), patch.object(
