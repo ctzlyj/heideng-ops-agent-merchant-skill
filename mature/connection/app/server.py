@@ -17,6 +17,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -36,7 +37,7 @@ else:
     APP_DIR = Path(__file__).resolve().parent
     STATIC_DIR = APP_DIR / "static"
 
-SERVER_VERSION = "2.1.0-merchant-0.2.8"  # 1.0.2 browser-first authorization protocol
+SERVER_VERSION = "2.1.0-merchant-0.4.23"  # Reuse-receipt and browser preflight protocol.
 CALLBACK_PORT = sl.CALLBACK_PORT
 LOGIN_TIMEOUT = 600
 DEFAULT_PORT = 8765
@@ -47,6 +48,10 @@ URL_RE = re.compile(r"https://open-oauth\.jd\.com/oauth2/to_login\?[^\s\"']+")
 
 class CredentialIsolationError(RuntimeError):
     kind = 'credential_isolation'
+
+
+class NativeReceiptPending(RuntimeError):
+    kind = 'native_receipt_pending'
 
 
 class CallbackPortBusy(RuntimeError):
@@ -198,6 +203,7 @@ class LoginJob:
         self.defer_registry = defer_registry
         self.timeout = timeout
         self.created_profile = False
+        self.native_receipt_seen = False
         self.status = "starting"
         self.message = "正在启动京东授权…"
         self.url = ""
@@ -214,6 +220,8 @@ class LoginJob:
         self._default_before = None
         self._default_existed = False
         self._raw_output = []  # only in memory; never part of to_dict or disk logs
+        self._stderr = []
+        self._owns_process_group = False
         self._config_path = sl.config_path()
         self._profiles_path = sl.profiles_dir()
 
@@ -251,6 +259,12 @@ class LoginJob:
         cfg = sl.read_json(self._config_path, {}) or {}
         self._default_before = cfg.get("default_profile", "")
         self._default_existed = "default_profile" in cfg
+        if (sys.platform == 'darwin' and not self._default_before and not any(self._profiles_path.glob('*.json'))
+                and not sl.load_registry()['profiles']):
+            # The installer can leave a config but no Profile or store. Let official init
+            # select the first Profile in this empty home, including that bootstrap case.
+            # Preserve that official choice so 0.3.7 status can attest this first store.
+            self._default_before = None
         ensure_callback_port_free()
         if not (self._profiles_path / f"{self.profile}.json").exists():
             try:
@@ -267,15 +281,23 @@ class LoginJob:
             cmd += ["--shop-name", self.shop_name]
         env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
         self.proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             encoding="utf-8", errors="replace", bufsize=1, env=env,
             creationflags=CREATE_NO_WINDOW,
+            start_new_session=os.name != 'nt',
         )
-        self._reader_thread = threading.Thread(target=self._reader, daemon=True)
+        self._owns_process_group = os.name != 'nt'
+        self._stderr_thread = threading.Thread(target=self._reader, args=(self.proc.stderr, True), daemon=True)
+        self._stderr_thread.start()
+        self._reader_thread = threading.Thread(target=self._reader, args=(self.proc.stdout, False), daemon=True)
         self._reader_thread.start()
         threading.Thread(target=self._monitor, daemon=True).start()
         if not self._url_event.wait(25):
-            self._fail("未获取到京东授权地址，请查看日志。", "other")
+            self._fail("官方 CLI 尚未返回授权地址。请检查本机是否有系统确认窗口，并核对原连接任务。", "callback_unknown")
+            self._stop_cli()
+            return
+        if not self.url and self.proc.poll() is not None:
+            # The CLI can complete an idempotent login with a receipt and no URL or callback listener.
             return
         deadline = time.time() + 15
         # 注意：不能用 connect 探测 9001，官方回调服务会把空连接当成失败回调而退出；用 netstat 只读判断。
@@ -288,8 +310,7 @@ class LoginJob:
                 if self.proc.poll() is not None or not sl.process_is_owned(owner, self.proc.pid):
                     self._fail('回调监听不属于本任务，未打开授权地址、未结束其它监听者。', 'port_busy')
                     try:
-                        self.proc.terminate()
-                        self.proc.wait(timeout=2)
+                        self._stop_cli()
                     except Exception:
                         pass
                     return
@@ -299,22 +320,21 @@ class LoginJob:
         if not owned_listener:
             self._fail('本任务的回调监听尚未就绪，未导航授权地址。', 'port_busy')
             if self.proc.poll() is None:
-                self.proc.terminate()
+                self._stop_cli()
             return
         if self.status in ("failed", "cancelled", "success", "mismatch"):
             return
         self.status = "waiting"
         self.message = "请在授权页确认；浏览器已登录目标店铺时，通常只需点一次确认。"
 
-    def _reader(self):
+    def _reader(self, stream, diagnostic):
         try:
-            for raw in self.proc.stdout:
+            for raw in stream:
                 line = sl.strip_ansi(raw.rstrip("\r\n"))
                 with self._lock:
-                    self._raw_output.append(line)
-                    self._raw_output = self._raw_output[-500:]
-                    self.log.append(safe_text(line))
-                    self.log = self.log[-500:]
+                    buffer = self._stderr if diagnostic else self._raw_output
+                    buffer.append(line)
+                    del buffer[:-500]
                 if not self.url:
                     match = URL_RE.search(line)
                     if match:
@@ -330,19 +350,39 @@ class LoginJob:
         reader = getattr(self, '_reader_thread', None)
         if reader:
             reader.join(timeout=2)
+        err_reader = getattr(self, '_stderr_thread', None)
+        if err_reader:
+            err_reader.join(timeout=2)
         self._restore_default()
         with self._lock:
             text = "\n".join(self._raw_output)
             self._raw_output.clear()
+            errors = "\n".join(self._stderr)
+            self._stderr.clear()
         if self.status in ("cancelled", "failed"):
             return
         data = sl.extract_json(text)
         if code != 0 or not isinstance(data, dict) or not data.get("ok"):
-            msg = self._error_message(text, data, code)
-            self._fail(msg, "timeout" if "timed out" in msg.lower() else "auth_failed")
+            from heideng_merchant.cli_diagnostics import runtime_failure
+            detail = text + '\n' + errors
+            cause = runtime_failure(detail)
+            if cause:
+                self._fail('京麦 CLI 的本机运行环境异常，请用 doctor-cli 复查启动与公开 HTTPS。', cause)
+            else:
+                msg = self._error_message(detail, data, code)
+                self._fail(msg, "timeout" if "timed out" in msg.lower() else "auth_failed")
             return
         # Persist only a boolean plus target identity, before network verification.
         # Neither the credential account nor tokens are stored in our proof file.
+        if self._is_reuse_receipt(data) and 'tokenCredentialAccount' not in data:
+            try:
+                sl.mark_auth_native_completed(self.profile, getattr(self, 'proof_job_id', self.id), self.id,
+                                              reused_login=True)
+                self.native_receipt_seen = True
+                data = {**data, 'tokenCredentialAccount': self._reuse_account()}
+            except (sl.VerifyError, NativeReceiptPending) as exc:
+                self._fail(str(exc),exc.kind)
+                return
         if not self._owned_login_receipt(data):
             self._fail('官方授权回执不属于本任务Profile/目录，未登记。','credential_isolation')
             return
@@ -358,7 +398,8 @@ class LoginJob:
             sl.mark_auth_native_completed(
                 self.profile, getattr(self, 'proof_job_id', self.id), self.id,
                 default_slot_namespace=default_namespace, default_slot_scope=default_scope)
-            if slot.isdigit():sl.mark_auth_slot(self.profile,slot)
+            self.native_receipt_seen = True
+            if slot.isdigit():sl.mark_auth_slot(self.profile, slot, job_id=getattr(self,'proof_job_id',self.id))
         except sl.VerifyError as exc:
             self._fail(exc.message,exc.kind)
             return
@@ -429,12 +470,14 @@ class LoginJob:
             reg["profiles"].pop(self.profile, None)
             sl.save_registry(reg)
 
-    def _owned_status(self):
+    def _owned_status(self, *, strict_inputs=False):
         """Normalize CLI status only when it identifies this exact Profile and home."""
         code, output = sl.run_jdo(['status'], timeout=15)
         status = sl.extract_json(output) if code == 0 else None
         if (isinstance(status, dict) and isinstance(status.get('profile'), dict)
                 and status.get('defaultProfile') != self.profile):
+            if strict_inputs or status.get('cliVersion') == '0.3.7':
+                return None
             # Some CLI versions expose an explicitly selected profile. Older versions
             # may reject this option; the other account's status is never evidence.
             code, output = sl.run_jdo(['status', '--profile', self.profile], timeout=15)
@@ -443,16 +486,26 @@ class LoginJob:
             record = status['profile']
             inputs = status.get('credentialInputs') or {}
             store = status.get('credentialStore') or {}
-            if (status.get('defaultProfile') != self.profile or record.get('exists') is not True
+            if (not isinstance(inputs, dict) or not isinstance(store, dict)
+                    or status.get('defaultProfile') != self.profile or record.get('exists') is not True
                     or not isinstance(record.get('path'), str)
                     or Path(record['path']).resolve() != (self._profiles_path / f'{self.profile}.json').resolve()):
                 return None
+            if strict_inputs:
+                account = owned_credential_slot(store.get('tokenCredentialAccount'), self.profile)
+                if (not account or account[1] != str(record.get('venderId') or 'default')
+                        or record.get('appKeyConfigured') is not True or store.get('appSecretStored') is not True
+                        or inputs.get('appSecretFromEnv') is not False or inputs.get('accessTokenFromEnv') is not False):
+                    return None
             status = {
                 'ok': status.get('ok'), 'profile': self.profile, 'home': status.get('home'),
                 'tokenCredentialAccount': store.get('tokenCredentialAccount'),
                 'oauthTokenStored': inputs.get('oauthTokenStored'),
                 'oauthTokenMocked': inputs.get('oauthTokenMocked'),
             }
+        elif strict_inputs:
+            # The 0.3.7 public status binds the account via this nested Profile record.
+            return None
         if (not isinstance(status, dict) or status.get('ok') is not True or status.get('profile') != self.profile
                 or not isinstance(status.get('home'), str) or not status['home']
                 or Path(status['home']).resolve() != sl.jdo_home().resolve()
@@ -460,7 +513,36 @@ class LoginJob:
             return None
         return status
 
+    def _is_reuse_receipt(self, data):
+        return (not self.force and data.get('command') == 'login' and data.get('ok') is True
+                and data.get('cliVersion') == '0.3.7' and data.get('profile') == self.profile
+                and type(data.get('timestamp')) is int and data['timestamp'] > 0
+                and isinstance(data.get('home'), str) and bool(data['home'])
+                and Path(data['home']).resolve() == sl.jdo_home().resolve()
+                and data.get('authorizationStatus') == 'reused_existing_credentials'
+                and data.get('authorizationStage') == 'credential_reuse'
+                and all(data.get(key) is True for key in ('alreadyAuthorized','reusedAuthorization','loginCompleted',
+                                                          'appKeyConfigured','appSecretStored','tokenStored'))
+                and data.get('tokenMocked') is False and data.get('authorizeUrlPrinted') is False)
+
+    def _reuse_account(self):
+        try:
+            status = self._owned_status(strict_inputs=True)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+            status = None
+        if not status or not owned_credential_slot(status.get('tokenCredentialAccount'), self.profile):
+            raise NativeReceiptPending('京麦已回报复用原授权。官方 status 尚不能证明原目录和目标 Profile 的凭据归属；请用原任务在身份可核验时继续。')
+        return status['tokenCredentialAccount']
+
     def _owned_login_receipt(self, data):
+        if data.get('alreadyAuthorized') or data.get('reusedAuthorization') or data.get('authorizationStatus') == 'reused_existing_credentials':
+            if not self._is_reuse_receipt(data):
+                return False
+            if 'tokenCredentialAccount' not in data:
+                try:
+                    return bool(self._reuse_account())
+                except NativeReceiptPending:
+                    return False
         account=str(data.get('tokenCredentialAccount') or '')
         def owned_home(value):
             return isinstance(value,str) and bool(value) and os.path.normcase(str(Path(value).resolve()))==os.path.normcase(str(sl.jdo_home().resolve()))
@@ -479,20 +561,38 @@ class LoginJob:
             status.get('tokenCredentialAccount'), self.profile) == owned_credential_slot(account, self.profile)
 
     def _apply_identity(self, identity: dict, login_data: dict):
+        if self._is_reuse_receipt(login_data) and 'tokenCredentialAccount' not in login_data:
+            login_data = {**login_data, 'tokenCredentialAccount': self._reuse_account()}
         if not self._owned_login_receipt(login_data):
             sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方回执或Profile不符，未迁移、未登记。')
-        self._apply_owned_slot(identity, login_data['tokenCredentialAccount'])
+        self._apply_owned_slot(identity, login_data['tokenCredentialAccount'], reused=self._is_reuse_receipt(login_data))
 
-    def _apply_owned_slot(self, identity: dict, account: str):
+    def _apply_owned_slot(self, identity: dict, account: str, *, reused=False):
         path = self._profiles_path / f"{self.profile}.json"
-        data = sl.read_json(path, {}) or {}
         vender_id = str(identity.get("venderId") or "")
         owned = owned_credential_slot(account, self.profile)
         if not vender_id.isdigit() or owned is None or self.check_expected(identity):
             sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方回执、Profile或核店不符，未迁移、未登记。')
         account, slot = owned
+        if slot == 'default' and (sys.platform == 'darwin' or reused):
+            # 0.3.7 invoke --profile looks up the scoped default when its native profile
+            # has no venderId. Preserve that official configuration and attest its actual slot.
+            parts = account.split(':')
+            if len(parts) != 5 or parts[1] != 'token' or not re.fullmatch(r'[0-9a-f]{16}', parts[3]):
+                raise NativeReceiptPending('原授权已保留；这份凭据回执缺少可核验的 Profile 范围。')
+            check_profile_default_scope(self.profile, parts[3])
+            verified = sl.verify_profile(self.profile)
+            if (not str(identity.get('shopId') or '').isascii() or not str(identity.get('shopId') or '').isdigit()
+                    or any(str(verified.get(key) or '') != str(identity.get(key) or '') for key in ('shopId','venderId','shopName'))
+                    or self.check_expected(verified)):
+                raise NativeReceiptPending('原 Profile 的两次官方核店尚未得到一致的店铺 ID、商家 ID 和店名。')
+            sl.mark_auth_slot(self.profile, vender_id, job_id=getattr(self,'proof_job_id',self.id),
+                              profile_default_scope=parts[3], shop_id=identity['shopId'])
+            if not self.defer_registry:
+                sl.update_registry(self.profile, verified)
+            return
         if slot == 'default':
             destination=account.rsplit(':',1)[0]+':'+vender_id
             if not copy_credential(account,destination,delete_old=False):
@@ -500,7 +600,8 @@ class LoginJob:
         elif slot != vender_id:
             sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方凭据槽与实时核店不符，未迁移。')
-        sl.mark_auth_slot(self.profile,vender_id)  # Location is proved; later network failure must not erase it.
+        sl.mark_auth_slot(self.profile,vender_id, job_id=getattr(self,'proof_job_id',self.id))
+        data = sl.read_json(path, {}) or {}
         data["vender_id"] = vender_id
         data["shop_name"] = identity.get("shopName") or data.get("shop_name") or self.shop_name
         data["updated_at"] = int(time.time() * 1000)
@@ -535,11 +636,35 @@ class LoginJob:
         self.finished_at = time.time()
         self._done.set()
 
+    def _stop_cli(self):
+        proc = self.proc
+        if proc is None or proc.poll() is not None:
+            return
+        if os.name == 'nt':
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=8)
+        elif self._owns_process_group and os.getpgid(proc.pid) == proc.pid:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        else:
+            proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            if os.name != 'nt' and self._owns_process_group and os.getpgid(proc.pid) == proc.pid:
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:
+                proc.kill()
+            proc.wait(timeout=3)
+
     def cancel(self):
         self.status = "cancelled"  # commit cancellation before monitor can report success
-        if self.proc and self.proc.poll() is None:
-            subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
-                           capture_output=True, creationflags=CREATE_NO_WINDOW)
+        try:
+            self._stop_cli()
+        except ProcessLookupError:
+            pass  # The owned process exited while the monitor collected its result.
         self._restore_default()
         self.message = "已取消授权。"
         self.finished_at = time.time()
@@ -549,17 +674,33 @@ class LoginJob:
 ACTIVE = ("starting", "waiting", "verifying")
 
 
-def recover_owned_auth_slot(profile, job_id):
+def check_profile_default_scope(profile, scope):
+    """Re-attest the unchanged official Profile/namespace; never read or move credentials."""
+    if not isinstance(scope, str) or not re.fullmatch(r'[0-9a-f]{16}', scope):
+        raise NativeReceiptPending('原 Profile 的范围证明缺失，请保留原任务继续核对。')
     try:
-        sl.require_auth_slot(profile,required=True)
+        status = LoginJob(profile, '', defer_registry=True)._owned_status(strict_inputs=True)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+        status = None
+    expected = owned_credential_slot(f'token:{profile}:{scope}:default', profile)
+    if not status or owned_credential_slot(status.get('tokenCredentialAccount'), profile) != expected:
+        raise NativeReceiptPending('官方 status 尚未证明原目录、目标 Profile 及原凭据范围；请保留原任务，待目标 Profile 可由官方 status 明确核验后继续。')
+
+
+def recover_owned_auth_slot(profile, job_id):
+    proof=sl._proof_data()['profiles'].get(profile) or {}
+    if proof.get('originalCliHome') and proof['originalCliHome'] != str(sl.jdo_home().resolve()):
+        raise sl.VerifyError('credential_isolation', '原连接属于另一 CLI 目录，请以原安装与任务继续。')
+    try:
+        sl.require_auth_slot(profile,required=True,job_id=job_id)
         return False  # Already located; normal live identity verification remains the caller's job.
     except sl.VerifyError:pass
-    proof=sl._proof_data()['profiles'].get(profile) or {}
     if (proof.get('status')=='rejected' or proof.get('jobId')!=job_id or proof.get('nativeCompleted') is not True
             or not proof.get('nativeJobId') or not (sl.profiles_dir()/f'{profile}.json').is_file()):return False
     # Only a recorded original native completion may be located after network recovery; no new OAuth.
     try:
         login=LoginJob(profile,proof.get('shopName') or '',proof.get('venderId') or '',defer_registry=True)
+        login.proof_job_id = job_id
         login.require_exact_shop_name = proof.get('exactShopName') is True
         scope = proof.get('nativeDefaultSlotScope')
         namespace = proof.get('nativeDefaultSlotNamespace')
@@ -568,12 +709,17 @@ def recover_owned_auth_slot(profile, job_id):
         elif isinstance(namespace, str) and re.fullmatch(r'[\w.-]+(?::[\w.-]+)*', namespace):
             account = f'{namespace}:{profile}:default'
         else:
-            metadata = login._owned_status()
-            if metadata is None or not login._owned_login_receipt(metadata):
-                raise CredentialIsolationError('原官方凭据元数据不属于本任务。')
-            account = metadata['tokenCredentialAccount']
+            if proof.get('nativeReused') is True:
+                account = login._reuse_account()
+            else:
+                metadata = login._owned_status()
+                if metadata is None or not login._owned_login_receipt(metadata):
+                    raise CredentialIsolationError('原官方凭据元数据不属于本任务。')
+                account = metadata['tokenCredentialAccount']
         identity=sl.verify_profile(profile)
-        login._apply_owned_slot(identity,account)
+        login._apply_owned_slot(identity, account, reused=proof.get('nativeReused') is True)
+    except NativeReceiptPending as exc:
+        raise sl.VerifyError(exc.kind, str(exc)) from None
     except sl.VerifyError:raise
     except Exception:
         raise sl.VerifyError('credential_isolation','原完成回执尚未安全定位；保留原任务，未重发OAuth。') from None

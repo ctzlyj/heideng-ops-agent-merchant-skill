@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json, os, re, stat, tempfile
 from pathlib import Path
+from . import require_local
 
 class SafetyError(RuntimeError): pass
 
@@ -18,10 +19,12 @@ def safe_join(root: Path, relative: str) -> Path:
  parts=relative.split('/')
  if any(p in ('','.', '..') or p!=p.rstrip(' .') or any(ord(c)<32 for c in p) or p.split('.')[0].upper() in RESERVED for p in parts):raise SafetyError('unsafe-relative-path')
  if is_linked(root):raise SafetyError('linked-root')
+ require_local(root)
  current=root
  for part in parts:
   current=current/part
   if is_linked(current):raise SafetyError('linked-path')
+  require_local(current)
  try:current.resolve().relative_to(root.resolve())
  except ValueError:raise SafetyError('path-escape') from None
  return current
@@ -67,7 +70,7 @@ def redact(value,secrets=()):
  return value
 
 def atomic_json(destination:Path,value):
- destination=Path(destination);destination.parent.mkdir(parents=True,exist_ok=True)
+ destination=require_local(destination,parents=True);destination.parent.mkdir(parents=True,exist_ok=True)
  raw=json.dumps(value,ensure_ascii=False,separators=(',',':'),allow_nan=False)+'\n'
  descriptor,name=tempfile.mkstemp(prefix='.'+destination.name+'.',suffix='.tmp',dir=destination.parent)
  try:
@@ -78,12 +81,14 @@ def atomic_json(destination:Path,value):
   except FileNotFoundError:pass
 
 def read_json(path:Path,default=None):
+ require_local(path,parents=True)
  if not Path(path).is_file():return default
  try:return json.loads(Path(path).read_text(encoding='utf-8-sig'))
  except (ValueError,OSError):raise SafetyError('invalid-state-json') from None
 
 def file_sha(path:Path):
  import hashlib
+ require_local(path)
  digest=hashlib.sha256()
  with Path(path).open('rb') as stream:
   for chunk in iter(lambda:stream.read(1024*1024),b''):digest.update(chunk)

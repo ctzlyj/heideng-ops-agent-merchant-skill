@@ -12,7 +12,8 @@ MODULES += ['test_workbuddy_expert', 'test_expert_guidance', 'test_expert_mcp', 
 
 def main():
     source_only='--source-only' in sys.argv
-    modules=[*MODULES,'test_source_install','test_gallery_patch','test_overlay_preview']
+    modules=[*MODULES,'test_source_install','test_gallery_patch','test_overlay_preview','test_mac_merchant_runtime',
+             'test_connection_browser_runtime','test_mac_login_receipt']
     with tempfile.TemporaryDirectory(prefix='merchant-usability-offline-') as d:
         env=clean_environment(Path(d));env['PYTHONIOENCODING']='utf-8'
         code="""import sys,socket,ipaddress,unittest

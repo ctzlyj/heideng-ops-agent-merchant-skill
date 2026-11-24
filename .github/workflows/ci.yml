@@ -38,6 +38,15 @@ jobs:
           --only-binary=:all: --no-cache-dir -r tests/mature-requirements.txt -r requirements-updates.txt
       - name: Installed merchant journey
         run: python -B tests/run_merchant_journey.py
+      - name: Local Chrome and driver on macOS ARM64
+        if: runner.os == 'macOS' && matrix.python == '3.12'
+        run: python -B -m tests.smoke_connection_browser --channel chrome
+      - name: Observe public HTTPS in JD's pinned ARM64 binary (no shop login)
+        if: runner.os == 'macOS' && matrix.python == '3.12'
+        shell: bash
+        run: |
+          set -o pipefail
+          python -B tests/probe_macos_official_cli.py | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Merchant usability from Git source
         run: python -B tests/run_usability_offline.py --source-only
       - name: Offline commerce regressions from Git source

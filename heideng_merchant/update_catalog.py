@@ -2,7 +2,7 @@
 from __future__ import annotations
 import hashlib, json, os, re, subprocess, time
 from pathlib import Path
-from .safety import SafetyError, atomic_json, is_linked
+from .safety import SafetyError, atomic_json, is_linked, file_sha
 
 DOMAIN = b"heideng-merchant-stable-index-v1\0"
 MAX_BYTES = 64 * 1024 * 1024
@@ -11,10 +11,7 @@ def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
 def digest(path):
-    h = hashlib.sha256()
-    with Path(path).open("rb") as f:
-        for block in iter(lambda: f.read(1024 * 1024), b""): h.update(block)
-    return h.hexdigest()
+    return file_sha(path)
 
 def sign(payload, key, key_id):
     return {"payload": payload, "keyId": key_id, "signature": key.sign(DOMAIN + canonical(payload)).hex()}

@@ -90,6 +90,8 @@ def decode_bytes(raw: bytes) -> str:
 
 
 def read_json(path: Path, default=None):
+    from heideng_merchant import require_local
+    require_local(path, parents=True)
     try:
         with open(path, "r", encoding="utf-8-sig") as fh:
             return json.load(fh)
@@ -99,6 +101,8 @@ def read_json(path: Path, default=None):
 
 def write_json(path: Path, data) -> None:
     """UTF-8 无 BOM、原子写入（jdo-cli 读不了带 BOM 的 JSON）。"""
+    from heideng_merchant import require_local
+    require_local(path, parents=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
@@ -134,7 +138,10 @@ def run_jdo(args, timeout: int = 60):
         env=env,
         creationflags=CREATE_NO_WINDOW,
     )
-    text = strip_ansi(decode_bytes(proc.stdout or b"") + decode_bytes(proc.stderr or b""))
+    text = decode_bytes(proc.stdout or b"")
+    if proc.returncode:
+        text += '\n' + decode_bytes(proc.stderr or b"")
+    text = strip_ansi(text)
     return proc.returncode, text
 
 
@@ -286,12 +293,14 @@ def mark_auth_pending(profile, job_id, vender_id='', shop_name='', *, exact_shop
         write_json(linker_home() / 'authorization-proof.json', data)
 
 
-def mark_auth_native_completed(profile, job_id, native_job_id, *, default_slot_namespace='', default_slot_scope=''):
+def mark_auth_native_completed(profile, job_id, native_job_id, *, default_slot_namespace='', default_slot_scope='', reused_login=False):
     with _proof_lock():
         data=_proof_data();proof=data['profiles'].get(profile)
         if not proof or proof.get('jobId')!=job_id or proof.get('status')=='rejected':
             raise VerifyError('credential_isolation','官方完成回执不属于当前连接任务，未登记。')
-        proof.update(nativeCompleted=True,nativeJobId=str(native_job_id))
+        proof.update(nativeCompleted=True,nativeJobId=str(native_job_id), originalCliHome=str(jdo_home().resolve()))
+        if reused_login:
+            proof['nativeReused'] = True
         if default_slot_namespace:
             proof['nativeDefaultSlotNamespace'] = default_slot_namespace
         if default_slot_scope:
@@ -299,13 +308,20 @@ def mark_auth_native_completed(profile, job_id, native_job_id, *, default_slot_n
         write_json(linker_home()/'authorization-proof.json',data)
 
 
-def mark_auth_slot(profile, vender_id):
+def mark_auth_slot(profile, vender_id, *, profile_default_scope='', shop_id='', job_id=None):
     with _proof_lock():
         data = _proof_data()
         proof = data['profiles'].get(profile)
-        if not proof or proof.get('status') == 'rejected' or proof.get('venderId') not in ('', str(vender_id)):
+        if (not proof or proof.get('status') == 'rejected' or proof.get('venderId') not in ('', str(vender_id))
+                or (job_id is not None and proof.get('jobId') != job_id)):
             raise VerifyError('credential_isolation', '凭据槽证明与本任务不符，未登记。')
+        if profile_default_scope and (not re.fullmatch(r'[0-9a-f]{16}', profile_default_scope)
+                or not str(shop_id).isascii() or not str(shop_id).isdigit()):
+            raise VerifyError('credential_isolation', '原 Profile 的店铺 ID 或范围证明不完整。')
         proof.update(venderId=str(vender_id), slotVerified=True)
+        if profile_default_scope:
+            proof.update(slotKind='profile-default', profileDefaultScope=profile_default_scope,
+                         originalCliHome=str(jdo_home().resolve()), shopId=str(shop_id))
         write_json(linker_home() / 'authorization-proof.json', data)
 
 
@@ -317,18 +333,34 @@ def mark_auth_rejected(profile):
             write_json(linker_home() / 'authorization-proof.json', data)
 
 
-def require_auth_slot(profile, required=False):
+def require_auth_slot(profile, required=False, *, job_id=None):
     proof = _proof_data()['profiles'].get(profile)
     if proof is None and not required:
         return  # Existing legacy authorization is verified live, never forced to re-login.
-    if not proof or proof.get('status') == 'rejected' or proof.get('slotVerified') is not True:
+    if (not proof or proof.get('status') == 'rejected' or proof.get('slotVerified') is not True
+            or (job_id is not None and proof.get('jobId') != job_id)):
         raise VerifyError('credential_isolation', '本任务的官方凭据槽尚未证明或已拒绝，先核对回执，不重复授权。')
+    _check_profile_default(profile, proof)
+
+
+def _check_profile_default(profile, proof):
+    if proof.get('slotKind') == 'profile-default':
+        from server import check_profile_default_scope, NativeReceiptPending
+        if proof.get('originalCliHome') != str(jdo_home().resolve()):
+            raise VerifyError('credential_isolation', '当前 CLI 目录与原店铺任务不符。')
+        try:
+            check_profile_default_scope(profile, proof.get('profileDefaultScope'))
+        except NativeReceiptPending as exc:
+            raise VerifyError('credential_isolation', str(exc)) from None
 
 
 def assert_profile_proof(profile, identity):
     proof = _proof_data()['profiles'].get(profile)
     if proof is None:
         return
+    _check_profile_default(profile, proof)
+    if proof.get('slotKind') == 'profile-default' and str(identity.get('shopId') or '') != proof.get('shopId'):
+        raise VerifyError('credential_isolation', '原 Profile 当前返回的店铺 ID 与登记时不同。')
     valid = (proof.get('status') != 'rejected' and proof.get('slotVerified') is True and
              str(identity.get('venderId') or '') == proof.get('venderId') and
              (not proof.get('shopName') or name_matches(proof['shopName'], [identity.get('shopName', '')])))
@@ -404,6 +436,10 @@ class VerifyError(RuntimeError):
 
 
 def classify_error(text: str) -> str:
+    from heideng_merchant.cli_diagnostics import runtime_failure
+    runtime = runtime_failure(text)
+    if runtime:
+        return runtime
     t = (text or "").lower()
     if "missing sp-api auth config" in t:
         return "auth_missing"
@@ -450,6 +486,8 @@ def verify_profile(profile: str) -> dict:
             detail = f"{first.get('message') or ''} {first.get('details') or ''}".strip() or detail
         kind = classify_error(out + ' ' + detail)
         explanations = {'permission': '店铺调用权限不足，请核对开白。', 'network': '店铺信息网络调用未完成。',
+                        'tls-runtime-file-missing': '京麦 CLI 初始化 TLS 时缺少本地文件，请运行 doctor-cli。',
+                        'local-execution-permission': '宿主未允许本机运行所需系统操作，请核对本机执行权限。',
                         'auth_missing': '本 Profile 尚无可用授权。', 'auth_expired': '本 Profile 授权需要重新连接。'}
         raise VerifyError(kind, explanations.get(kind, '官方店铺身份核验未成功，请保留当前阶段继续核对。'))
     payload = data.get("data") or {}
@@ -532,7 +570,8 @@ def update_registry(profile: str, identity: dict, *, status: str = "ok", extra=N
 
 
 def list_disk_profiles():
-    d = profiles_dir()
+    from heideng_merchant import require_local
+    d = require_local(profiles_dir(), parents=True)
     return sorted(p.stem for p in d.glob("*.json")) if d.exists() else []
 
 
@@ -723,6 +762,29 @@ def record_scan(results: dict) -> None:
     save_registry(reg)
 
 
+def _only_unconnected_attempts(group, view, query, pending, proofs, verify):
+    for name in group['profiles']:
+        e = view[name]
+        if (not PROFILE_RE.fullmatch(name) or name == 'default' or not e.get('hasProfile') or
+                e.get('venderId') or e.get('shopId') or e.get('lastVerifiedAt') or
+                norm(e.get('shopName', '')) != norm(query)):
+            return False
+        proof = proofs.get(name, {})
+        ended_before_oauth = (pending.get('profile') == name and pending.get('processRunning') is False
+                              and pending.get('outcome') in ('login_timeout', 'oauth_not_opened')
+                              and (not proof or proof.get('jobId') == pending.get('jobId')))
+        if (proof.get('nativeCompleted') or proof.get('slotVerified') or
+                ((pending.get('profile') == name or proof) and not ended_before_oauth)):
+            return False
+        try:
+            verify(name)
+        except VerifyError as exc:
+            if exc.kind == 'auth_missing':
+                continue
+        return False
+    return True
+
+
 def resolve(query: str, verify=verify_profile, live_scan: bool = True) -> dict:
     q = (query or "").strip()
     if not q:
@@ -741,6 +803,22 @@ def resolve(query: str, verify=verify_profile, live_scan: bool = True) -> dict:
             venderId=q if q.isdigit() else "",
             message="本机没有这家店的授权记录，需要先授权。",
         )
+    inactive = []
+    if len(groups) > 1 and live_scan and not q.isdigit():
+        # A failed first connection may leave an empty profile alongside a registered
+        # shop of the exact same name. Only discount it on fresh, definitive evidence.
+        registered = [g for g in groups if g['entry'].get('venderId') and g['entry'].get('shopId')
+                      and norm(g['entry'].get('shopName', '')) == norm(q)]
+        if len(registered) == 1:
+            pending = load_pending()
+            proofs = _proof_data()['profiles']
+            remaining = []
+            for g in groups:
+                if g is registered[0] or not _only_unconnected_attempts(g, view, q, pending, proofs, verify):
+                    remaining.append(g)
+                else:
+                    inactive.extend(g['profiles'])
+            groups = remaining
     if len(groups) > 1:
         cands = []
         for g in groups:
@@ -749,9 +827,12 @@ def resolve(query: str, verify=verify_profile, live_scan: bool = True) -> dict:
             cands.append({
                 "profile": names[0], "shopName": e.get("shopName", ""),
                 "venderId": str(e.get("venderId") or ""),
+                "identityState": "registered" if e.get("shopId") and e.get("venderId") else "unverified",
             })
+        has_attempts = any(item['identityState'] == 'unverified' for item in cands)
         return _result("ambiguous", query=q, candidates=cands,
-                       message="匹配到多家店铺，请给出更完整的店名或 venderId。")
+                       message=("存在同名待核对记录，请先查原连接任务，或按已确认的 venderId 定位店铺。"
+                                if has_attempts else "匹配到多家店铺，请给出更完整的店名或 venderId。"))
     group = groups[0]
     names = order_profiles(view, group["profiles"])
     last_err = None
@@ -773,6 +854,8 @@ def resolve(query: str, verify=verify_profile, live_scan: bool = True) -> dict:
             ok = name_matches(q, known_names)
         if known_vid and ident.get("venderId") and known_vid != ident["venderId"]:
             ok = False
+        if e.get("shopId") and str(e['shopId']) != str(ident.get('shopId') or ''):
+            ok = False
         if not ok:
             return _result(
                 "mismatch", query=q, profile=name,
@@ -784,13 +867,15 @@ def resolve(query: str, verify=verify_profile, live_scan: bool = True) -> dict:
         entry = load_registry()["profiles"].get(name, {})
         out = _result("ready", **_public(name, ident, entry))
         out["browserShortcut"] = entry.get("browserShortcut", "")
+        if inactive:
+            out["unconnectedAttempts"] = inactive
         return out
     if last_err:
         name, exc = last_err
         if exc.kind == "permission":
             return _result("error", query=q, profile=name, errorKind="permission",
                            error=exc.message, hint=permission_hint())
-        if exc.kind in ("network", "no_cli", "other", 'credential_isolation'):
+        if exc.kind not in ('auth_missing', 'auth_expired'):
             return _result("error", query=q, profile=name, errorKind=exc.kind, error=exc.message)
         e = view.get(name, {})
         return _result(
@@ -1188,27 +1273,31 @@ def doctor(policy=None) -> dict:
             actions.append(action)
 
     add("python", sys.version_info >= (3, 8), sys.version.split()[0], "安装 Python 3.8+")
-    try:
-        import win32com.client  # noqa: F401
-        add("pywin32", True, "已安装")
-    except ImportError:
-        add("pywin32", False, "缺失（只影响读取/生成店铺快捷方式；脚本会改用 PowerShell 兜底）",
-            "可选：python -m pip install pywin32")
+    if os.name == 'nt':
+        try:
+            import win32com.client  # noqa: F401
+            add("pywin32", True, "可读取旧版 Windows 快捷方式")
+        except ImportError:
+            add("pywin32", False, "可选组件；本版店铺入口使用系统 Shell Link")
     exe = find_jdo()
     if not exe:
         add("jdo-cli", False, "未找到",
             "运行 python scripts/linker.py doctor --install-jdo 从京麦官方通道安装 jdo-cli；"
-            "或设置环境变量 JDO_CLI_PATH 指向已有的 jdo-cli.exe")
+            "或使用商家状态内已校验的官方 CLI")
     else:
         ver = ""
         try:
             code, out = run_jdo(["status"], timeout=30)
-            ver = (extract_json(out) or {}).get("cliVersion", "")
+            payload = extract_json(out) or {}
+            if code == 0 and payload.get('ok') is True:
+                ver = payload.get("cliVersion", "")
         except Exception:
             pass
         info = cli_version_info(ver, policy)
         add("jdo-cli", True, f"{exe} {ver}".strip())
         checks[-1].update({"version": ver, **info})
+        add("官方 CLI 状态回执", bool(ver), "已读取版本" if ver else "未取得可核对的状态回执",
+            "使用商家入口 doctor-cli 单独检查本机启动与京东公开 HTTPS")
         if info.get("needsUpdate"):
             add("jdo-cli 版本", False, info["note"], info["action"])
         add("jdo-cli 已初始化", config_path().exists(), str(config_path()),

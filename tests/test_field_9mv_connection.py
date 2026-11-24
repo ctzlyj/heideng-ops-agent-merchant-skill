@@ -150,6 +150,7 @@ class LateProofTests(unittest.TestCase):
             with patch.object(server.sl,'verify_profile',return_value=identity),patch.object(server,'copy_credential') as copy:
                 job._apply_identity(identity,data)
             server.sl.require_auth_slot(job.profile,required=True);copy.assert_not_called()
+    @patch('sys.platform', 'win32')
     def test_default_slot_migration_uses_only_exact_task_profile_and_verified_identity(self):
         import server
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'JDO_HOME':d,'JINGMAI_LINKER_HOME':str(Path(d)/'linker')},clear=True):
@@ -221,6 +222,7 @@ class LateProofTests(unittest.TestCase):
                         server.sl, 'run_jdo', return_value=(0, json.dumps({**status, **changed}))):
                     self.assertFalse(job._owned_login_receipt(login))
 
+    @patch('sys.platform', 'win32')
     def test_jdo_037_native_default_slot_is_recovered_in_its_own_vault_scope(self):
         import server
         scope = '0123456789abcdef'
@@ -267,6 +269,7 @@ class LateProofTests(unittest.TestCase):
             with patch.object(server.sl,'run_jdo',side_effect=[(0,json.dumps(other)),(2,'unsupported option')]):
                 self.assertFalse(job._owned_login_receipt(login))
 
+    @patch('sys.platform', 'win32')
     def test_completed_native_default_slot_recovers_after_first_identity_read_was_offline(self):
         import server
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'JDO_HOME':d,'JINGMAI_LINKER_HOME':str(Path(d)/'linker')},clear=True):
@@ -293,6 +296,7 @@ class LateProofTests(unittest.TestCase):
                 self.assertFalse(server.recover_owned_auth_slot('fixture-profile','other-job'))
                 run.assert_not_called();copy.assert_not_called()
 
+    @patch('sys.platform', 'win32')
     def test_original_native_slot_recovers_when_cli_status_cannot_select_profile(self):
         import server
         with tempfile.TemporaryDirectory() as d, patch.dict(
@@ -331,6 +335,7 @@ class LateProofTests(unittest.TestCase):
                 self.assertEqual(proof['nativeJobId'],job.id);self.assertEqual(proof['slotVerified'],slot.isdigit())
                 self.assertNotEqual(job.status,'success')
 
+    @patch('sys.platform', 'win32')
     def test_slot_location_proof_survives_readonly_network_failure_after_owned_migration(self):
         import server
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'JDO_HOME':d,'JINGMAI_LINKER_HOME':str(Path(d)/'linker')},clear=True):

@@ -265,7 +265,22 @@ def preflight(capability, arguments, *, state, entry=None, package_root=None):
 
 
 def run(capability, arguments, *, state, entry=None, package_root=None):
-    return _run_with_lease(capability, arguments, state=state, entry=entry, package_root=package_root)
+    from .runtime_dependencies import BROWSER_REPAIR_EXITS, prepare_runtime
+    result = _run_with_lease(capability, arguments, state=state, entry=entry, package_root=package_root)
+    if capability != 'connection' or entry not in (None, ROUTES['connection'][1]) or result not in BROWSER_REPAIR_EXITS:
+        return result
+    component = BROWSER_REPAIR_EXITS[result]
+    try:
+        prepare_runtime(state, package_root or PACKAGE_ROOT, optional='connection-browser')
+    except (SafetyError, OSError, subprocess.SubprocessError) as error:
+        if isinstance(error, SafetyError) and str(error) == 'resource-busy':
+            raise SafetyError(f'浏览器隔离依赖 {component} 需要准备，商家安装目录正由其他任务占用；保留原连接后继续。') from None
+        raise SafetyError(f'浏览器隔离依赖 {component} 未就绪，标准运行环境修复未完成。'
+                          '请核对本机 Python、依赖下载网络和商家状态目录的写入权限。') from None
+    result = _run_with_lease(capability, arguments, state=state, entry=entry, package_root=package_root)
+    if result in BROWSER_REPAIR_EXITS:
+        raise SafetyError(f'浏览器隔离运行环境修复后仍无法加载 {BROWSER_REPAIR_EXITS[result]}，请检查该解释器与本机架构。')
+    return result
 
 
 from .runtime_dependencies import ensure_core
@@ -277,6 +292,8 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
     path, _ = source_path(capability, entry, root)
     state = Path(state).resolve()
     environment = child_environment(state)
+    if capability == 'connection' and path.name == 'linker.py':
+        environment['HEIDENG_MANAGED_CONNECTION_RUNTIME'] = '1'
     if capability == 'connection' and os.name == 'nt':
         for name, folder_id in (('HEIDENG_HOST_DESKTOP', 0x0010), ('HEIDENG_HOST_LOCAL_APPDATA', 0x001C)):
             folder = windows_known_folder(folder_id)
