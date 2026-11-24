@@ -213,3 +213,55 @@ class MacLoginReceiptTests(unittest.TestCase):
         browser.open_oauth.assert_not_called()
         browser.confirm.assert_not_called()
         commit.assert_called_once()
+
+    def test_ambiguous_name_can_read_only_the_explicit_original_job(self):
+        from argparse import Namespace
+        sl = self.server.sl
+        other = {'venderId':'777','shopId':'888','shopName':self.identity['shopName'],'lastVerifiedAt':5}
+        sl.save_registry({'profiles':{'second-store':other}})
+        sl.write_json(sl.profiles_dir()/'second-store.json', {'shop_name':other['shopName']})
+        sl.write_json(self.profile_file, {'shop_name':other['shopName']})
+        original_file = self.profile_file.read_bytes()
+        self.status['defaultProfile'] = 'second-store'
+        self.monitor(self.login)
+        self.assertEqual(self.job.error_kind, 'native_receipt_pending')
+        pending = {'query':'演示店','shopName':'演示店','venderId':'','profile':self.profile,'jobId':self.job.id,
+                   'processRunning':False,'outcome':'native_receipt_pending'}
+        sl.save_pending(pending)
+        args = Namespace(shop='演示店',profile=self.profile,job_id=self.job.id,resume=True,no_auth=True)
+        resolve = sl.resolve
+        def local_resolve(query):
+            return resolve(query, verify=self.verify)
+        with patch.object(self.cli,'_env_blockers',return_value=None), patch.object(sl,'resolve',side_effect=local_resolve), patch.object(
+                self.server.LoginJob,'start',side_effect=AssertionError('unexpected new authorization')), patch.object(
+                self.cli,'ensure_embedded_server',side_effect=AssertionError('unexpected service')):
+            by_name = self.cli._cmd_ensure_shop(Namespace(shop='演示店',profile=None,resume=False,no_auth=True))
+            self.assertEqual(by_name['status'],'ambiguous')
+            self.assertEqual(by_name['originalReceipt']['jobId'],self.job.id)
+            for changed in ({'job_id':'old'},{'resume':False},{'profile':'second-store'},{'shop':'演-示店'},{'fresh':True}):
+                with self.subTest(changed=changed):
+                    result=self.cli.cmd_ensure_shop(Namespace(**{**vars(args),**changed}))
+                    self.assertEqual(result['errorKind'],'original_task_mismatch')
+            self.assertEqual(self.cli.cmd_ensure_shop(args)['status'],'paused')
+            self.verify.assert_not_called()
+            self.status['defaultProfile'] = self.profile
+            self.status['credentialStore']['tokenCredentialAccount'] = self.account.removesuffix('default')+'556'
+            self.status['profile']['venderId'] = '556'
+            result = self.cli.cmd_ensure_shop(args)
+            self.assertEqual((result['status'],result['profile'],result['jobId']),('ready',self.profile,self.job.id))
+            self.assertTrue(all(call.args == (self.profile,) for call in self.verify.call_args_list))
+            self.assertEqual(self.profile_file.read_bytes(),original_file)
+            self.assertEqual(sl.load_registry()['profiles']['second-store'],other)
+            self.assertEqual(self.cli._cmd_ensure_shop(Namespace(shop='演示店',no_auth=True))['status'],'ambiguous')
+
+    def test_ambiguous_lookup_never_advertises_an_unrelated_pending_job(self):
+        from argparse import Namespace
+        sl = self.server.sl
+        sl.mark_auth_native_completed(self.profile,self.job.id,'native')
+        pending = {'query':'同名','profile':self.profile,'jobId':self.job.id,'outcome':'callback_unknown','processRunning':False}
+        with patch.object(self.cli,'_env_blockers',return_value=None), patch.object(
+                sl,'resolve',side_effect=lambda query:{'status':'ambiguous','candidates':[{'profile':self.profile}]}):
+            for changed in ({'query':'另一家'}, {'jobId':'different'}, {'processRunning':True}):
+                with self.subTest(changed=changed):
+                    sl.save_pending({**pending,**changed})
+                    self.assertNotIn('originalReceipt',self.cli._cmd_ensure_shop(Namespace(shop='同名',no_auth=True)))

@@ -36,6 +36,7 @@ class BrowserAuthJob:
         self.identity, self.error, self.error_kind = None, '', ''
         self.desktop_shortcut = None
         self.login = None
+        self._proof_saved = False
         self.oauth_navigation_attempted = False
         self.started_at, self.finished_at = time.time(), None
         self._done, self._cancelled = threading.Event(), threading.Event()
@@ -69,7 +70,8 @@ class BrowserAuthJob:
     def _worker(self):
         try:
             while not self._cancelled.is_set() and not self._shutdown_requested.is_set() and self.status != 'success':
-                self.run()
+                with sl.cli_deadline(self.connection_deadline):
+                    self.run()
                 if self.status == 'success' or self.stage == 'deferred':
                     break
                 self._resume_event.wait()
@@ -94,14 +96,23 @@ class BrowserAuthJob:
         if proc and proc.poll() is None:self.login.cancel()
         if self.status in ('mismatch','cancelled'):return
         if self.login is not None:
+            if (self.login.status == 'failed' and getattr(self.login, 'native_receipt_seen', False) is True
+                    and self.login.error_kind in ('native_receipt_pending', 'local_cli_timeout')):
+                # This attempt already has a completion receipt and a failed attestation. Let the
+                # next explicit read reconcile it; repeating status here can prompt the user again.
+                self._finish('failed', 'paused', self.login.message, 'native_receipt_pending')
+                return
             try:
-                self._verify_and_commit()
+                with sl.cli_deadline(self.connection_deadline):
+                    self._verify_and_commit()
                 return
             except sl.VerifyError as exc:
                 if (getattr(self.login, 'native_receipt_seen', False) is True
                         or getattr(self.login, 'error_kind', '') == 'native_receipt_pending' or exc.kind == 'native_receipt_pending'):
-                    message = self.login.message if self.login.error_kind == 'native_receipt_pending' else exc.message
+                    message = self.login.message if self.login.error_kind in ('native_receipt_pending', 'local_cli_timeout') else exc.message
                     self._finish('failed','paused',message,'native_receipt_pending')
+                elif getattr(self.login, 'error_kind', '') == 'callback_unknown':
+                    self._finish('failed', 'paused', self.login.message, 'callback_unknown')
                 elif self.oauth_navigation_attempted:
                     self._finish('failed','paused','连接已暂停，授权结果须核对原Profile；没有持续后台执行。','callback_unknown')
                 elif self.status != 'failed':
@@ -111,12 +122,25 @@ class BrowserAuthJob:
 
     def shutdown(self, timeout=180):
         """Stop only owned work, settle callback, and join before its service can close."""
+        end = time.monotonic() + timeout
         self._shutdown_requested.set();self._resume_event.set()
         interrupt=getattr(self.browser,'cancel_wait',None)
         if callable(interrupt):interrupt()
         thread=self._worker_thread
         if thread is not None:thread.join(timeout=timeout)
-        return (thread is None or not thread.is_alive()) and not self._cleanup_failed
+        complete = (thread is None or not thread.is_alive()) and not self._cleanup_failed
+        monitor = getattr(self.login, '_monitor_thread', None)
+        if isinstance(monitor, threading.Thread):
+            monitor.join(timeout=max(0, end-time.monotonic()))
+            complete = complete and not monitor.is_alive()
+        if (complete and self._proof_saved and thread is not None and self.status in ('failed','cancelled')
+                and self.login is None and not self.oauth_navigation_attempted):
+            try:
+                sl.record_pre_oauth_closure(self.profile, self.id, self.error_kind or self.status)
+            except (OSError, sl.VerifyError):
+                # Cleanup is complete. Without a durable receipt this candidate will remain ambiguous.
+                pass
+        return complete
 
     def _stage(self, stage, message, status='waiting'):
         self.stage, self.message, self.status = stage, message, status
@@ -171,7 +195,9 @@ class BrowserAuthJob:
     def _verify_and_commit(self):
         self._stage('verifying_cli', '正在实时核验这家店的 CLI 连接。', 'verifying')
         try:sl.require_auth_slot(self.profile,required=True,job_id=self.id)
-        except sl.VerifyError:
+        except sl.VerifyError as exc:
+            if exc.kind in ('native_receipt_pending', 'local_cli_timeout'):
+                raise
             from server import recover_owned_auth_slot
             recover_owned_auth_slot(self.profile,self.id)
             sl.require_auth_slot(self.profile,required=True,job_id=self.id)
@@ -195,6 +221,7 @@ class BrowserAuthJob:
             self._finish('success', 'ready', '已连接：' + identity['shopName'])
 
     def run(self):
+        self._proof_saved = False
         if os.environ.get('HEIDENG_BACKGROUND') == '1' or os.environ.get('JINGMAI_LINKER_BACKGROUND') == '1':
             self._finish('failed', 'deferred', '后台任务不发起扫码或授权。', 'background')
             return
@@ -207,8 +234,8 @@ class BrowserAuthJob:
             if self.browser_config.get('provider') in ('builtin', 'playwright') and callable(prepare):
                 self._stage('checking_browser_runtime', '正在检查本机浏览器通道和商家专用资料。')
                 prepare()
-            sl.mark_auth_pending(self.profile, self.id, self.expect_vender_id, self.shop_name,
-                                 exact_shop_name=bool(self.confirmed_shop_name))
+            self._proof_saved = sl.mark_auth_pending(self.profile, self.id, self.expect_vender_id, self.shop_name,
+                                                     exact_shop_name=bool(self.confirmed_shop_name)) is True
             self._stage('waiting_browser', '正在打开商家专用京麦登录页，请保持当前命令运行，不要手工发起OAuth。' if builtin else '正在等待当前 Agent 接管任务浏览器，尚未打开扫码页面。')
             self.browser.open_login(self.shop_name or self.expect_vender_id)
             self._stage('waiting_login', LOGIN_HINT)

@@ -4,7 +4,12 @@
 
 ### macOS ARM64 的原授权与本机环境
 
+商家说“继续上次”而同名记录有歧义时，宿主从已核对的原连接回执取 `query`、`profile` 和 `jobId`。用 `run connection -- ensure-shop --shop <原 query> --resume --profile <原 Profile> --job-id <原 jobId>` 只读对账。商家无需记编号。没有匹配的原任务时，按实际店铺身份消歧。
+
+安装器复核京麦正式归档列出的文件。遇到配套文件缺失、内容改变或 Mac 主程序丢失执行权限时，重新安装会在新的程序目录恢复官方内容，原店铺状态和个人文件继续保留。Mac 正常连接遇到官方程序缺文件错误时，宿主可直接从返回的 `officialCliCheck` 查看同一程序的无账号公开查询结果，并沿原任务对账。
+
 - 优先用原来绑定的商家状态尝试 `run connection -- ensure-shop --shop <店名> --no-auth`。同名空记录若仍可能对应在途授权或另一家店，会保留待核状态。只有同店实时身份明确才报告 `ready`。
+- 商家说“继续上次”时，宿主从已有回执取店铺原称、Profile 和 jobId。同名查询返回的 `originalReceipt` 也可提供这三项，依据是同一目录中该原称的已暂停任务及其官方完成记录。执行 `run connection -- ensure-shop --shop <原称> --profile <原 Profile> --resume --job-id <原 jobId>` 核对该笔任务。商家单独交办店名时仍按同名候选判断。
 - 京麦 0.3.7 的“已授权”回执和新 OAuth 回执有不同的字段。新版用原 Profile、原 CLI home 的官方状态和实时核店来恢复。Mac 上官方仍使用该 Profile 自身的默认凭据槽时，经核验可继续复用；证据不够则保留原回执。宿主无需打开钥匙串、导出 Token 或复制凭据文件。
 - 运行文件带 iCloud 占位标记时，让商家在访达下载回执指出的路径，再继续原任务。不要因读取卡住另建空状态。若安装器本身尚未下载，先在访达下载源码目录。
 - 权限弹窗、浏览器无法启动和官方 CLI 的 HTTPS 错误要按实际阶段排查。用 `run connection -- browser-check` 可检查本机隔离浏览器。用 `python scripts/merchant.py --state <原目录> doctor-cli` 检查已校验的官方二进制能否启动并访问京东公开版本服务。后者使用临时 CLI home，不发起店铺登录，结果包含版本、哈希、失败阶段和脱敏原因。该探测成功后仍要以原任务的官方核店结果判断授权。

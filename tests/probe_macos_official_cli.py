@@ -1,10 +1,12 @@
 """Record a credential-free observation of JD's reported macOS ARM64 release."""
 import json
 from hashlib import sha256
+import io
 from pathlib import Path
 import platform
 import subprocess
 import sys
+import tarfile
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -14,6 +16,69 @@ from heideng_merchant.safety import SafetyError, clean_environment, read_json
 
 ARCHIVE_SHA256 = 'dda5cd6c7aadbfd0ba31a876705445a97108fa60fe1af2c28d28c94775473c54'
 SOURCE_SHA256 = 'abcc6fe5a354d14c4a9b99a221d0b682759d77e8200fc3922f0c1ce32e86a0b2'
+
+
+def archive_controls(client, root):
+    """Run only an uncached public GET from the unmodified release, with standard trust checks."""
+    archive = client.policy()['artifacts']['binaries']['macos-arm64']
+    raw = client.download(BASE + archive['path'])
+    if sha256(raw).hexdigest() != ARCHIVE_SHA256:
+        raise SafetyError('official-release-control-hash-mismatch')
+    extracted = root / 'jd-release'
+    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as tar:
+        tar.extractall(extracted, filter='data')
+    executable = extracted / archive['executable']
+    system_trust = {}
+    for name, path in (('SSL_CERT_FILE', '/etc/ssl/cert.pem'), ('SSL_CERT_DIR', '/etc/ssl/certs'),
+                       ('OPENSSL_CONF', '/etc/ssl/openssl.cnf')):
+        if Path(path).exists():
+            system_trust[name] = path
+    cases = [('release-root', extracted, {}), ('binary-directory', executable.parent, {}),
+             ('explicit-tmpdir', extracted, {'TMPDIR': tempfile.gettempdir()})]
+    if system_trust:
+        cases.append(('macos-system-trust', extracted, system_trust))
+    try:
+        import certifi
+    except ImportError:
+        pass
+    else:
+        if Path(certifi.where()).is_file():
+            cases.append(('python-trust-bundle', extracted, {'SSL_CERT_FILE': certifi.where()}))
+    results = {}
+    cases.append(('release-readme-install', None, {}))
+    for name, cwd, additions in cases:
+        with tempfile.TemporaryDirectory(prefix='clean-cli-', dir=root) as tmp:
+            env = clean_environment(Path(tmp))
+            env.update(additions, JDO_HOME=str(Path(tmp) / '.jdo-cli'))
+            binary = executable
+            if cwd is None:
+                # The vendor's README puts both bin/ and the CLI state under ~/.jdo-cli.
+                # Reproduce it only in this empty disposable home with no account inputs.
+                cwd = Path(tmp)
+                installed = cwd / '.jdo-cli'
+                with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as tar:
+                    tar.extractall(installed, filter='data')
+                binary = installed / archive['executable']
+                init = subprocess.run([str(binary), 'init', '--skip-network'], cwd=cwd, env=env,
+                                      stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+                if init.returncode:
+                    results[name] = 'offline-init-failed'
+                    continue
+            proc = subprocess.run([str(binary), '--endpoint', 'https://mcp-open.jd.com',
+                                   'update', 'check', '--timeout', '12'],
+                                  cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                  capture_output=True, timeout=30)
+            try:
+                payload = json.loads(proc.stdout)
+            except ValueError:
+                payload = {}
+            if proc.returncode == 0 and payload.get('ok') is True and payload.get('cacheUsed') is False:
+                results[name] = 'remote-policy-received'
+            elif '[errno 2]' in str(payload.get('networkError', '')).lower():
+                results[name] = 'file-not-found'
+            else:
+                results[name] = 'not-verified'
+    return results
 
 
 def source_control(client, root):
@@ -59,6 +124,7 @@ def observe():
         result['publicPolicyViaPython'] = 'verified'
         if result['status'] != 'verified':
             result['sameVersionOfficialSourceControl'] = source_control(client, Path(state))
+            result['unmodifiedReleaseControls'] = archive_controls(client, Path(state))
         return result
 
 

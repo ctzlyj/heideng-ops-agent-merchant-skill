@@ -61,7 +61,26 @@ class OfficialClient:
   if not receipt:return False
   try:
    root=safe_join(self.state,receipt['root']);p=safe_join(root,receipt['executable'])
-   return p.is_file() and file_sha(p)==receipt['executableSha256']
+   return self._executable_usable(p) and file_sha(p)==receipt['executableSha256']
+  except (KeyError,OSError,SafetyError):return False
+ def _executable_usable(self,path):
+  if not path.is_file():return False
+  return (self.platform_name!='macos-arm64' or os.name=='nt' or
+          bool(path.stat().st_mode & stat.S_IXUSR) and os.access(path,os.X_OK))
+ def _release_matches(self,receipt,artifact,files):
+  executable=artifact['executable']
+  if (receipt.get('executable')!=executable or
+      receipt.get('executableSha256')!=hashlib.sha256(files[executable]).hexdigest()):
+   return False
+  try:
+   root=safe_join(self.state,receipt['root'])
+   if not self._executable_usable(safe_join(root,executable)):return False
+   # Compare only the official members. Personal files are never input to this check.
+   for name,data in files.items():
+    installed=safe_join(root,name)
+    if not installed.is_file() or installed.stat().st_size!=len(data) or file_sha(installed)!=hashlib.sha256(data).hexdigest():
+     return False
+   return True
   except (KeyError,OSError,SafetyError):return False
  def install(self):
   p=self.policy();artifact=p.get('artifacts',{}).get('binaries',{}).get(self.platform_name)
@@ -70,45 +89,60 @@ class OfficialClient:
   if version!=p['stableVersion']:raise SafetyError('official-version-mismatch')
   name=artifact.get('path','');safe_join(self.state,name)
   if not name.startswith('cli/releases/') or not re.fullmatch('[0-9a-f]{64}',artifact.get('sha256','')):raise SafetyError('invalid-official-artifact')
-  safe_join(self.state,artifact['executable'])
+  rel='tools/official-'+version+'-'+uuid.uuid4().hex[:12]
+  root=safe_join(self.state,rel)
+  safe_join(root,artifact['executable'])
   with FileLock(self.state/'tools'/'install.lock'):
    current=read_json(self.receipt_path,{})
-   if current and self.ready():
-    if version_key(version)<version_key(current['version']):raise SafetyError('official-downgrade-refused')
-    if version==current['version'] and current.get('archiveSha256')==artifact['sha256']:return {'status':'unchanged','version':version}
+   if not isinstance(current,dict) or (current and not current.get('version')):
+    raise SafetyError('invalid-official-install-receipt')
+   if current and version_key(version)<version_key(current['version']):raise SafetyError('official-downgrade-refused')
    raw=self.download(BASE+name)
    if len(raw)>MAX_BYTES or hashlib.sha256(raw).hexdigest()!=artifact['sha256']:raise SafetyError('official-sha256-mismatch')
-   files={};seen=set();total=0
+   files={};modes={};seen=set();total=0
    def accept(name,data,mode):
     nonlocal total
-    name=name.rstrip('/');safe_join(self.state,name)
+    name=name.rstrip('/');safe_join(root,name)
     if name.casefold() in seen or stat.S_ISLNK(mode):raise SafetyError('unsafe-official-member')
     seen.add(name.casefold());total+=len(data)
     if total>128*1024*1024:raise SafetyError('official-expanded-size-limit')
     files[name]=data
+    modes[name]=mode
    try:
     if artifact['format']=='zip':
      with zipfile.ZipFile(io.BytesIO(raw)) as z:
       for item in z.infolist():
-       if item.is_dir():safe_join(self.state,item.filename.rstrip('/'));continue
+       if item.is_dir():safe_join(root,item.filename.rstrip('/'));continue
        if item.file_size>MAX_BYTES:raise SafetyError('official-member-too-large')
        accept(item.filename,z.read(item),item.external_attr>>16)
     elif artifact['format']=='tar.gz':
      with tarfile.open(fileobj=io.BytesIO(raw),mode='r:gz') as t:
       for item in t.getmembers():
-       safe_join(self.state,item.name.rstrip('/'))
+       safe_join(root,item.name.rstrip('/'))
        if item.isdir():continue
        if not item.isfile() or item.size>MAX_BYTES:raise SafetyError('unsafe-official-member')
        accept(item.name,t.extractfile(item).read(MAX_BYTES+1),item.mode)
     else:raise SafetyError('unsupported-official-format')
    except (zipfile.BadZipFile,tarfile.TarError):raise SafetyError('invalid-official-archive') from None
    if artifact['executable'] not in files:raise SafetyError('official-executable-missing')
-   rel='tools/official-'+version+'-'+uuid.uuid4().hex[:12];root=safe_join(self.state,rel);root.mkdir(parents=True)
-   for name,data in files.items():dest=safe_join(root,name);dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(data)
-   exe=safe_join(root,artifact['executable']);exe.chmod(exe.stat().st_mode|stat.S_IXUSR)
-   atomic_json(self.receipt_path,{'version':version,'root':rel,'executable':artifact['executable'],'executableSha256':file_sha(exe),'archiveSha256':artifact['sha256'],'source':BASE})
+   same_release=(current.get('version')==version and current.get('archiveSha256')==artifact['sha256'])
+   if same_release and self._release_matches(current,artifact,files):
+    return {'status':'unchanged','version':version,'releaseFilesVerified':len(files)}
+   root.mkdir(parents=True)
+   for name,data in files.items():
+    dest=safe_join(root,name);dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(data)
+    if os.name!='nt':
+     permissions=stat.S_IMODE(dest.stat().st_mode)
+     # Only the archive's ordinary execute bits can be added, subject to private umasks.
+     execution=modes[name] & 0o111 & (permissions >> 2)
+     if name==artifact['executable']:execution |= stat.S_IXUSR
+     if execution:dest.chmod(permissions | execution)
+   receipt={'version':version,'root':rel,'executable':artifact['executable'],
+            'executableSha256':hashlib.sha256(files[artifact['executable']]).hexdigest(),'archiveSha256':artifact['sha256'],'source':BASE}
+   if not self._release_matches(receipt,artifact,files):raise SafetyError('official-installed-files-mismatch')
    atomic_json(self.state/'tools'/'version-policy.json',p)
-   return {'status':'installed','version':version,'binaryVerified':True}
+   atomic_json(self.receipt_path,receipt)
+   return {'status':'installed','version':version,'binaryVerified':True,'repaired':same_release,'releaseFilesVerified':len(files)}
  def document(self,skill_id,relative='SKILL.md',*,refresh=False):
   if not isinstance(skill_id,str) or not re.fullmatch(r'jdo-[a-z0-9-]{1,100}',skill_id):raise SafetyError('official-document-name-required')
   if relative!='SKILL.md' and not re.fullmatch(r'references/[A-Za-z0-9_-]+\.md',relative):raise SafetyError('official-markdown-reference-required')
