@@ -47,8 +47,24 @@ def public_cli_check(client):
                         'errno': exc.errno}
             if proc.returncode:
                 reason = runtime_failure(proc.stderr + '\n' + proc.stdout)
+                evidence = {}
+                # The official JSON may include an absolute path. Expose only a known asset name.
+                if reason in ('runtime-file-missing', 'tls-runtime-file-missing'):
+                    try:
+                        parsed = json.loads(proc.stdout)
+                    except ValueError:
+                        parsed = {}
+                    error = parsed.get('networkError') if isinstance(parsed, dict) else ''
+                    lines = (str(error or '') + '\n' + proc.stderr).lower().replace('\\', '/').splitlines()
+                    for line in lines:
+                        if '[errno 2]' not in line and 'filenotfounderror' not in line:
+                            continue
+                        evidence['errno'] = 2
+                        for resource in ('certifi/cacert.pem', '/cert.pem', 'openssl.cnf'):
+                            if resource in line:
+                                evidence['resourceNamedByCli'] = resource.lstrip('/')
                 return {**result, 'status': 'unavailable', 'stage': stage, 'exitCode': proc.returncode,
-                        'reason': reason or 'official-command-failed'}
+                        'reason': reason or 'official-command-failed', **evidence}
             if stage == 'public-https':
                 try:
                     receipt = json.loads(proc.stdout)

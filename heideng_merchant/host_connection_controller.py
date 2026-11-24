@@ -19,6 +19,7 @@ BROWSER_START_HINTS = {
     'browser_channel_missing': '所选浏览器通道未安装或其程序文件不可用。请核对该通道的本机安装位置。',
     'browser_host_permission': '当前宿主没有启动此浏览器所需的本机权限。请在允许启动浏览器的本机宿主复测 browser-check；保留原店铺资料。',
     'browser_profile_busy': '原商家专用浏览器资料正被其他进程占用。请回到持有该资料的原窗口或连接任务。',
+    'browser_isolated_home_unavailable': '无法准备商家隔离环境的 AppData 目录，请核对本机商家状态目录的写入权限。',
     'browser_channel_launch_failed': '驱动可用，浏览器通道未能启动。请用 browser-check 在临时商家资料中复测所选通道。',
     'browser_cleanup_failed': '本机浏览器或驱动未能确认退出，请核对这次任务的临时窗口。',
 }
@@ -29,6 +30,25 @@ class BrowserStartError(Exception):
         self.kind = kind
         self.hint = BROWSER_START_HINTS[kind]
         super().__init__(self.hint)
+
+
+def prepare_isolated_browser_home():
+    """Chrome on Windows needs the declared Local AppData folder before its driver can attach."""
+    if sys.platform != 'win32':
+        return
+    from .safety import SafetyError, safe_join
+    state = Path(os.environ.get('HEIDENG_MERCHANT_HOME') or '')
+    home = state / 'runtime-home'
+    if not state.is_absolute() or any(Path(os.environ.get(key) or '') != home for key in ('HOME', 'USERPROFILE')):
+        return
+    for key, relative in (('LOCALAPPDATA','runtime-home/AppData/Local'), ('APPDATA','runtime-home/AppData/Roaming')):
+        # A host-supplied personal AppData or redirected path belongs to the host.
+        if Path(os.environ.get(key) or '') != state / relative:
+            continue
+        try:
+            safe_join(state, relative).mkdir(parents=True, exist_ok=True)
+        except (OSError, SafetyError):
+            raise BrowserStartError('browser_isolated_home_unavailable') from None
 
 
 def startup_kind(exc, phase):
@@ -140,6 +160,7 @@ class HostConnectionController:
 
     def _launch(self,channel=None,*,local_only=False):
         if self.context is not None:return
+        prepare_isolated_browser_home()
         state=self._load()
         if state:
             if state.get('shopIdentity')!=self.shop_identity:raise RuntimeError('connection-profile-belongs-to-another-shop')

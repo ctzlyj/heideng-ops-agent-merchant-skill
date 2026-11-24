@@ -415,7 +415,8 @@ class PlaywrightBrowser:
         self._check(page=False)
         if self._context is not None:
             return
-        from heideng_merchant.host_connection_controller import BrowserStartError, startup_kind
+        from heideng_merchant.host_connection_controller import BrowserStartError, prepare_isolated_browser_home, startup_kind
+        prepare_isolated_browser_home()
         sync_playwright = None
         try:
             from playwright.sync_api import sync_playwright

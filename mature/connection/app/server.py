@@ -575,6 +575,11 @@ class LoginJob:
         if not vender_id.isdigit() or owned is None or self.check_expected(identity):
             sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方回执、Profile或核店不符，未迁移、未登记。')
+        shop_id = str(identity.get('shopId') or '')
+        official_name = identity.get('shopName') or ''
+        if not shop_id.isascii() or not shop_id.isdigit() or not official_name:
+            raise NativeReceiptPending('原授权已保留；官方核店缺少店铺 ID 或店名。')
+        sl.assert_registered_identity(self.profile, identity)
         account, slot = owned
         if slot == 'default' and (sys.platform == 'darwin' or reused):
             # 0.3.7 invoke --profile looks up the scoped default when its native profile
@@ -584,12 +589,11 @@ class LoginJob:
                 raise NativeReceiptPending('原授权已保留；这份凭据回执缺少可核验的 Profile 范围。')
             check_profile_default_scope(self.profile, parts[3])
             verified = sl.verify_profile(self.profile)
-            if (not str(identity.get('shopId') or '').isascii() or not str(identity.get('shopId') or '').isdigit()
-                    or any(str(verified.get(key) or '') != str(identity.get(key) or '') for key in ('shopId','venderId','shopName'))
+            if (any(str(verified.get(key) or '') != str(identity.get(key) or '') for key in ('shopId','venderId','shopName'))
                     or self.check_expected(verified)):
                 raise NativeReceiptPending('原 Profile 的两次官方核店尚未得到一致的店铺 ID、商家 ID 和店名。')
             sl.mark_auth_slot(self.profile, vender_id, job_id=getattr(self,'proof_job_id',self.id),
-                              profile_default_scope=parts[3], shop_id=identity['shopId'])
+                              profile_default_scope=parts[3], shop_id=shop_id, official_name=official_name)
             if not self.defer_registry:
                 sl.update_registry(self.profile, verified)
             return
@@ -600,7 +604,10 @@ class LoginJob:
         elif slot != vender_id:
             sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方凭据槽与实时核店不符，未迁移。')
-        sl.mark_auth_slot(self.profile,vender_id, job_id=getattr(self,'proof_job_id',self.id))
+        # Retain the first official identity across interruption. Recovery still
+        # reads the original profile and compares against all three fields.
+        sl.mark_auth_slot(self.profile,vender_id, job_id=getattr(self,'proof_job_id',self.id),
+                          shop_id=shop_id, official_name=official_name)
         data = sl.read_json(path, {}) or {}
         data["vender_id"] = vender_id
         data["shop_name"] = identity.get("shopName") or data.get("shop_name") or self.shop_name
@@ -608,9 +615,10 @@ class LoginJob:
         sl.write_json(path, data)
         # 迁移后再核验一次，确保凭据真的可用
         verified = sl.verify_profile(self.profile)
-        if str(verified.get('venderId') or '')!=vender_id or verified.get('shopName')!=identity.get('shopName') or self.check_expected(verified):
+        if (str(verified.get('venderId') or '')!=vender_id or str(verified.get('shopId') or '')!=shop_id or
+                verified.get('shopName')!=official_name or self.check_expected(verified)):
             sl.mark_auth_rejected(self.profile)
-            raise RuntimeError("凭据定位后店铺身份发生变化，未登记。")
+            raise CredentialIsolationError("凭据定位后店铺身份发生变化，未登记。")
         if not self.defer_registry:
             sl.update_registry(self.profile, verified)
 

@@ -145,3 +145,29 @@ class ConnectionBrowserRuntimeTests(unittest.TestCase):
         self.assertEqual(page.goto.call_args.args,('about:blank',))
         self.assertFalse(Path(launch.call_args.args[0]).exists())
         launch.return_value.close.assert_called_once()
+
+    def test_windows_start_prepares_empty_appdata_only_under_declared_merchant_home(self):
+        from heideng_merchant.safety import clean_environment
+        runtime = self.state / 'runtime-home'
+        env = {**clean_environment(runtime, {}), 'HEIDENG_MERCHANT_HOME': str(self.state)}
+        with patch.dict(os.environ, env, clear=True), patch.object(sys, 'platform', 'win32'):
+            self.assertFalse(runtime.exists())
+            controller.prepare_isolated_browser_home()
+            for folder in ('Local', 'Roaming'):
+                path = runtime / 'AppData' / folder
+                self.assertTrue(path.is_dir())
+                self.assertEqual(list(path.iterdir()), [])
+
+    def test_windows_browser_never_creates_redirected_or_personal_appdata(self):
+        from heideng_merchant.safety import clean_environment
+        runtime = self.state / 'runtime-home'
+        env = {**clean_environment(runtime, {}), 'HEIDENG_MERCHANT_HOME': str(self.state)}
+        private = self.state / 'elsewhere'
+        with patch.dict(os.environ, {**env, 'LOCALAPPDATA':str(private)}, clear=True), patch.object(sys, 'platform', 'win32'):
+            controller.prepare_isolated_browser_home()
+            self.assertFalse(private.exists())
+            self.assertFalse((runtime / 'AppData' / 'Local').exists())
+        with patch.dict(os.environ, {**env, 'HOME': str(private)}, clear=True), patch.object(sys, 'platform', 'win32'):
+            controller.prepare_isolated_browser_home()
+            self.assertFalse(private.exists())
+            self.assertFalse((runtime / 'AppData' / 'Local').exists())

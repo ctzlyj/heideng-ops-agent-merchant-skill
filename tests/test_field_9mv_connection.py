@@ -241,7 +241,7 @@ class LateProofTests(unittest.TestCase):
             job.proc = Mock()
             job.proc.wait.return_value = 0
             job._raw_output = [json.dumps(receipt)]
-            identity = {'shopName': job.shop_name, 'venderId': '123'}
+            identity = {'shopName': job.shop_name, 'venderId': '123', 'shopId':'456'}
             with patch.object(server.sl, 'verify_profile', side_effect=server.sl.VerifyError('network', 'offline')):
                 job._monitor()
             proof = server.sl._proof_data()['profiles'][job.profile]
@@ -278,7 +278,7 @@ class LateProofTests(unittest.TestCase):
             server.sl.mark_auth_pending(job.profile,job.id,'','fixture-shop')
             server.sl.mark_auth_native_completed(job.profile,job.id,'synthetic-native-job')
             status={'ok':True,'profile':job.profile,'home':d,'tokenCredentialAccount':'jdo-cli:sp-api:token:fixture-profile:default','oauthTokenStored':True,'oauthTokenMocked':False}
-            identity={'shopName':'fixture-shop','venderId':'123'}
+            identity={'shopName':'fixture-shop','venderId':'123','shopId':'456'}
             with patch.object(server.sl,'run_jdo',return_value=(0,json.dumps(status))),patch.object(server.sl,'verify_profile',return_value=identity),patch.object(server,'copy_credential',return_value=True) as copy,patch.object(server.LoginJob,'start') as start:
                 self.assertTrue(server.recover_owned_auth_slot(job.profile,job.id))
                 start.assert_not_called();copy.assert_called_once()
@@ -308,7 +308,7 @@ class LateProofTests(unittest.TestCase):
             server.sl.mark_auth_pending(job.profile, job.id, '', job.shop_name)
             server.sl.mark_auth_native_completed(
                 job.profile, job.id, 'synthetic-native-job', default_slot_namespace='jdo-cli:sp-api:token')
-            identity = {'shopName': job.shop_name, 'venderId': '123'}
+            identity = {'shopName': job.shop_name, 'venderId': '123', 'shopId':'456'}
             with patch.object(server.sl, 'run_jdo') as status, patch.object(
                     server.sl, 'verify_profile', return_value=identity), patch.object(
                     server, 'copy_credential', return_value=True) as copy, patch.object(
@@ -341,7 +341,7 @@ class LateProofTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'JDO_HOME':d,'JINGMAI_LINKER_HOME':str(Path(d)/'linker')},clear=True):
             job=server.LoginJob('fixture-profile','fixture-shop',defer_registry=True)
             path=Path(d)/'profiles/fixture-profile.json';path.parent.mkdir();path.write_text('{}');server.sl.mark_auth_pending(job.profile,job.id,'','fixture-shop')
-            identity={'shopName':'fixture-shop','venderId':'123'}
+            identity={'shopName':'fixture-shop','venderId':'123','shopId':'456'}
             data={'profile':job.profile,'home':d,'tokenCredentialAccount':'jdo-cli:token:fixture-profile:default','tokenMocked':False,'tokenStored':True,'loginCompleted':True}
             with patch.object(server,'copy_credential',return_value=True),patch.object(server.sl,'verify_profile',side_effect=server.sl.VerifyError('network','synthetic offline read')):
                 with self.assertRaises(server.sl.VerifyError):job._apply_identity(identity,data)

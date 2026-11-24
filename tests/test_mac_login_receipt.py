@@ -65,7 +65,52 @@ class MacLoginReceiptTests(unittest.TestCase):
         self.assertEqual(self.job.identity,self.identity)
         self.assertGreaterEqual(self.verify.call_count,2)
         self.assertTrue(all(call.args == (self.profile,) for call in self.verify.call_args_list))
-        self.assertTrue(self.server.sl._proof_data()['profiles'][self.profile]['nativeReused'])
+        proof = self.server.sl._proof_data()['profiles'][self.profile]
+        self.assertTrue(proof['nativeReused'])
+        self.assertEqual((proof['shopId'],proof['officialShopName']),('808','演示店'))
+        for changed in ({'shopId':'909'},{'venderId':'100'},{'shopName':'演示店二店'}):
+            with self.subTest(changed=changed), self.assertRaises(self.server.sl.VerifyError):
+                self.server.sl.assert_profile_proof(self.profile,{**self.identity,**changed})
+
+    def test_numeric_slot_rejects_same_merchant_and_name_but_different_second_shop_id(self):
+        self.status['credentialStore']['tokenCredentialAccount']=self.account.removesuffix('default')+'556'
+        self.status['profile']['venderId']='556'
+        self.verify.side_effect=[self.identity,{**self.identity,'shopId':'909'}]
+        self.job.defer_registry=False
+        self.monitor(self.login)
+        self.assertEqual(self.job.status,'failed')
+        self.assertNotIn(self.profile,self.server.sl.load_registry()['profiles'])
+        proof=self.server.sl._proof_data()['profiles'][self.profile]
+        self.assertEqual(proof['status'],'rejected')
+        with self.assertRaises(self.server.sl.VerifyError):
+            self.server.sl.require_auth_slot(self.profile,required=True)
+
+    def test_legacy_numeric_proof_is_completed_only_when_live_result_matches_registered_store(self):
+        sl = self.server.sl
+        sl.mark_auth_slot(self.profile,'556',job_id=self.job.id)
+        sl.save_registry({'profiles':{self.profile:{**self.identity,'lastVerifiedAt':5}}})
+        old=sl._proof_data()
+        self.assertNotIn('shopId',old['profiles'][self.profile])
+        for changed in ({'shopId':'909'}, {'shopName':'演示店二店'}, {'venderId':'654'}):
+            with self.subTest(changed=changed):
+                self.verify.return_value={**self.identity,**changed}
+                result=sl.scan_profiles([self.profile],self.verify)
+                self.assertEqual(result[self.profile]['error'],'credential_isolation')
+                self.assertEqual(sl._proof_data(),old)
+                self.assertEqual(sl.load_registry()['profiles'][self.profile]['shopId'],'808')
+        self.verify.return_value=self.identity
+        self.assertEqual(sl.scan_profiles([self.profile],self.verify)[self.profile]['identity'],self.identity)
+        proof=sl._proof_data()['profiles'][self.profile]
+        self.assertEqual((proof['shopId'],proof['officialShopName'],proof['status']),('808','演示店','verified'))
+
+    def test_no_new_shop_binding_from_incomplete_official_identity(self):
+        self.status['credentialStore']['tokenCredentialAccount']=self.account.removesuffix('default')+'556'
+        self.status['profile']['venderId']='556'
+        self.verify.return_value={**self.identity,'shopId':''}
+        self.monitor(self.login)
+        self.assertEqual(self.job.error_kind,'native_receipt_pending')
+        self.assertTrue(self.server.sl._proof_data()['profiles'][self.profile]['nativeCompleted'])
+        self.assertNotIn(self.profile,self.server.sl.load_registry()['profiles'])
 
     def test_default_slot_remains_in_place_and_subsequent_reads_check_scope_and_both_ids(self):
         fresh = {**self.login,'alreadyAuthorized':False,'reusedAuthorization':False,

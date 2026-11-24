@@ -308,20 +308,25 @@ def mark_auth_native_completed(profile, job_id, native_job_id, *, default_slot_n
         write_json(linker_home()/'authorization-proof.json',data)
 
 
-def mark_auth_slot(profile, vender_id, *, profile_default_scope='', shop_id='', job_id=None):
+def mark_auth_slot(profile, vender_id, *, profile_default_scope='', shop_id='', official_name='', job_id=None):
     with _proof_lock():
         data = _proof_data()
         proof = data['profiles'].get(profile)
         if (not proof or proof.get('status') == 'rejected' or proof.get('venderId') not in ('', str(vender_id))
                 or (job_id is not None and proof.get('jobId') != job_id)):
             raise VerifyError('credential_isolation', '凭据槽证明与本任务不符，未登记。')
-        if profile_default_scope and (not re.fullmatch(r'[0-9a-f]{16}', profile_default_scope)
-                or not str(shop_id).isascii() or not str(shop_id).isdigit()):
+        if ((profile_default_scope and not re.fullmatch(r'[0-9a-f]{16}', profile_default_scope)) or
+                ((shop_id or official_name or profile_default_scope) and
+                 (not str(shop_id).isascii() or not str(shop_id).isdigit() or not official_name)) or
+                (shop_id and proof.get('shopId') and str(shop_id) != str(proof['shopId'])) or
+                (official_name and proof.get('officialShopName') and official_name != proof['officialShopName'])):
             raise VerifyError('credential_isolation', '原 Profile 的店铺 ID 或范围证明不完整。')
         proof.update(venderId=str(vender_id), slotVerified=True)
+        if shop_id:
+            proof.update(shopId=str(shop_id), officialShopName=official_name)
         if profile_default_scope:
             proof.update(slotKind='profile-default', profileDefaultScope=profile_default_scope,
-                         originalCliHome=str(jdo_home().resolve()), shopId=str(shop_id))
+                         originalCliHome=str(jdo_home().resolve()))
         write_json(linker_home() / 'authorization-proof.json', data)
 
 
@@ -354,33 +359,59 @@ def _check_profile_default(profile, proof):
             raise VerifyError('credential_isolation', str(exc)) from None
 
 
+def assert_registered_identity(profile, identity):
+    path = registry_path()
+    if not path.exists():
+        return
+    registry = read_json(path)
+    if not isinstance(registry,dict) or not isinstance(registry.get('profiles'),dict):
+        raise VerifyError('credential_isolation','原店铺登记不能读取，未覆盖。')
+    registered = registry['profiles'].get(profile) or {}
+    if not isinstance(registered,dict):
+        raise VerifyError('credential_isolation','原 Profile 的店铺登记不能读取，未覆盖。')
+    for key in ('shopId','venderId','shopName'):
+        if key == 'shopName' and not (registered.get('lastVerifiedAt') or registered.get('shopId')):
+            continue  # Initial profiles can carry the merchant's working name.
+        if registered.get(key) and str(registered[key]) != str(identity.get(key) or ''):
+            raise VerifyError('credential_isolation', '官方核店与原 Profile 的已登记身份不一致。')
+
+
+def _assert_proof_identity(proof, identity):
+    shop_id = str(identity.get('shopId') or '')
+    name = identity.get('shopName') or ''
+    if (proof.get('status') == 'rejected' or proof.get('slotVerified') is not True or
+            not shop_id.isascii() or not shop_id.isdigit() or not name or
+            str(identity.get('venderId') or '') != proof.get('venderId') or
+            (proof.get('shopId') and shop_id != str(proof['shopId'])) or
+            (proof.get('officialShopName') and name != proof['officialShopName']) or
+            (proof.get('exactShopName') and name != proof.get('shopName')) or
+            (proof.get('shopName') and not name_matches(proof['shopName'], [name]))):
+        raise VerifyError('credential_isolation', '当前官方核店的商家 ID、店铺 ID 或店名与原授权证明不符。')
+
+
 def assert_profile_proof(profile, identity):
+    assert_registered_identity(profile, identity)
     proof = _proof_data()['profiles'].get(profile)
     if proof is None:
         return
     _check_profile_default(profile, proof)
-    if proof.get('slotKind') == 'profile-default' and str(identity.get('shopId') or '') != proof.get('shopId'):
-        raise VerifyError('credential_isolation', '原 Profile 当前返回的店铺 ID 与登记时不同。')
-    valid = (proof.get('status') != 'rejected' and proof.get('slotVerified') is True and
-             str(identity.get('venderId') or '') == proof.get('venderId') and
-             (not proof.get('shopName') or name_matches(proof['shopName'], [identity.get('shopName', '')])))
-    if not valid:
-        raise VerifyError('credential_isolation', '任务凭据槽或目标身份未核实，不能登记 ready。')
-    if proof.get('status') == 'verified':
+    _assert_proof_identity(proof, identity)
+    if proof.get('status') == 'verified' and proof.get('shopId') and proof.get('officialShopName'):
         return
+    if not proof.get('shopId') and proof.get('nativeCompleted'):
+        # A crash can leave just the native receipt and numeric slot on disk.
+        # Both confirmations must come from this original profile before completing it.
+        repeated = verify_profile(profile)
+        if any(str(identity.get(k) or '') != str(repeated.get(k) or '') for k in ('shopId','venderId','shopName')):
+            raise VerifyError('credential_isolation', '原 Profile 的两次官方核店身份不一致。')
     with _proof_lock():
         data = _proof_data()
-        proof = data['profiles'].get(profile)
-        if proof is None:
-            return
-        if proof.get('status') == 'rejected' or proof.get('slotVerified') is not True:
-            raise VerifyError('credential_isolation', '任务凭据槽未核实或已拒绝，不能登记 ready。')
-        if (str(identity.get('venderId') or '') != proof.get('venderId') or
-                proof.get('shopName') and not name_matches(proof['shopName'], [identity.get('shopName', '')])):
-            raise VerifyError('credential_isolation', '任务身份与官方凭据槽证明不符，不能登记。')
-        if proof.get('status') != 'verified':
-            proof['status'] = 'verified'
-            write_json(linker_home() / 'authorization-proof.json', data)
+        current = data['profiles'].get(profile)
+        if not current or current.get('jobId') != proof.get('jobId'):
+            raise VerifyError('credential_isolation', '核验期间原授权任务已变化。')
+        _assert_proof_identity(current, identity)
+        current.update(status='verified', shopId=str(identity['shopId']), officialShopName=identity['shopName'])
+        write_json(linker_home() / 'authorization-proof.json', data)
 
 
 # ---------------------------------------------------------------- 名称归一

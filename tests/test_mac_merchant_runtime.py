@@ -93,3 +93,10 @@ class MerchantMacRuntimeTests(unittest.TestCase):
             self.assertEqual(public_cli_check(client)['reason'], 'public-receipt-unverified')
         with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', 'semctl: operation not permitted')):
             self.assertEqual(public_cli_check(client)['reason'], 'local-execution-permission')
+        error = json.dumps({'networkError': "[Errno 2] No such file or directory: '/private/test/opt/certifi/cacert.pem'"})
+        with patch('subprocess.run', side_effect=[subprocess.CompletedProcess([], 0, 'help', ''),
+                                                  subprocess.CompletedProcess([], 2, error, '')]):
+            failure = public_cli_check(client)
+        self.assertEqual((failure['stage'], failure['errno'], failure['resourceNamedByCli']),
+                         ('public-https', 2, 'certifi/cacert.pem'))
+        self.assertNotIn('/private', json.dumps(failure))
