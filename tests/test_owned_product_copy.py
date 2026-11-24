@@ -34,8 +34,8 @@ def sample(target=False):
     return {'productInfo':{'productId':pid,'productName':'合成阅读灯','brandInfo':{'brandId':12},'itemNum':'L-008',
                            'categoryDetail':{'lastCategoryId':800},'goodsAttrInfos':[],'length':210,'wide':120,
                            'height':80,'weight':'.52','packSpecification':'',
-                           'productDetailDesc':{'desc':'<p>使用说明<img src="detail1"><img src="detail2"></p>',
-                                                'mobileDesc':'<p><img data-src="mobile1"></p>'}},
+                           'productDetailDesc':{'desc':'<p>使用说明<img src="https://img10.360buyimg.com/imgzone/jfs/detail1"><img src="https://img10.360buyimg.com/imgzone/jfs/detail2"></p>',
+                                                'mobileDesc':'<p><img data-src="https://img10.360buyimg.com/imgzone/jfs/mobile1"></p>'}},
             'skuList':list(reversed(rows)) if target else rows,
             'material':{'mainImages':groups,'rectangleImages':[],'ggtImages':specs}}
 
@@ -66,8 +66,9 @@ class OwnedProductCopyTests(unittest.TestCase):
             path=self.root/f'source-{index}'
             path.write_bytes(b'original-image-'+str(index).encode())
             digest=file_sha(path)
+            uploaded='jfs/dst-'+url.rsplit('/',1)[-1] if '/jfs/' in url else 'dst-'+url
             images.append({'sourceUrl':url,'sourceFile':str(path),'sourceSha256':digest,'uploadReceipt':{
-                'shopIdentity':TARGET,'status':'accepted','sha256':digest,'imgUrl':'dst-'+url}})
+                'shopIdentity':TARGET,'status':'accepted','sha256':digest,'imgUrl':uploaded}})
         return {'sourceShop':SOURCE,'targetShop':TARGET,'sourceProductId':'701','images':images}
 
     def test_official_sku_ids_may_change_while_merchant_codes_gallery_group_ownership_and_order_match(self):
@@ -117,9 +118,25 @@ class OwnedProductCopyTests(unittest.TestCase):
         pc,mobile=(props(d)['desc'] for d in top['WareEditor'])
         self.assertIn('使用说明',pc)
         self.assertLess(pc.index('dst-detail1'),pc.index('dst-detail2'))
-        self.assertIn('dst-mobile1',mobile)
+        self.assertIn('src="https://img10.360buyimg.com/imgzone/jfs/dst-detail1"',pc)
+        self.assertIn('data-src="https://img10.360buyimg.com/imgzone/jfs/dst-mobile1"',mobile)
         self.assertNotIn('detail2',mobile)
         self.assertEqual(len([x for x in draft['followUp'] if isinstance(x,dict)]),2)
+
+    def test_detail_readback_accepts_only_the_proven_image_url_rendition(self):
+        media=self.evidence()
+        desc=self.target['productInfo']['productDetailDesc']
+        desc['desc']=desc['desc'].replace('/jfs/detail','/jfs/dst-detail')
+        desc['mobileDesc']=desc['mobileDesc'].replace('/jfs/mobile','/jfs/dst-mobile')
+        self.assertEqual(self.compare(media_evidence=media)['status'],'verified')
+        original=desc['mobileDesc']
+        for replacement in ('https://img10.360buyimg.com/n0/', 'https://img10.360buyimg.com/n12/',
+                            'https://img10.360buyimg.com.spoof.invalid/imgzone/', ''):
+            with self.subTest(replacement=replacement):
+                desc['mobileDesc']=original.replace('https://img10.360buyimg.com/imgzone/',replacement)
+                check=next(c for c in self.compare(media_evidence=media)['checks']
+                           if c['field']=='details.mobileDesc.images[1]')
+                self.assertNotEqual(check['status'],'verified')
 
     def test_original_bytes_and_target_identity_are_required_for_changed_media_urls(self):
         self.target['material']['mainImages'][0]['imageInfoList'][0]['imgUrl']='dst-shared'

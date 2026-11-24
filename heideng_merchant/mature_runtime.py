@@ -13,7 +13,7 @@ ROUTES = {
     'listing': ('listing', 'scripts/jd_product_pipeline.py'),
     'photo-listing': ('listing', 'scripts/photo_listing.py'),
     'link-replica': ('listing', 'scripts/hot_replica_publish.py'),
-    'shop-copy': ('listing', 'scripts/owned_shop_copy.py'),
+    'shop-copy': ('listing', 'scripts/jd_product_pipeline.py'),
     'video-handoff': ('video', 'scripts/local_handoff.py'),
     'matrix-listing': ('listing', 'scripts/matrix_listing.py'),
     'images': ('listing', 'scripts/image_patch_update.py'),
@@ -323,6 +323,8 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
     arguments = list(arguments)
     if arguments[:1] == ['--']:
         arguments = arguments[1:]
+    if capability == 'shop-copy' and path.name == 'jd_product_pipeline.py':
+        arguments = ['shop-copy', *arguments]
     if capability=='collection':
         source_path('diagnosis',package_root=root)
         source_path('listing',package_root=root)

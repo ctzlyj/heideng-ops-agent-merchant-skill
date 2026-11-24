@@ -125,12 +125,15 @@ def _owned_copy_tasks(state, shop_id, vender_id, task_id):
             continue
         receipt = safe_join(root,'publication/result.json')
         intent = safe_join(root,'publication/publish-body.submit-state.json')
-        response = read_json(receipt,{}).get('data') or {}
-        target_id = response.get('productId') or record.get('existingTargetId')
+        data = read_json(receipt,{}).get('data')
+        response = data if isinstance(data,dict) else {}
+        saved = read_json(intent,{})
+        target_id = response.get('productId') or saved.get('productId') or record.get('existingTargetId')
+        submitted = any(s.get('productId') or s.get('applyId') for s in (response,saved))
         yield {'kind':'shop-copy','taskId':key,'goal':'自家两店复制商品','taskDirectory':str(root),
                'shopIdentity':record['targetShop'],'sourceShop':record['sourceShop'],'sourceProductId':record['sourceProductId'],
                'productId':str(target_id) if target_id else None,
-               'state':'submitted' if response.get('productId') or response.get('applyId') else
+               'state':'submitted' if submitted else
                        'needs-reconciliation' if intent.exists() else 'existing-target' if target_id else 'local-plan',
                'originalScope':str(source_path), 'updatedAt':max(p.stat().st_mtime for p in (index,receipt,intent) if p.is_file()),
                'nextAction':'从所属目标店和原 taskId 继续；已有目标或未决提交时先只读对账。'}

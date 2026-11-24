@@ -24,7 +24,7 @@ class ShopCopyEntryTests(unittest.TestCase):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.enterContext(patch.dict(os.environ, {'HEIDENG_MERCHANT_HOME':str(self.root)}))
         self.enterContext(patch.object(sys,'path',[str(ROOT/'mature/listing/scripts'),*sys.path]))
-        import owned_shop_copy as entry
+        from heideng_merchant import shop_copy_command as entry
         self.entry = entry
         api = entry.api
         self.enterContext(patch.object(api,'_ACTIVE_JDO_PROFILE',None))
@@ -103,7 +103,7 @@ class ShopCopyEntryTests(unittest.TestCase):
         self.assertEqual(frozen['gallerySlots'],{'0000000000':2,'sourcegroup1':3,'sourcegroup2':3})
         self.assertEqual(frozen['sourceExampleSkuUrl'],'https://item.jd.com/201.html')
         task=['--task',frozen['taskId']]
-        self.assertEqual(self.call('prepare',*task)['status'],'needs-evidence')
+        self.assertEqual(self.call('prepare',*task,ok=False)['status'],'needs-evidence')
         self.upload.assert_not_called()
         self.call('stage-media',*task,'--confirm','UPLOAD_COPY_MEDIA')
         count=self.upload.call_count
@@ -142,8 +142,8 @@ class ShopCopyEntryTests(unittest.TestCase):
         self.assertEqual(self.requests,[])
         self.source['productInfo']['logisticsInfo']['promiseId'] = 12
         self.lose_reply=True
-        self.assertEqual(self.call('submit-one',*args)['status'],'submission-needs-reconciliation')
-        self.assertEqual(self.call('submit-one',*args)['status'],'submission-needs-reconciliation')
+        self.assertEqual(self.call('submit-one',*args,ok=False)['status'],'submission-needs-reconciliation')
+        self.assertEqual(self.call('submit-one',*args,ok=False)['status'],'submission-needs-reconciliation')
         self.assertEqual(len(self.requests),2)
         from heideng_merchant.merchant_tasks import task_context
         ctx = task_context(self.root,TARGET['shopId'],TARGET['venderId'],goal='shop-copy',source_product_id='701')
@@ -156,7 +156,7 @@ class ShopCopyEntryTests(unittest.TestCase):
         args=['--task',frozen['taskId'],'--confirm','UPLOAD_COPY_MEDIA']
         self.upload.side_effect=TimeoutError('upload response missing')
         self.call('stage-media',*args,ok=False)
-        self.assertEqual(self.call('stage-media',*args)['status'],'upload-needs-reconciliation')
+        self.assertEqual(self.call('stage-media',*args,ok=False)['status'],'upload-needs-reconciliation')
         self.assertEqual(self.upload.call_count,1)
 
     def test_inventory_requires_complete_pagination_and_never_submits(self):
@@ -166,7 +166,7 @@ class ShopCopyEntryTests(unittest.TestCase):
         self.assertEqual((result['status'],result['recordedProducts'],result['publishedProducts']),
                          ('inventory-ready',2,0))
         self.pages[2]['data'] = self.pages[1]['data']
-        partial=self.call('inventory',*self.src,'--status','103')
+        partial=self.call('inventory',*self.src,'--status','103',ok=False)
         self.assertEqual((partial['status'],partial['recordedProducts']),('partial-inventory',1))
         self.assertEqual(self.requests,[])
         self.upload.assert_not_called()
@@ -182,8 +182,12 @@ class ShopCopyEntryTests(unittest.TestCase):
 
     def test_missing_official_validation_success_never_creates(self):
         task,plan=self.make_pilot()
-        with patch.object(self.entry.api,'run_jdo_large',return_value={'data':{}}) as calls:
-            result=self.call('submit-one',*task,*self.src,'--approval',plan['approvalFingerprint'],
-                             '--confirm','PUBLISH_ONE_COPY')
-        self.assertEqual(result['status'],'validation-needs-review')
-        self.assertEqual([v.kwargs['url'] for v in calls.call_args_list],['/rest/sp-product/v0/product-schemas/validations'])
+        for response in ({'data':{}}, {'success':True,'data':{'valid':False,'wareKeeperDetectResultList':[]}},
+                         {'success':True,'errorList':[{'code':'refused'}],'data':{}},
+                         {'success':True,'data':{'wareKeeperDetectResultList':[{'detectResult':1}]}}):
+            with self.subTest(response=response), patch.object(self.entry.api,'run_jdo_large',return_value=response) as calls:
+                result=self.call('submit-one',*task,*self.src,'--approval',plan['approvalFingerprint'],
+                                 '--confirm','PUBLISH_ONE_COPY',ok=False)
+                self.assertEqual(result['status'],'validation-needs-review')
+                self.assertEqual([v.kwargs['url'] for v in calls.call_args_list],
+                                 ['/rest/sp-product/v0/product-schemas/validations'])

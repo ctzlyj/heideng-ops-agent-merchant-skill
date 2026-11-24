@@ -365,10 +365,16 @@ def prepare(folder, frozen, target, args):
 def publication_state(root, task):
     body_dir = root/'publication'
     result = read_json(body_dir/'result.json', {}) or {}
-    data = result.get('data') or {}
-    status = ('submitted' if data.get('productId') or data.get('applyId') else 'submission-needs-reconciliation'
-              if (body_dir/'publish-body.submit-state.json').exists() else 'not-submitted')
-    target_id = data.get('productId')
+    data = result.get('data') if isinstance(result.get('data'),dict) else {}
+    marker = body_dir/'publish-body.submit-state.json'
+    saved = read_json(marker,{})
+    for key in ('productId','applyId'):
+        if data.get(key) and saved.get(key) and str(data[key]) != str(saved[key]):
+            raise ValueError('原申请回执与提交记录中的商品或申请编号不一致')
+    target_id = data.get('productId') or saved.get('productId')
+    apply_id = data.get('applyId') or saved.get('applyId')
+    status = ('submitted' if target_id or apply_id else
+              'submission-needs-reconciliation' if marker.exists() else 'not-submitted')
     pointer = read_json(root/'current.json',{})
     bound = pointer.get('existingTargetId')
     if bound is not None:
@@ -376,9 +382,28 @@ def publication_state(root, task):
             raise ValueError('已有目标与任务提交记录不一致，请核对原样品')
         status, target_id = 'existing-target-for-comparison', bound
     return {'status':status,
-            'taskId':task,'targetProductId':target_id,'applyId':data.get('applyId'),
+            'taskId':task,'targetProductId':target_id,'applyId':apply_id,
             'followUp':read_json(body_dir/'follow-up.json',[]),
             'receiptDirectory':str(body_dir),'consumerPageStatus':'unchecked','replayed':False}
+
+
+def validation_passed(response):
+    if not isinstance(response,dict) or response.get('success') is not True or not isinstance(response.get('data'),dict):
+        return False
+    data = response['data']
+    for level in (response,data):
+        if level.get('errorList') or ('code' in level and level['code'] not in (0,'0',200,'200','SUCCESS')):
+            return False
+        if any(k in level and level[k] is not True for k in ('valid','success','ok','passed','allowPublish')):
+            return False
+        if 'status' in level and str(level['status']).lower() not in ('ok','success'):
+            return False
+    if not data:
+        return True  # Documented clean validation can have an empty data object.
+    if set(data) - {'wareKeeperDetectResultList','success','valid','passed','allowPublish','ok','status','code','errorList','message'}:
+        return False
+    findings = data.get('wareKeeperDetectResultList')
+    return isinstance(findings,list) and all(isinstance(row,dict) and str(row.get('detectResult'))=='0' for row in findings)
 
 
 def submit_one(root, folder, frozen, target, args):
@@ -425,8 +450,7 @@ def submit_one(root, folder, frozen, target, args):
     with redirect_stdout(io.StringIO()):
         rc = api.command_validate_jd(argparse.Namespace(body=out/'validation-body.json',output=out/'validation-result.json'))
     response = read_json(out/'validation-result.json') or {}
-    if (rc or response.get('success') is not True or not isinstance(response.get('data'),dict)
-            or (response['data'] and not isinstance(response['data'].get('wareKeeperDetectResultList'),list))):
+    if rc or not validation_passed(response):
         return {'status':'validation-needs-review','receipt':str(out/'validation-result.json'),'publishedProducts':0}
     atomic_json(out/'publish-body.json',body)
     atomic_json(out/'follow-up.json',fresh.get('followUp',[]))
@@ -468,7 +492,9 @@ def compare(root, folder, frozen, target, args):
             if report['status']=='verified':
                 report['status']='needs-evidence'
     info = detail['productInfo']
+    source_info = frozen['sourceDetail']['productInfo']
     report.update(sourceProductId=frozen['sourceProductId'],targetProductId=pid,
+                  sourcePlatformStatus={k:source_info[k] for k in ('productStatus','productStatusNew') if k in source_info},
                   platformStatus={k:info[k] for k in ('productStatus','productStatusNew') if k in info},
                   readbackView='application' if args.apply_id else 'product',
                   consumerPageStatus='unchecked',readGaps=gaps)
@@ -486,7 +512,7 @@ def compare(root, folder, frozen, target, args):
         if c.get('status') == 'different':
             mismatches.append({'field':c['field'],'source':str(c.get('source',c.get('sourceValue')))[:120],
                                'target':str(c.get('target',c.get('targetValue')))[:120]})
-    return {k:report[k] for k in ('status','sourceProductId','targetProductId','platformStatus','readbackView',
+    return {k:report[k] for k in ('status','sourceProductId','targetProductId','sourcePlatformStatus','platformStatus','readbackView',
                                   'consumerPageStatus','packagingListStatus','bulkAuthorized','readGaps')} | {
             'checkCounts':counts,'skuLinkCount':len(report['skuLinks']),'skuLinks':report['skuLinks'][:3],
             'unresolvedFields':[c['field'] for c in checks if c.get('status')!='verified'][:12],
@@ -552,12 +578,17 @@ def main(argv=None):
                             result['comparison'] = {'status':'awaiting-readback','nextAction':'从原复制任务只读对账。'}
                 else:
                     result = compare(root, folder, frozen, target, args)
+        result['ok'] = result['status'] in ('inventory-ready','local-plan','media-ready','local-draft-ready',
+                                             'pilot-prepared','submitted','existing-target-for-comparison',
+                                             'compared-fields-match')
+        if result['status'] in ('submission-needs-reconciliation','upload-needs-reconciliation'):
+            result['retryAllowed'] = False
         print(json.dumps(result,ensure_ascii=False))
-        return 0
+        return 0 if result['ok'] else 2
     except api.JdoError:
         print(json.dumps({'status':'needs-platform-receipt','message':'官方店铺请求未完成，请保留本任务并核对原回执。'},ensure_ascii=False))
         return 2
-    except (KeyError, ValueError, OSError) as error:
+    except (KeyError, TypeError, ValueError, OSError) as error:
         from heideng_merchant.safety import redact
         print(json.dumps({'status':'blocked','message':redact(str(error))},ensure_ascii=False))
         return 2

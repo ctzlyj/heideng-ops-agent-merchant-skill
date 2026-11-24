@@ -352,6 +352,32 @@ def _images(checks,field,source,target,media):
         _check(checks,f'{field}[{pos}]',old,new,status=state)
 
 
+def _detail_url(value):
+    # Material-centre keys are valid component values, but HTML resolves them
+    # relative to the product page. Use the same official imgzone rendering as
+    # the existing publisher. Absolute CDN renditions keep their exact paths.
+    from .sample_comparison import jd_image_url
+    if isinstance(value,str) and value.startswith('//'):
+        value='https:'+value
+    return jd_image_url(value)
+
+
+def _compare_detail_images(checks,field,source,target,media):
+    def canonical(value):
+        try:return _detail_url(value)
+        except (TypeError,ValueError):return None
+    approved={}
+    for old,values in media.items():
+        key=canonical(old)
+        if key:
+            approved.setdefault(key,set()).update(url for value in values if (url:=canonical(value)))
+    want=[canonical(url) for url in source]
+    # A relative key actually stored in the target HTML is not a displayable
+    # image address, even when the target upload receipt contains the same key.
+    actual=[canonical(url) if isinstance(url,str) and url.startswith(('https://','//')) else None for url in target]
+    _images(checks,field,want,actual,approved)
+
+
 def _compare_groups(checks,field,group_key,source,target,pairs,media):
     left,right=source[field],target[field]
     if left is None or right is None:
@@ -413,7 +439,7 @@ def compare_copy(frozen,target_shop,target_detail,*,stock_rows=None,video_rows=N
             continue
         a,b=_Detail(a),_Detail(b)
         _check(checks,label+'.markupAndText',_digest(a.parts),_digest(b.parts))
-        _images(checks,label+'.images',a.images,b.images,media)
+        _compare_detail_images(checks,label+'.images',a.images,b.images,media)
     from .shop_copy_delivery import compare_delivery
     delivery=compare_delivery(frozen['sourceDetail'],target_detail,frozen['sourceShop'],frozen['targetShop'],pairs,delivery_evidence)
     states={c['status'] for c in checks}|{delivery['status']}
@@ -535,7 +561,7 @@ def _prepare_schema(frozen,reference,media,delivery):
         resolved={url:asset(url) for url in parsed.images}
         if any(value is None for value in resolved.values()):continue
         try:
-            value=parsed.remap(resolved)
+            value=parsed.remap({old:_detail_url(new) for old,new in resolved.items()})
         except (ValueError,KeyError) as error:
             missing.append(str(error));continue
         props={'desc':value,'userAgent':channel}

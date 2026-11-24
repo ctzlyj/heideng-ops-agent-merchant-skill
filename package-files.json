@@ -5,6 +5,7 @@
     "heideng_merchant/cli.py",
     "heideng_merchant/shop_locations.py",
     "heideng_merchant/owned_product_copy.py",
+    "heideng_merchant/shop_copy_command.py",
     "heideng_merchant/shop_copy_delivery.py",
     "heideng_merchant/cli_diagnostics.py",
     "heideng_merchant/merchant_tasks.py",
