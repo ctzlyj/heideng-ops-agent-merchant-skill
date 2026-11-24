@@ -112,6 +112,20 @@ class MacLoginReceiptTests(unittest.TestCase):
         self.assertTrue(self.server.sl._proof_data()['profiles'][self.profile]['nativeCompleted'])
         self.assertNotIn(self.profile,self.server.sl.load_registry()['profiles'])
 
+    def test_resume_native_numeric_slot_without_first_identity_rechecks_before_binding(self):
+        sl=self.server.sl
+        sl.mark_auth_native_completed(self.profile,self.job.id,'original')
+        sl.mark_auth_slot(self.profile,'556',job_id=self.job.id)
+        before=sl._proof_data()
+        self.verify.side_effect=[self.identity,{**self.identity,'shopId':'909'}]
+        drift=sl.scan_profiles([self.profile],self.verify)
+        self.assertEqual(drift[self.profile]['error'],'credential_isolation')
+        self.assertEqual(sl._proof_data(),before)
+        self.verify.side_effect=[self.identity,self.identity]
+        self.assertEqual(sl.scan_profiles([self.profile],self.verify)[self.profile]['identity'],self.identity)
+        proof=sl._proof_data()['profiles'][self.profile]
+        self.assertEqual((proof['nativeJobId'],proof['shopId'],proof['status']),('original','808','verified'))
+
     def test_default_slot_remains_in_place_and_subsequent_reads_check_scope_and_both_ids(self):
         fresh = {**self.login,'alreadyAuthorized':False,'reusedAuthorization':False,
                  'authorizeUrlPrinted':True,'authorizationStatus':'logged_in','authorizationStage':'credential_saved',
