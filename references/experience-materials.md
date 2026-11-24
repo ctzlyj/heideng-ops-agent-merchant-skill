@@ -21,6 +21,7 @@
 ## 工具与完成证据
 
 - `run materials -- plan-auto-maintain|auto-maintain|repair-rejected ...`；`run short-title -- deliver-short-titles|validate-short-titles ...`；具体原参数从登记脚本读取。
+- 短标题校验分别说明能否留档、能否直接作为一批提交。自动导入会保留原始工作簿，按每批最多 5,000 条和实际 XLSX 不超过 5 MiB 准备提交文件。只有平台失败明细中可核对、且已修正的行才进入一次返修，同样逐批提交。某批结果未知时先查原回执。商家无需手工拆表或重传整表。
 - 自动导入来自 [pop_workflow](../mature/materials/scripts/pop_workflow.py)、[pop_browser](../mature/materials/scripts/pop_browser.py)，不是旧builtin。
 - 完成证据分别是实际维护范围、上传/绑定响应、平台审核/health读回、短标题导入任务成功失败数。状态可能为 awaiting-review/unknown，不能一概报全部完成。
 

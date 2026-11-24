@@ -37,7 +37,8 @@ VARIANT_ID = 'merchant-pop-mature'
 SKILL_VERSION = '2026.11.207'
 MAX_SPUS_PER_BATCH = 199
 MAX_SPU_CONCURRENCY = 50
-POP_SHORT_TITLE_MAX_ROWS = 10000
+from pop_title_batches import ARCHIVE_MAX_ROWS, import_limits
+POP_SHORT_TITLE_MAX_ROWS = ARCHIVE_MAX_ROWS
 AUTO_MAINTAIN_PLAN_NAME = '自动维护计划.json'
 MANUAL_VERIFICATION_MESSAGE = '京麦素材已提交；审核中不等于通过。短标题以独立导入任务回执与平台回读为准，导出表只用于留档。'
 JDO_CLI_DEFAULT = Path(os.environ['JDO_HOME']) / 'bin' / ('jdo-cli.exe' if os.name == 'nt' else 'jdo-cli') if os.environ.get('JDO_HOME') else Path.cwd() / '.missing-merchant-cli'
@@ -3999,7 +4000,7 @@ def _short_title_workbook_bytes(rows):
                 merged.writestr(entry, updated.encode('utf-8') if entry.filename == name else archive.read(entry.filename))
         return output.getvalue()
 
-def validate_short_title_workbook(path):
+def inspect_short_title_workbook(path):
     path = Path(path).resolve()
     content = path.read_bytes()
     template = Path(__file__).resolve().parents[1] / 'assets' / '商品导入短标题模板.xlsx'
@@ -4007,32 +4008,52 @@ def validate_short_title_workbook(path):
         headers = list(workbook['Sheet1'].iter_rows(min_row=1, max_row=2, max_col=2, values_only=True))
     invalid = []
     identifiers = set()
+    rows = []
     row_count = 0
     with closing(load_workbook(BytesIO(content), read_only=True, data_only=False)) as workbook:
         if workbook.sheetnames != ['Sheet1']:
             raise ValueError('not the official POP short-title upload worksheet')
         sheet = workbook['Sheet1']
-        if list(sheet.iter_rows(min_row=1, max_row=2, max_col=2, values_only=True)) != headers:
+        sheet.reset_dimensions()
+        header_rows = list(sheet.iter_rows(min_row=1, max_row=2, values_only=True))
+        if ([(row+(None,None))[:2] for row in header_rows] != headers
+                or any(value is not None for row in header_rows for value in row[2:])):
             raise ValueError('official POP short-title upload headers or instructions changed')
-        for row_number, row in enumerate(sheet.iter_rows(min_row=3, values_only=True), 3):
+        for row_number, cells in enumerate(sheet.iter_rows(min_row=3), 3):
+            row = tuple(cell.value for cell in cells)
             if all(value is None for value in row):
                 continue
             row_count += 1
             sku_id = cell_text(row[0])
             title = row[1] if len(row) > 1 else None
             reasons = []
-            if not isinstance(row[0], str) or not sku_id.isascii() or not sku_id.isdigit():
+            if not isinstance(row[0], str) or row[0] != sku_id or not sku_id.isascii() or not sku_id.isdigit():
                 reasons.append('SKU must be exact numeric text')
             if sku_id in identifiers:
                 reasons.append('duplicate SKU')
             identifiers.add(sku_id)
             if not isinstance(title, str) or not valid_short_title(title):
                 reasons.append('short-title length must be 16-30; Han=2, all other characters=1')
+            if any(cell.data_type in ('f','e') for cell in cells[:2]):
+                reasons.append('SKU and short title must be literal text')
             if any(value is not None for value in row[2:]):
                 reasons.append('unexpected extra columns')
             if reasons:
                 invalid.append({'row': row_number, 'skuId': sku_id, 'shortTitle': title, 'length': weighted_length(title), 'reasons': reasons})
-    return {'path': str(path), 'sha256': hashlib.sha256(content).hexdigest(), 'valid': bool(row_count) and row_count <= POP_SHORT_TITLE_MAX_ROWS and not invalid, 'rowCount': row_count, 'uniqueSkuCount': len(identifiers), 'rowLimit': POP_SHORT_TITLE_MAX_ROWS, 'invalidRows': invalid, 'lengthRule': '16-30; Han=2, all other characters=1', 'platformImportPerformed': False}
+            else:
+                rows.append((sku_id,title))
+    content_valid = bool(row_count) and not invalid
+    report = {'path': str(path), 'sha256': hashlib.sha256(content).hexdigest(),
+              'valid': content_valid and row_count <= POP_SHORT_TITLE_MAX_ROWS, 'contentValid': content_valid,
+              'rowCount': row_count, 'uniqueSkuCount': len(identifiers), 'rowLimit': POP_SHORT_TITLE_MAX_ROWS,
+              'invalidRows': invalid, 'lengthRule': '16-30; Han=2, all other characters=1', 'platformImportPerformed': False,
+              **import_limits(row_count,len(content),content_valid)}
+    return report,rows
+
+
+def validate_short_title_workbook(path):
+    report,_ = inspect_short_title_workbook(path)
+    return report
 
 def export_short_title_delivery(runs, output_dir, *, shop_name):
     output = Path(output_dir).resolve()
@@ -4114,13 +4135,26 @@ def export_short_title_delivery(runs, output_dir, *, shop_name):
             with path.open('xb') as stream:
                 stream.write(content)
     files = [str(path) for path, _ in planned_files]
+    file_reports = []
     for path in files:
-        if not validate_short_title_workbook(path)['valid']:
+        validation = validate_short_title_workbook(path)
+        if not validation['valid']:
             raise ValueError('final short-title workbook validation failed; do not deliver this file')
+        file_reports.append({'path':path, 'sha256':validation['sha256'], 'bytes':validation['byteCount'],
+                             'rowCount':validation['rowCount'], 'validForSingleImport':validation['validForSingleImport'],
+                             'splitReasons':validation['splitReasons']})
+    requires_batching = len(files) > 1 or any(not report['validForSingleImport'] for report in file_reports)
     message = '短标题表已生成；离线导出不证明已导入，请由自动导入流程核对任务回执：\n' + '\n'.join(files) if files else '没有可交付的短标题文件；缺失SKU保持待处理。'
+    if requires_batching:
+        message += '\n留档已生成，需按平台单批行数、文件字节上限分批导入。'
     if missing:
         message += f'\n另有{len(missing)}个计划SKU缺少短标题，不计为完成。'
-    result = {'status': 'partial-titles' if missing else 'ready-for-import' if rows else 'no-titles', 'shortTitleFiles': files, 'rowCount': len(rows), 'plannedRowCount': len(expected), 'missingSkuIds': missing, 'splitReason': '官方POP短标题模板每份最多10000行' if len(groups) > 1 else None, 'deliveryMessage': message, 'manualImportRequired': False, 'sources': sources, 'fingerprint': fingerprint, 'files': [{'path': str(path), 'sha256': hashlib.sha256(content).hexdigest(), 'bytes': len(content)} for path, content in planned_files]}
+    status = 'ready-for-batching' if requires_batching else 'ready-for-import'
+    result = {'status': 'partial-titles' if missing else status if rows else 'no-titles',
+              'shortTitleFiles': files, 'rowCount': len(rows), 'plannedRowCount': len(expected), 'missingSkuIds': missing,
+              'validForSingleImport': bool(files and not missing and not requires_batching), 'requiresBatching': requires_batching,
+              'splitReason': '短标题留档每份最多10000行' if len(groups) > 1 else None,
+              'deliveryMessage': message, 'manualImportRequired': False, 'sources': sources, 'fingerprint': fingerprint, 'files': file_reports}
     _save_state(output / '.state' / f'short-title-delivery-{fingerprint}.json', result)
     return result
 
