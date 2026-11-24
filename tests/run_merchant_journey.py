@@ -142,6 +142,21 @@ def run_collection_example(run, target, home, state):
 
 def main():
     if len(sys.argv) == 4:
+        if sys.argv[3] == 'shop-copy':
+            import unittest
+            target=Path(sys.argv[1])
+            sys.path[:0]=[str(target),str(ROOT)]
+            from tests import test_shop_copy_entry as cases
+            from heideng_merchant import owned_product_copy
+            assert Path(owned_product_copy.__file__).resolve().is_relative_to(target)
+            cases.ROOT=target
+            def no_network(*args, **kwargs):
+                raise AssertionError('the two-store fixture attempted a network connection')
+            with patch.object(socket.socket, 'connect', no_network):
+                result=unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromModule(cases))
+            assert result.wasSuccessful()
+            print(json.dumps({'installedTwoStoreScenarios':result.testsRun, 'realShopWrites':0}))
+            return
         execute_stage(Path(sys.argv[1]),Path(sys.argv[2]),sys.argv[3])
         return
     sys.path.insert(0,str(ROOT))
@@ -177,6 +192,8 @@ def main():
         from run_gallery_journey import run_journey
         result['singleSkuPilot'] = run_journey(run,target,home,state)
         result['collectionExampleProducts'] = run_collection_example(run, target, home, state)
+        assert 'submit-one' in run([target/'scripts/merchant.py','--state',state,'run','shop-copy','--','--help'])
+        result['ownedShopCopy'] = json.loads(run([__file__,target,home,'shop-copy']))
         print(json.dumps(result))
 
 

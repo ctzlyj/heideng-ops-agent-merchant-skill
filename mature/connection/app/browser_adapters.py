@@ -169,7 +169,12 @@ def create_browser(config=None):
         return HostBrowser(config)
     if provider == 'builtin':
         identity=config.get('shopIdentity') or {}
-        return _BUILTIN_FACTORY(identity)
+        browser = _BUILTIN_FACTORY(identity)
+        if 'channel' in config:
+            if config['channel'] not in ('chrome','msedge','chromium'):
+                raise BrowserError('configuration')
+            browser.requested_channel = config['channel']
+        return browser
     if provider == "playwright":
         return PlaywrightBrowser(config)
     raise BrowserError("configuration")
@@ -180,10 +185,11 @@ class BuiltinBrowser:
     def __init__(self,shop_identity=None):
         from heideng_merchant.host_connection_controller import HostConnectionController
         self.controller=HostConnectionController(shop_identity=shop_identity)
+        self.requested_channel=None
         self.profile_directory=None;self.profile_channel=None;self.profile_channel_reason=None;self._context_id=None;self._closed=False;self._oauth_confirm_handled=False
     def prepare_launch(self):
         try:
-            self.controller._launch()
+            self.controller._launch(self.requested_channel)
         finally:
             self.profile_channel = self.controller.channel
             self.profile_channel_reason = self.controller.channel_reason

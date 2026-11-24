@@ -30,6 +30,9 @@ with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'HEIDENG_MERCHANT
         controller.check_workspace_after_login()
         observation=controller._observe()
         assert observation['loggedIn'] and observation['identity']=={'shopName':'fixture-shop'}
+        login.locator('.shop-menu-accountV1__right-account-top-name').evaluate(
+            "(el) => {el.setAttribute('data-shop-id','303'); el.setAttribute('data-vender-id','101')}")
+        assert controller._observe()['identity']=={'shopName':'fixture-shop','shopId':'303','venderId':'101'}
         assert context.pages==[login]
         assert controller.page.url.startswith('https://shop.jd.com/')
         assert set(seen)=={'https://passport.shop.jd.com/login/index.action','https://shop.jd.com/jdm/home'}

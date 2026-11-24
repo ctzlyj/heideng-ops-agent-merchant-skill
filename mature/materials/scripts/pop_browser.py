@@ -12,7 +12,7 @@ import hashlib
 import time
 import uuid
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 from pathlib import Path
 
 WARE_LIST_URL = 'https://wares-jdm.jd.com/ware/wareList?activeTab=OnsaleWare&businessModel=0'
@@ -134,25 +134,108 @@ def recover_import_task(rows,filename,created_at):
         if len(ids)==1:found.add(ids[0])
     return next(iter(found)) if len(found)==1 else None
 
+def _official_host(url, hosts):
+    try:
+        parsed = urlsplit(url)
+        return (parsed.scheme == 'https' and not parsed.username and not parsed.password
+                and parsed.port in (None,443) and parsed.hostname in hosts)
+    except (TypeError,ValueError):
+        return False
+
+
+def _identity_method(url):
+    if not _official_host(url, {'api.m.jd.com','sff.jd.com','wares-jdm.jd.com','jingmai.jd.com'}):
+        return None
+    parsed = urlsplit(url)
+    query = parse_qs(parsed.query)
+    # On the JD RPC transport, method identifies the operation; functionId may
+    # separately identify the gateway. Never match arbitrary query parameter values.
+    identifiers = query.get('method',[]) or query.get('functionId',[])
+    if identifiers and parsed.path not in ('/api', '/api/', '/'):
+        return None
+    if not identifiers:
+        identifiers = [parsed.path.rstrip('/').rsplit('/',1)[-1]]
+    if len(identifiers) != 1:
+        return None
+    method = identifiers[0]
+    if method == 'gmall.vender.data.get':
+        return 'vendor-identity'
+    if any(part in ('VenderIdentityViewService','LoginFacadeService') for part in method.split('.')):
+        return 'current-shop-envelope'
+    return None
+
+
+def _current_shop_pair(payload, method):
+    if not isinstance(payload,dict) or payload.get('success') is False or payload.get('code',200) not in (200,'200',0,'0'):
+        return None
+    body = payload.get('data',payload)
+    if not isinstance(body,dict):
+        return None
+    # Explicit current identity objects only. A product row or a member of a shops list
+    # can describe a different store and cannot establish the active account.
+    records = [body.get('currentShop'),body.get('currentShopInfo')]
+    if method == 'vendor-identity':
+        records.extend([body,body.get('shopBaseInfo')])
+    pairs = set()
+    for item in records:
+        if not isinstance(item,dict) or 'shopId' not in item or 'shopName' not in item:
+            continue
+        sid, name = item['shopId'], item['shopName']
+        if type(sid) not in (str,int) or not re.fullmatch('[0-9]+',str(sid)) or not isinstance(name,str) or not name:
+            return None
+        pairs.add((str(sid),name))
+    return pairs.pop() if len(pairs) == 1 else None
+
+
+def _has_shop_identity(page, evidence):
+    return (evidence.get('name') is True and evidence.get('id') is True and not evidence.get('conflict')
+            and _official_host(page.url, {'wares-jdm.jd.com'}) and 'login' not in page.url.lower())
+
+
 def _observe_identity(page, expected_shop_name, expected_shop_id):
-    if not expected_shop_name or not expected_shop_id:
+    if not isinstance(expected_shop_name,str) or not expected_shop_name or not re.fullmatch('[0-9]+',str(expected_shop_id)):
         raise ValueError('Explicit expected shop name/id are required before browser writes')
-    evidence = {'name': False, 'id': False}
-    def response(resp):
-        if not any(api in resp.url for api in ('gmall.vender.data.get', 'VenderIdentityViewService', 'LoginFacadeService')):
+    evidence = {'name':False,'id':False,'conflict':False,'document':0}
+    requests = {}
+    sequence = 0
+    def reset(frame):
+        if frame is page.main_frame:
+            evidence.update(name=False,id=False,conflict=False,document=evidence['document']+1)
+            requests.clear()
+    def started(request):
+        nonlocal sequence
+        if request.resource_type not in ('xhr','fetch') or not _identity_method(request.url):
             return
-        def visit(value):
-            if isinstance(value, dict):
-                if value.get('shopName') == expected_shop_name:
-                    evidence['name'] = True
-                for key in ('venderId', 'vendorId', 'shopId'):
-                    if str(value.get(key, '')) == str(expected_shop_id):
-                        evidence['id'] = True
-                for child in value.values(): visit(child)
-            elif isinstance(value, list):
-                for child in value[:50]: visit(child)
-        try: visit(resp.json())
-        except Exception: pass
+        try:
+            if request.frame is not page.main_frame or not _official_host(page.url,{'wares-jdm.jd.com'}):
+                return
+        except Exception:
+            return  # A service-worker request may have no owning page frame.
+        if len(requests) >= 128:
+            requests.clear()
+        sequence += 1
+        evidence.update(name=False,id=False)
+        requests[id(request)] = (request,sequence)
+    def response(resp):
+        request = resp.request
+        owner = requests.pop(id(request),None)
+        if not owner or owner[0] is not request or owner[1] != sequence:
+            return
+        method = _identity_method(resp.url)
+        document = evidence['document']
+        try:
+            if (not method or request.frame is not page.main_frame or not _official_host(page.url,{'wares-jdm.jd.com'})
+                    or resp.status != 200):
+                return
+            pair = _current_shop_pair(resp.json(),method)
+        except Exception:
+            pair = None
+        if document != evidence['document'] or owner[1] != sequence:
+            return
+        matches = pair == (str(expected_shop_id),expected_shop_name)
+        evidence.update(name=matches,id=matches,conflict=evidence['conflict'] or (pair is not None and not matches))
+    page.on('framenavigated',reset)
+    page.on('request',started)
     page.on('response', response)
     return evidence
 
@@ -160,7 +243,7 @@ def _observe_identity(page, expected_shop_name, expected_shop_id):
 def _open_short_titles(page, evidence, wait_ms):
     page.goto(WARE_LIST_URL, wait_until='domcontentloaded', timeout=90000)
     page.wait_for_timeout(wait_ms)
-    if 'login' in page.url.lower() or not evidence['id']:
+    if not _has_shop_identity(page,evidence):
         raise RuntimeError('Target shop browser identity/login could not be verified; no submission')
     page.locator('.batch-dropdown-link').hover()
     with page.expect_response(lambda r: 'batchJobService.queryByPage' in r.url, timeout=20000) as loaded:
@@ -400,6 +483,8 @@ def _visit_title_batch(playwright,profile_dir,path,content,receipt_path,saved,va
         task_id = saved.get('taskId')
         if not saved:
             before = set(re.findall(r'(?<!\d)\d{6,}(?!\d)', '\n'.join(_task_rows(drawer))))
+            if not _has_shop_identity(page,evidence):
+                raise RuntimeError('目标网页身份在导入前已变化，尚未上传。')
             # The page has other upload inputs. Only this drawer owns short-title import.
             saved = {'status':'upload-intent','sha256':validation['sha256'],'rowCount':validation['rowCount'],
                      'byteCount':len(content),'path':str(path),'receiptPath':str(receipt_path),
@@ -423,6 +508,8 @@ def _visit_title_batch(playwright,profile_dir,path,content,receipt_path,saved,va
             saved.update(status='uploaded',uploadSourceHashes=upload_hashes)
             _save_receipt(receipt_path,saved)
             drawer.get_by_text(path.name, exact=True).wait_for(state='visible', timeout=20000)
+            if not _has_shop_identity(page,evidence):
+                return {**saved,'status':'blocked-import','reason':'文件上传后网页身份已变化，未创建导入任务。'}
             saved.update(status='intent', createdAt=int(time.time()))
             _save_receipt(receipt_path, saved)
             try:
@@ -570,6 +657,9 @@ def submit_batch_cutout(profile_dir: str, *, mode: str='sku-white', max_pages: i
                 raise ValueError('Batch receipt already exists; reconcile before retrying')
 
             def guard(route):
+                if not _has_shop_identity(page,evidence):
+                    route.abort()
+                    return
                 request = route.request
                 try:
                     payload = json.loads(request.post_data or '{}')
@@ -607,7 +697,7 @@ def submit_batch_cutout(profile_dir: str, *, mode: str='sku-white', max_pages: i
             page.route('**/*createTask*', guard)
             page.goto(MATERIAL_URL, wait_until='domcontentloaded', timeout=90000)
             page.wait_for_timeout(wait_ms)
-            if not evidence['id'] or 'login' in page.url.lower():
+            if not _has_shop_identity(page,evidence):
                 raise RuntimeError('Target shop browser identity could not be verified')
             for number in range(1, max_pages + 1):
                 if number > 1 and receipt_path and receipt_path.exists():
@@ -714,6 +804,8 @@ def submit_jingmai_repair_batch(profile_dir, spu_skus, mode, *, expected_shop_na
             page.on('response', on_response)
 
             def guard(route):
+                if not _has_shop_identity(page,evidence):
+                    return route.abort()
                 try:
                     payload = json.loads(route.request.post_data or '{}')
                 except ValueError:
@@ -739,9 +831,9 @@ def submit_jingmai_repair_batch(profile_dir, spu_skus, mode, *, expected_shop_na
             page.goto(MATERIAL_URL, wait_until='domcontentloaded', timeout=90000)
             page.wait_for_timeout(wait_ms)
             for _ in range(15):
-                if evidence['id'] or 'login' in page.url.lower():break
+                if _has_shop_identity(page,evidence) or 'login' in page.url.lower():break
                 page.wait_for_timeout(2000)
-            if 'login' in page.url.lower() or not evidence['id']:
+            if not _has_shop_identity(page,evidence):
                 raise RuntimeError('Target shop browser identity/login could not be verified; no submission')
             page.locator('input[placeholder*="多个可"]').first.fill(','.join(spus))
             page.get_by_text('查询', exact=True).first.click()

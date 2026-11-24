@@ -202,6 +202,9 @@ def cmd_cancel(_a):
 
 
 def cmd_login_completed(a):
+    if a.job_id.startswith('web-'):
+        from heideng_merchant.shop_workspace import signal_login
+        return signal_login(a.job_id)
     current = cmd_job(a)
     if not current.get('ok'):
         return current
@@ -232,6 +235,15 @@ def cmd_browser_check(a):
     check_browser_python({'provider': 'builtin'})
     from heideng_merchant.host_connection_controller import check_local_browser
     return check_local_browser(a.channel)
+
+
+def cmd_ensure_browser(a):
+    if os.environ.get('HEIDENG_BACKGROUND') == '1' or os.environ.get('JINGMAI_LINKER_BACKGROUND') == '1':
+        return {'ok':False,'status':'deferred','message':'等待本人可操作的前台会话。'}
+    from heideng_merchant.shop_workspace import ensure_workspace
+    return ensure_workspace(sl,a.profile,a.shop,a.channel,a.timeout,
+                            lambda event:print(json.dumps(event,ensure_ascii=False),flush=True),
+                            prepare=lambda:check_browser_python({'provider':'builtin'}))
 
 
 def cmd_connect(a):
@@ -381,7 +393,8 @@ def _reconcile_original(pending, query, shop_name, vender_id, *, exact_task=Fals
         if expected_exact and not exact_task:
             remember_shop(original, query, shop_name, identity)
         sl.clear_pending(pending['jobId'])
-        return {'ok':True,'status':'ready','profile':original,'jobId':pending['jobId'],'identity':identity,'reconciledOriginal':True}
+        return {'ok':True,'status':'ready','officialReady':True,'webLoginStatus':'not-checked','profile':original,
+                'jobId':pending['jobId'],'identity':identity,'reconciledOriginal':True}
     except sl.VerifyError as exc:
         kind = 'native_receipt_pending' if 'native_receipt_pending' in (pending.get('outcome'),exc.kind) else 'callback_unknown'
         return {'ok':False,'status':'paused','errorKind':kind,'profile':original,'jobId':pending['jobId'],
@@ -424,6 +437,12 @@ def _cmd_ensure_shop(a, wait_timeout=None):
                     'jobId':job_id,'message':'原任务尚无可核验的本目录官方完成记录。','retryAllowed':False}
         return _reconcile_original(pending, a.shop, pending.get('shopName'), pending.get('venderId'), exact_task=True)
     res = sl.resolve(a.shop)
+    if res.get('status') == 'ready' and getattr(a,'profile',None) and a.profile != res.get('profile'):
+        target = sl.exact_authorized_shop(a.profile,a.shop)
+        if not target.get('ok'):
+            return target
+        entry = sl.load_registry()['profiles'].get(a.profile,{})
+        return {'ok':True,'status':'ready',**sl._public(a.profile,target['identity'],entry)}
     if res['status'] == 'ambiguous':
         receipt = _original_receipt(sl.load_pending(), a.shop)
         if receipt and any(item.get('profile') == receipt['profile'] for item in (res.get('candidates') or [])):
@@ -489,6 +508,8 @@ def _cmd_ensure_shop(a, wait_timeout=None):
         payload['browserConfig'] = {'provider': 'host'}
     elif 'browserConfig' not in payload:
         payload['browserConfig']={'provider':'builtin','shopIdentity':browser_identity}
+        if getattr(a,'channel',None):
+            payload['browserConfig']['channel'] = a.channel
         if confirmed_name or (same_query and pending.get('confirmedShopName')):
             payload['browserConfig']['confirmedShopName'] = shop_name
     # A running original job already owns its driver and browser profile.
@@ -576,7 +597,8 @@ def cmd_ensure_shop(a):
         result['resourceCleanup']='completed' if snapshot.get('cleanupComplete',True) else 'pending'
     if snapshot and result and result.get('status') not in ('ready','mismatch'):
         if snapshot.get('status')=='success':
-            result = {'ok':True,'status':'ready','profile':snapshot['profile'],'identity':snapshot.get('identity'),
+            result = {'ok':True,'status':'ready','officialReady':True,'webLoginStatus':'not-checked',
+                    'profile':snapshot['profile'],'identity':snapshot.get('identity'),
                     'processRunning':False,'reconciledOriginal':True,'retryAllowed':False,
                     'resourceCleanup':result['resourceCleanup']}
             if snapshot.get('desktopShortcut'):
@@ -639,6 +661,13 @@ def main() -> int:
     p.add_argument('--channel', choices=('chrome','msedge','chromium'))
     p.set_defaults(func=cmd_browser_check)
 
+    p = sub.add_parser('ensure-browser', help='用已核验的店铺 Profile 补接该店的专用网页与桌面入口')
+    p.add_argument('--shop',required=True)
+    p.add_argument('--profile',required=True)
+    p.add_argument('--channel',choices=('chrome','msedge','chromium'))
+    p.add_argument('--timeout',type=int,default=600)
+    p.set_defaults(func=cmd_ensure_browser)
+
     for name, fn in (("ensure", cmd_ensure), ("state", cmd_state), ("job", cmd_job), ("cancel", cmd_cancel)):
         sub.add_parser(name).set_defaults(func=fn)
 
@@ -659,6 +688,7 @@ def main() -> int:
     p.add_argument("--no-open", action="store_true", help="暂不打开页面，返回等待浏览器状态")
     p.add_argument("--no-wait", action="store_true", help="立即返回任务与阶段，由 Agent 短轮询")
     p.add_argument('--resume', action='store_true', help='先核验已有结果，再恢复同任务')
+    p.add_argument('--channel', choices=('chrome','msedge','chromium'), help='首次内置网页登录使用本次指定的浏览器')
     p.add_argument('--job-id', help='配合 --resume、原 --profile 和原店铺叫法，只读核对这一笔已暂停的授权')
     p.add_argument('--confirmed-shop-name', help='用户确认的京麦官方店名；与原查询及 --resume 一起使用')
     p.add_argument('--fresh', action='store_true', help='明确放弃旧会话并新建任务；不用于普通网络中断恢复')

@@ -447,7 +447,7 @@ def _assert_proof_identity(proof, identity):
         raise VerifyError('credential_isolation', '当前官方核店的商家 ID、店铺 ID 或店名与原授权证明不符。')
 
 
-def assert_profile_proof(profile, identity):
+def assert_profile_proof(profile, identity, *, persist=True):
     assert_registered_identity(profile, identity)
     proof = _proof_data()['profiles'].get(profile)
     if proof is None:
@@ -462,6 +462,10 @@ def assert_profile_proof(profile, identity):
         repeated = verify_profile(profile)
         if any(str(identity.get(k) or '') != str(repeated.get(k) or '') for k in ('shopId','venderId','shopName')):
             raise VerifyError('credential_isolation', '原 Profile 的两次官方核店身份不一致。')
+    if not persist:
+        if _proof_data()['profiles'].get(profile) != proof:
+            raise VerifyError('credential_isolation', '核验期间原授权任务已变化。')
+        return
     with _proof_lock():
         data = _proof_data()
         current = data['profiles'].get(profile)
@@ -804,7 +808,11 @@ def _result(status, **kw):
 
 def _public(profile, identity, entry=None):
     entry = entry or {}
+    web = entry.get('browserVerification') or {}
     return {
+        "officialReady": True,
+        "webLoginStatus": "not-checked",
+        "lastWebVerificationAt": web.get('checkedAt') if web.get('method') == 'workspace-page' else None,
         "profile": profile,
         "venderId": str(identity.get("venderId") or entry.get("venderId") or ""),
         "shopId": str(identity.get("shopId") or entry.get("shopId") or ""),
@@ -815,14 +823,14 @@ def _public(profile, identity, entry=None):
     }
 
 
-def scan_profiles(profiles, verify=verify_profile, workers: int = 6):
+def scan_profiles(profiles, verify=verify_profile, workers: int = 6, *, persist=True):
     """并行实时只读校验；返回 {profile: {'identity':..} | {'error':kind,'message':..}}。"""
     results = {}
 
     def one(name):
         try:
             identity = verify(name)
-            assert_profile_proof(name, identity)
+            assert_profile_proof(name, identity, persist=persist)
             return name, {"identity": identity}
         except VerifyError as exc:
             return name, {"error": exc.kind, "message": exc.message}
@@ -1002,10 +1010,13 @@ def resolve(query: str, verify=verify_profile, live_scan: bool = True) -> dict:
 
 def audit(verify=verify_profile, apply_aliases: bool = True) -> dict:
     names = list_disk_profiles()
-    results = scan_profiles(names, verify)
-    record_scan(results)
-    reg = load_registry()
-    items, by_vender = [], {}
+    results = scan_profiles(names, verify, persist=apply_aliases)
+    if apply_aliases:
+        record_scan(results)
+        reg = load_registry()
+    else:
+        reg = read_json(registry_path(), {'profiles': {}})
+    items, by_shop = [], {}
     for name in names:
         res = results[name]
         legal = bool(PROFILE_RE.match(name)) and name != "default"
@@ -1013,7 +1024,8 @@ def audit(verify=verify_profile, apply_aliases: bool = True) -> dict:
         if "identity" in res:
             ident = res["identity"]
             item.update({k: ident.get(k, "") for k in ("shopName", "venderId", "shopId", "companyName")})
-            by_vender.setdefault(item["venderId"], []).append(name)
+            if str(item['venderId']).isdigit() and str(item['shopId']).isdigit():
+                by_shop.setdefault((str(item['venderId']), str(item['shopId'])), []).append(name)
         else:
             item.update({"errorKind": res["error"], "error": res["message"]})
             e = reg["profiles"].get(name, {})
@@ -1022,7 +1034,7 @@ def audit(verify=verify_profile, apply_aliases: bool = True) -> dict:
         items.append(item)
     duplicates, suggestions = [], []
     view = build_view(reg)
-    for vid, profs in by_vender.items():
+    for (vid, shop_id), profs in by_shop.items():
         if len(profs) < 2:
             continue
         ordered = order_profiles(
@@ -1031,7 +1043,7 @@ def audit(verify=verify_profile, apply_aliases: bool = True) -> dict:
         primary = next((n for n in ordered if view.get(n, {}).get("primary")), legal_first[0])
         others = [n for n in profs if n != primary]
         duplicates.append({
-            "venderId": vid, "shopName": next((i["shopName"] for i in items if i["profile"] == primary), ""),
+            "venderId": vid, "shopId": shop_id, "shopName": next((i["shopName"] for i in items if i["profile"] == primary), ""),
             "profiles": profs, "suggestedPrimary": primary, "suggestedAliases": others,
         })
         suggestions.append(f"重复店铺 {vid}：主 Profile 用 {primary}，{', '.join(others)} 记为别名（待你确认后再决定是否删除）。")
@@ -1057,7 +1069,10 @@ def audit(verify=verify_profile, apply_aliases: bool = True) -> dict:
     return {
         "ok": True, "total": len(items), "usable": usable, "unusable": len(items) - usable,
         "profiles": items, "duplicates": duplicates, "suggestions": suggestions,
-        "note": "audit 只读平台，只更新本机登记表；未删除任何 Profile 或凭据。",
+        "verifiedShopCount": len(by_shop), "registryPath": str(registry_path()), "scope": "current-installation",
+        "webLoginStatus": "not-checked",
+        "note": ("已核对本安装中的官方连接，结果不代表网页已登录。"
+                 if apply_aliases else "只读核店；范围为上述登记位置。网页登录状态另行核验。"),
     }
 
 
@@ -1173,10 +1188,12 @@ def _write_browser_shortcut(path, command, marker):
 def ensure_desktop_shortcut(profile, identity):
     """Create or refresh the shortcut for a live-verified merchant identity."""
     from heideng_merchant.host_connection_controller import WORKSPACE_URL
-    from heideng_merchant.mature_runtime import merchant_profile_directory
+    from heideng_merchant.mature_runtime import merchant_profile_directory, unique_browser_directory
+    from heideng_merchant.shop_workspace import recorded_workspace
     from heideng_merchant.safety import SafetyError
     from heideng_merchant.state import FileLock, merchant_home
-    entry = load_registry()['profiles'].get(profile, {})
+    entries = load_registry()['profiles']
+    entry = entries.get(profile, {})
     vender_id = str(identity.get('venderId') or '')
     shop_id = str(identity.get('shopId') or '')
     shop_name = identity.get('shopName')
@@ -1192,6 +1209,10 @@ def ensure_desktop_shortcut(profile, identity):
         directory = merchant_profile_directory(entry.get('browserProfileDir'))
         if not directory:
             return {'status': 'unavailable', 'reason': 'shop-browser-profile-unavailable'}
+        if not unique_browser_directory(entries,directory,identity):
+            return {'status':'unavailable','reason':'shop-browser-profile-conflict'}
+        if not recorded_workspace(entry,profile,identity,directory):
+            return {'status':'unavailable','reason':'shop-browser-verification-required'}
         executable = _desktop_browser(entry.get('browserChannel'))
         if not executable:
             return {'status': 'unavailable', 'reason': 'shop-browser-unavailable'}
@@ -1226,22 +1247,45 @@ def ensure_desktop_shortcut(profile, identity):
         return failure
 
 
-def create_verified_desktop_shortcut(profile, shop_name):
-    if profile == 'default' or not PROFILE_RE.fullmatch(profile):
+def exact_authorized_shop(profile, shop_name):
+    if not isinstance(profile,str) or profile == 'default' or not PROFILE_RE.fullmatch(profile):
         return {'ok': False, 'error': '需要已授权的店铺 Profile。'}
-    entry = load_registry()['profiles'].get(profile, {})
+    profiles = load_registry()['profiles']
+    entry = profiles.get(profile, {})
     try:
         require_auth_slot(profile)
         identity = verify_profile(profile)
         assert_profile_proof(profile, identity)
     except VerifyError as exc:
         return {'ok': False, 'errorKind': exc.kind, 'error': exc.message}
-    if shop_name != identity.get('shopName') and shop_name not in (entry.get('aliases') or []):
-        return {'ok': False, 'error': '已授权店铺与请求店铺不一致。'}
+    if (not all(str(identity.get(k) or '').isascii() and str(identity.get(k) or '').isdigit() for k in ('shopId','venderId'))
+            or not identity.get('shopName')):
+        return {'ok':False,'status':'identity-unverified','error':'官方店铺身份不完整。'}
+    aliases = read_json(linker_home()/'confirmed-shop-aliases.json',{}) or {}
+    confirmed = aliases.get(shop_name)
+    verified_alias = isinstance(confirmed,dict) and all(
+        str(confirmed.get(k) or '') == str(identity[k]) for k in ('shopId','venderId'))
+    if shop_name not in (identity['shopName'],str(identity['venderId'])):
+        if not verified_alias and shop_name not in (entry.get('aliases') or []):
+            return {'ok': False, 'status':'mismatch','error': '已授权店铺与请求店铺不一致。'}
+        if (confirmed and not verified_alias) or any(shop_name in _entry_names(other) and
+                any(str(other.get(k) or '') != str(identity[k]) for k in ('shopId','venderId'))
+                for other in profiles.values()):
+            return {'ok':False,'status':'ambiguous','error':'该简称还匹配其他店铺，请用已核实的商家 ID 区分。'}
+    return {'ok':True,'profile':profile,'identity':identity}
+
+
+def create_verified_desktop_shortcut(profile, shop_name):
+    target = exact_authorized_shop(profile,shop_name)
+    if not target.get('ok'):
+        return target
+    identity = target['identity']
     shortcut = ensure_desktop_shortcut(profile, identity)
     if shortcut.get('path'):
         return {'ok': True, **shortcut}
-    return {'ok': False, **shortcut, 'error': '没有创建桌面快捷方式，请查看具体状态。'}
+    return {'ok': False, **shortcut, 'officialReady':True,'webLoginStatus':'not-checked',
+            'nextArgv':['ensure-browser','--shop',identity['shopName'],'--profile',profile],
+            'error': '桌面文件尚未就绪，请按当前店铺进入网页核验。'}
 
 
 def shortcut_dirs():

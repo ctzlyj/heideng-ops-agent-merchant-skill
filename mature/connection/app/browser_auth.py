@@ -35,6 +35,8 @@ class BrowserAuthJob:
         self.status, self.stage, self.message = 'starting', 'checking_existing', '正在检查店铺连接。'
         self.identity, self.error, self.error_kind = None, '', ''
         self.desktop_shortcut = None
+        self.web_identity = {}
+        self.web_checked_at = None
         self.login = None
         self._proof_saved = False
         self.oauth_navigation_attempted = False
@@ -215,6 +217,21 @@ class BrowserAuthJob:
             metadata={'browserProfileDir':str(directory)} if directory else None
             channel=getattr(self.browser,'profile_channel',None)
             if metadata and channel in ('chrome','msedge','chromium'):metadata['browserChannel']=channel
+            if metadata and metadata.get('browserChannel') and self.web_identity.get('shopName') == identity.get('shopName'):
+                from heideng_merchant.shop_workspace import MARKER, compare_page, verification
+                from heideng_merchant.mature_runtime import unique_browser_directory
+                from heideng_merchant.safety import atomic_json, safe_join
+                match = compare_page(self.web_identity,identity)
+                if match != 'mismatch' and unique_browser_directory(sl.load_registry()['profiles'],directory,identity):
+                    record = verification(self.profile,identity,directory,channel,
+                                          'workspace-page' if match == 'verified' else 'oauth-task-profile')
+                    if self.web_checked_at:
+                        record['checkedAt'] = self.web_checked_at
+                    try:
+                        atomic_json(safe_join(directory,MARKER),record)
+                        metadata['browserVerification'] = record
+                    except (OSError, ValueError, RuntimeError):
+                        pass  # CLI verification remains usable, the web binding still needs a new observation.
             sl.update_registry(self.profile, identity, extra=metadata)
             self.desktop_shortcut = sl.ensure_desktop_shortcut(self.profile, identity)
             self.identity = identity
@@ -260,6 +277,8 @@ class BrowserAuthJob:
                     continue
                 if observation.get('loggedIn'):
                     identity = observation.get('identity') or {}
+                    self.web_identity = identity
+                    self.web_checked_at = int(time.time())
                     self._stage('checking_browser_identity', '正在核对网页登录的店铺。')
                     if not self._browser_matches(identity):
                         sl.mark_auth_rejected(self.profile)

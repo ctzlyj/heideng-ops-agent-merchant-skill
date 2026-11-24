@@ -2,6 +2,8 @@
 
 ## 适用问题与需要的事实
 
+“昨天连的店怎么少了”先看 `shop-locations [--shop <店名或编号>]` 返回的安装位置和登记记录。若宿主已持有同一商家明确选定的旧安装，可传 `--other-install <旧安装目录>` 校验其绑定。历史 WorkBuddy 专家提示用其原有入口查询。随后从所属安装通过 `run connection -- audit --no-write` 或指定 Profile 只读核店。报告须说明查的是哪个安装和哪种连接。要求“合并”时先统一展示来源，不搬运 Cookie、CLI 授权文件、系统凭据或手改 proof。只清理快捷方式的授权不包含删除旧安装和商家任务目录。
+
 ### macOS ARM64 的原授权与本机环境
 
 商家说“继续上次”而同名记录有歧义时，宿主从已核对的原连接回执取 `query`、`profile` 和 `jobId`。用 `run connection -- ensure-shop --shop <原 query> --resume --profile <原 Profile> --job-id <原 jobId>` 只读对账。商家无需记编号。没有匹配的原任务时，按实际店铺身份消歧。
@@ -23,7 +25,8 @@
 商家用简称，随后指出对应的官方店名或商家 ID 时，核店成功后用 `run connection -- remember-alias --shop <官方店名或venderId> --alias <商家叫法>` 记录这次明确对应关系。新对话直接以简称做只读解析。若简称指向两家店，只问一次能区分两家的问题。相同主体、相似名字和默认 Profile 均不足以选店。
 
 - 通常先 `run connection -- ensure-shop --shop "目标店铺" --no-auth`。登记别名/多个Profile只用于定位，最终以实时 venderinfo 核验为准。
-- 已有授权可用则直接复用。商家明确交办连接时，如果只读探测已返回 `ready`，用 `run connection -- shortcut --shop <目标店铺> --profile <已核验 Profile>` 补齐桌面入口。本地显示过期时仍按实际结果判断，官方可能自动刷新。
+- 已授权店铺的 `ready` 证明这次官方只读核店通过；`webLoginStatus=not-checked` 表示本次没有查看网页登录状态。商家交办补建该店的工作台或入口时，使用 `run connection -- ensure-browser --shop <官方全名或商家ID> --profile <原店 Profile>`。商家指定 Chrome 或 Edge 时加 `--channel chrome` 或 `--channel msedge`。不同浏览器使用各自的商家专用资料，已有官方授权可直接沿用。
+- 宿主读取原命令的进度事件。商家说“扫好了”，页面仍在等待时，执行 `run connection -- login-completed --job-id <事件里的 web-jobId>`，原任务会在自己的登录页检查一次工作台。网页核店成功看 `webLoginVerified`、页面查验时间和 `desktopShortcut.path`。显示其他店、没有可区分的店铺 ID、资料被占用或回执冲突时，以具体状态交付。先前已验明的资料可用 `shortcut` 补回桌面文件。
 - 确实需新授权，沿用用户针对本店的明确许可，原 ensure-shop 去掉 --no-auth；商家本人在同一隔离浏览器页自行选择密码、短信或扫码，宿主衔接官方 OAuth。不要另建授权系统，不复制Cookie/Token。
 - `awaiting_auth` 只有在原会话确实仍运行时才表示等待，不是授权失败；默认builtin由包内流程驱动，不交给宿主手拼OAuth。按原 jobId、当前 browser-action 操作并回报真实上下文/身份，返回 callback_unknown 时先核对同一Profile，不能再扫一轮制造重复任务。
 - 网页后续任务需要真实商家持久 profileDir。用原连接器保存的 browserProfileDir，在同店匹配后交给 POP 原导入；不猜用户工作浏览器目录。

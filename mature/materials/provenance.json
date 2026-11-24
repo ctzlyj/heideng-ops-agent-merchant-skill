@@ -29,7 +29,7 @@
     },
     "scripts/pop_browser.py": {
       "upstreamSha256": "62dea491ea45732c77cde919a296ddb98cbb3e3735135543079d9f3e30b4e719",
-      "sha256": "3583328ee90afca693bd1865553abfe3f633e4fc5929fb8f058d8685a6d469b4",
+      "sha256": "a3fade57bb23e05df5ee99fbf8e2b5a2d2919718766973ad7fe4a71b7d21a439",
       "adapted": true
     },
     "scripts/pop_cutout.py": {

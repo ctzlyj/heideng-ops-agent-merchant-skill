@@ -200,6 +200,12 @@
       "sha256": "dcead19e499fb1191558463ae2e7b736215ef2c510357141d43d3a2a0ea38dc2",
       "adapted": true
     },
+    "scripts/owned_shop_copy.py": {
+      "upstreamSha256": null,
+      "sha256": "c93ef0823cc6ce4780fd44f287f2ab26420d3d46e537b6490fab228dd9b15881",
+      "adapted": true,
+      "derivedFrom": "merchant-owned cross-store product copy using the verified official listing client"
+    },
     "scripts/hot_replica_publish.py": {
       "upstreamSha256": "f09c44b83d56c71460f78936db91c1aa8946dd8ba179a0c7b7b9294280b02b6b",
       "sha256": "45eca06f5931fa2f9ff383a6afc4bd9b0259012ae5a997285364452651e0266d",
@@ -217,6 +223,7 @@
     }
   },
   "entrypoints": [
+    "scripts/owned_shop_copy.py",
     "scripts/jdo_listing_mvp.py",
     "scripts/jd_product_mover.py",
     "scripts/jd_product_pipeline.py",
