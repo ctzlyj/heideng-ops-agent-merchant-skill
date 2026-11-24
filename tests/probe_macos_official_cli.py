@@ -2,7 +2,6 @@
 import json
 from hashlib import sha256
 import io
-import os
 from pathlib import Path
 import platform
 import subprocess
@@ -35,7 +34,7 @@ def archive_controls(client, root):
         if Path(path).exists():
             system_trust[name] = path
     cases = [('release-root', extracted, {}), ('binary-directory', executable.parent, {}),
-             ('macos-tmpdir', extracted, {'TMPDIR': tempfile.gettempdir()})]
+             ('explicit-tmpdir', extracted, {'TMPDIR': tempfile.gettempdir()})]
     if system_trust:
         cases.append(('macos-system-trust', extracted, system_trust))
     try:
@@ -46,11 +45,26 @@ def archive_controls(client, root):
         if Path(certifi.where()).is_file():
             cases.append(('python-trust-bundle', extracted, {'SSL_CERT_FILE': certifi.where()}))
     results = {}
+    cases.append(('release-readme-install', None, {}))
     for name, cwd, additions in cases:
         with tempfile.TemporaryDirectory(prefix='clean-cli-', dir=root) as tmp:
             env = clean_environment(Path(tmp))
             env.update(additions, JDO_HOME=str(Path(tmp) / '.jdo-cli'))
-            proc = subprocess.run([str(executable), '--endpoint', 'https://mcp-open.jd.com',
+            binary = executable
+            if cwd is None:
+                # The vendor's README puts both bin/ and the CLI state under ~/.jdo-cli.
+                # Reproduce it only in this empty disposable home with no account inputs.
+                cwd = Path(tmp)
+                installed = cwd / '.jdo-cli'
+                with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as tar:
+                    tar.extractall(installed, filter='data')
+                binary = installed / archive['executable']
+                init = subprocess.run([str(binary), 'init', '--skip-network'], cwd=cwd, env=env,
+                                      stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+                if init.returncode:
+                    results[name] = 'offline-init-failed'
+                    continue
+            proc = subprocess.run([str(binary), '--endpoint', 'https://mcp-open.jd.com',
                                    'update', 'check', '--timeout', '12'],
                                   cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                   capture_output=True, timeout=30)

@@ -54,6 +54,11 @@ class NativeReceiptPending(RuntimeError):
     kind = 'native_receipt_pending'
 
 
+class NativeStatusTimeout(NativeReceiptPending):
+    def __init__(self):
+        super().__init__('本机官方 status 等待超时，请检查是否有系统确认窗口。原任务已保留，待取得同一 Profile 的状态回执后继续。')
+
+
 class CallbackPortBusy(RuntimeError):
     kind = 'port_busy'
     hint = '本机回调端口被占用，未结束其它进程；请先核对任务归属。'
@@ -222,6 +227,10 @@ class LoginJob:
         self._raw_output = []  # only in memory; never part of to_dict or disk logs
         self._stderr = []
         self._owns_process_group = False
+        self._deadline = None
+        self._expired = threading.Event()
+        self._stop_lock = threading.Lock()
+        self._monitor_thread = None
         self._config_path = sl.config_path()
         self._profiles_path = sl.profiles_dir()
 
@@ -255,6 +264,7 @@ class LoginJob:
         self.created_profile = True
 
     def start(self):
+        self._deadline = time.monotonic() + self.timeout
         exe = jdo_exe()
         cfg = sl.read_json(self._config_path, {}) or {}
         self._default_before = cfg.get("default_profile", "")
@@ -268,9 +278,16 @@ class LoginJob:
         ensure_callback_port_free()
         if not (self._profiles_path / f"{self.profile}.json").exists():
             try:
-                self._init_profile()
+                with sl.cli_deadline(self._deadline):
+                    self._init_profile()
+            except subprocess.TimeoutExpired:
+                self._fail('本机官方 CLI 初始化超时，请检查是否有系统确认窗口。本次尚未启动登录。', 'local_cli_timeout')
+                return
             finally:
                 self._restore_default()
+        if time.monotonic() >= self._deadline:
+            self._fail('本次连接等待时间已用完，尚未启动官方登录。', 'local_cli_timeout')
+            return
         cmd = [str(exe), "login", "--profile", self.profile, "--no-browser",
                "--timeout", str(self.timeout)]
         if self.force:
@@ -291,18 +308,21 @@ class LoginJob:
         self._stderr_thread.start()
         self._reader_thread = threading.Thread(target=self._reader, args=(self.proc.stdout, False), daemon=True)
         self._reader_thread.start()
-        threading.Thread(target=self._monitor, daemon=True).start()
-        if not self._url_event.wait(25):
-            self._fail("官方 CLI 尚未返回授权地址。请检查本机是否有系统确认窗口，并核对原连接任务。", "callback_unknown")
-            self._stop_cli()
+        self._monitor_thread = threading.Thread(target=self._monitor, daemon=True)
+        self._monitor_thread.start()
+        if not self._url_event.wait(max(0, min(25, self._deadline-time.monotonic()))):
+            self._expire_login(wait_for_monitor=True)
+            return
+        if self._expired.is_set():
+            self._monitor_thread.join(timeout=5)
             return
         if not self.url and self.proc.poll() is not None:
             # The CLI can complete an idempotent login with a receipt and no URL or callback listener.
             return
-        deadline = time.time() + 15
+        deadline = min(time.monotonic() + 15, self._deadline)
         # 注意：不能用 connect 探测 9001，官方回调服务会把空连接当成失败回调而退出；用 netstat 只读判断。
         owned_listener = False
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             if self.status in ('failed', 'cancelled', 'success', 'mismatch'):
                 return
             owner, _ = sl.port_owner(CALLBACK_PORT)
@@ -316,8 +336,11 @@ class LoginJob:
                     return
                 owned_listener = True
                 break
-            time.sleep(0.3)
+            time.sleep(max(0,min(0.3, deadline-time.monotonic())))
         if not owned_listener:
+            if time.monotonic() >= self._deadline:
+                self._expire_login(wait_for_monitor=True)
+                return
             self._fail('本任务的回调监听尚未就绪，未导航授权地址。', 'port_busy')
             if self.proc.poll() is None:
                 self._stop_cli()
@@ -343,9 +366,27 @@ class LoginJob:
         except Exception as exc:  # pragma: no cover
             with self._lock:
                 self.log.append("[reader] output unavailable")
+        finally:
+            stream.close()
 
     def _monitor(self):
-        code = self.proc.wait()
+        with sl.cli_deadline(self._deadline):
+            self._collect_login()
+
+    def _expire_login(self, *, wait_for_monitor=False):
+        if self.proc.poll() is None:
+            self._expired.set()
+            self._stop_cli()
+        if wait_for_monitor and self._expired.is_set():
+            self._monitor_thread.join(timeout=5)
+
+    def _collect_login(self):
+        remaining = self.timeout if self._deadline is None else max(0,self._deadline-time.monotonic())
+        try:
+            code = self.proc.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            self._expire_login()
+            code = self.proc.returncode
         self._url_event.set()  # start must not wait 25s for a failed process
         reader = getattr(self, '_reader_thread', None)
         if reader:
@@ -359,6 +400,9 @@ class LoginJob:
             self._raw_output.clear()
             errors = "\n".join(self._stderr)
             self._stderr.clear()
+        if self._expired.is_set():
+            self._fail('本机官方登录等待超时。请检查是否有系统确认窗口，并核对原任务的授权结果。', 'callback_unknown')
+            return
         if self.status in ("cancelled", "failed"):
             return
         data = sl.extract_json(text)
@@ -370,7 +414,7 @@ class LoginJob:
                 self._fail('京麦 CLI 的本机运行环境异常，请用 doctor-cli 复查启动与公开 HTTPS。', cause)
             else:
                 msg = self._error_message(detail, data, code)
-                self._fail(msg, "timeout" if "timed out" in msg.lower() else "auth_failed")
+                self._fail(msg, "callback_unknown" if sl.classify_error(detail) == 'local_cli_timeout' else "auth_failed")
             return
         # Persist only a boolean plus target identity, before network verification.
         # Neither the credential account nor tokens are stored in our proof file.
@@ -383,7 +427,12 @@ class LoginJob:
             except (sl.VerifyError, NativeReceiptPending) as exc:
                 self._fail(str(exc),exc.kind)
                 return
-        if not self._owned_login_receipt(data):
+        try:
+            owned = self._owned_login_receipt(data)
+        except NativeStatusTimeout as exc:
+            self._fail(str(exc), 'callback_unknown')
+            return
+        if not owned:
             self._fail('官方授权回执不属于本任务Profile/目录，未登记。','credential_isolation')
             return
         account, slot = owned_credential_slot(data['tokenCredentialAccount'], self.profile)
@@ -416,6 +465,8 @@ class LoginJob:
             return
         except Exception as exc:
             self._fail(f"授权已拿到，但店铺核验失败：{exc}", "other")
+            return
+        if self.status in ("cancelled", "failed"):
             return
         problem = self.check_expected(identity)
         if problem:
@@ -472,7 +523,12 @@ class LoginJob:
 
     def _owned_status(self, *, strict_inputs=False):
         """Normalize CLI status only when it identifies this exact Profile and home."""
-        code, output = sl.run_jdo(['status'], timeout=15)
+        def read(args):
+            try:
+                return sl.run_jdo(args, timeout=15)
+            except subprocess.TimeoutExpired:
+                raise NativeStatusTimeout() from None
+        code, output = read(['status'])
         status = sl.extract_json(output) if code == 0 else None
         if (isinstance(status, dict) and isinstance(status.get('profile'), dict)
                 and status.get('defaultProfile') != self.profile):
@@ -480,7 +536,7 @@ class LoginJob:
                 return None
             # Some CLI versions expose an explicitly selected profile. Older versions
             # may reject this option; the other account's status is never evidence.
-            code, output = sl.run_jdo(['status', '--profile', self.profile], timeout=15)
+            code, output = read(['status', '--profile', self.profile])
             status = sl.extract_json(output) if code == 0 else None
         if isinstance(status, dict) and isinstance(status.get('profile'), dict):
             record = status['profile']
@@ -528,6 +584,8 @@ class LoginJob:
     def _reuse_account(self):
         try:
             status = self._owned_status(strict_inputs=True)
+        except NativeStatusTimeout:
+            raise
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
             status = None
         if not status or not owned_credential_slot(status.get('tokenCredentialAccount'), self.profile):
@@ -556,6 +614,8 @@ class LoginJob:
         if data.get('ok') is not True:return False
         try:
             status = self._owned_status()
+        except NativeStatusTimeout:
+            raise
         except Exception:return False
         return status is not None and owned_credential_slot(
             status.get('tokenCredentialAccount'), self.profile) == owned_credential_slot(account, self.profile)
@@ -568,12 +628,13 @@ class LoginJob:
             raise CredentialIsolationError('官方回执或Profile不符，未迁移、未登记。')
         self._apply_owned_slot(identity, login_data['tokenCredentialAccount'], reused=self._is_reuse_receipt(login_data))
 
-    def _apply_owned_slot(self, identity: dict, account: str, *, reused=False):
+    def _apply_owned_slot(self, identity: dict, account: str, *, reused=False, preserve_cli=False):
         path = self._profiles_path / f"{self.profile}.json"
         vender_id = str(identity.get("venderId") or "")
         owned = owned_credential_slot(account, self.profile)
         if not vender_id.isdigit() or owned is None or self.check_expected(identity):
-            sl.mark_auth_rejected(self.profile)
+            if not preserve_cli:
+                sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方回执、Profile或核店不符，未迁移、未登记。')
         shop_id = str(identity.get('shopId') or '')
         official_name = identity.get('shopName') or ''
@@ -581,7 +642,7 @@ class LoginJob:
             raise NativeReceiptPending('原授权已保留；官方核店缺少店铺 ID 或店名。')
         sl.assert_registered_identity(self.profile, identity)
         account, slot = owned
-        if slot == 'default' and (sys.platform == 'darwin' or reused):
+        if slot == 'default' and (sys.platform == 'darwin' or reused or preserve_cli):
             # 0.3.7 invoke --profile looks up the scoped default when its native profile
             # has no venderId. Preserve that official configuration and attest its actual slot.
             parts = account.split(':')
@@ -602,23 +663,29 @@ class LoginJob:
             if not copy_credential(account,destination,delete_old=False):
                 raise CredentialIsolationError('本任务默认槽定位未完成，保留原Profile/回执，不重发授权。')
         elif slot != vender_id:
-            sl.mark_auth_rejected(self.profile)
+            if not preserve_cli:
+                sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError('官方凭据槽与实时核店不符，未迁移。')
         # Retain the first official identity across interruption. Recovery still
         # reads the original profile and compares against all three fields.
-        sl.mark_auth_slot(self.profile,vender_id, job_id=getattr(self,'proof_job_id',self.id),
-                          shop_id=shop_id, official_name=official_name)
-        data = sl.read_json(path, {}) or {}
-        data["vender_id"] = vender_id
-        data["shop_name"] = identity.get("shopName") or data.get("shop_name") or self.shop_name
-        data["updated_at"] = int(time.time() * 1000)
-        sl.write_json(path, data)
+        if not preserve_cli:
+            sl.mark_auth_slot(self.profile,vender_id, job_id=getattr(self,'proof_job_id',self.id),
+                              shop_id=shop_id, official_name=official_name)
+            data = sl.read_json(path, {}) or {}
+            data["vender_id"] = vender_id
+            data["shop_name"] = identity.get("shopName") or data.get("shop_name") or self.shop_name
+            data["updated_at"] = int(time.time() * 1000)
+            sl.write_json(path, data)
         # 迁移后再核验一次，确保凭据真的可用
         verified = sl.verify_profile(self.profile)
         if (str(verified.get('venderId') or '')!=vender_id or str(verified.get('shopId') or '')!=shop_id or
                 verified.get('shopName')!=official_name or self.check_expected(verified)):
-            sl.mark_auth_rejected(self.profile)
+            if not preserve_cli:
+                sl.mark_auth_rejected(self.profile)
             raise CredentialIsolationError("凭据定位后店铺身份发生变化，未登记。")
+        if preserve_cli:
+            sl.mark_auth_slot(self.profile,vender_id, job_id=getattr(self,'proof_job_id',self.id),
+                              shop_id=shop_id, official_name=official_name)
         if not self.defer_registry:
             sl.update_registry(self.profile, verified)
 
@@ -627,8 +694,8 @@ class LoginJob:
         # Even an unlabelled provider error may contain a code/token. Classify in
         # memory and emit a fixed explanation instead of trusting raw strings.
         kind = sl.classify_error(text)
-        if 'timed out' in text.lower() or 'timeout' in text.lower():
-            return '授权回调 timed out，请先核验本任务结果。'
+        if kind == 'local_cli_timeout':
+            return '官方 CLI 回报登录超时，请查看本机系统提示并核验原任务的授权结果。'
         if kind == 'permission':
             return '官方授权权限不足，请核对本店开白。'
         if kind == 'network':
@@ -645,6 +712,14 @@ class LoginJob:
         self._done.set()
 
     def _stop_cli(self):
+        with self._stop_lock:
+            try:
+                self._stop_owned_process()
+            except ProcessLookupError:
+                # The monitor may have collected the child between poll and signal.
+                pass
+
+    def _stop_owned_process(self):
         proc = self.proc
         if proc is None or proc.poll() is not None:
             return
@@ -653,7 +728,7 @@ class LoginJob:
                            capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=8)
         elif self._owns_process_group and os.getpgid(proc.pid) == proc.pid:
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
+                os.killpg(proc.pid, signal.SIGKILL if self._expired.is_set() else signal.SIGTERM)
             except ProcessLookupError:
                 pass
         else:
@@ -688,6 +763,8 @@ def check_profile_default_scope(profile, scope):
         raise NativeReceiptPending('原 Profile 的范围证明缺失，请保留原任务继续核对。')
     try:
         status = LoginJob(profile, '', defer_registry=True)._owned_status(strict_inputs=True)
+    except NativeStatusTimeout:
+        raise
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
         status = None
     expected = owned_credential_slot(f'token:{profile}:{scope}:default', profile)
@@ -695,14 +772,16 @@ def check_profile_default_scope(profile, scope):
         raise NativeReceiptPending('官方 status 尚未证明原目录、目标 Profile 及原凭据范围；请保留原任务，待目标 Profile 可由官方 status 明确核验后继续。')
 
 
-def recover_owned_auth_slot(profile, job_id):
+def recover_owned_auth_slot(profile, job_id, *, preserve_cli=False):
     proof=sl._proof_data()['profiles'].get(profile) or {}
     if proof.get('originalCliHome') and proof['originalCliHome'] != str(sl.jdo_home().resolve()):
         raise sl.VerifyError('credential_isolation', '原连接属于另一 CLI 目录，请以原安装与任务继续。')
     try:
         sl.require_auth_slot(profile,required=True,job_id=job_id)
         return False  # Already located; normal live identity verification remains the caller's job.
-    except sl.VerifyError:pass
+    except sl.VerifyError as exc:
+        if exc.kind in ('native_receipt_pending', 'local_cli_timeout'):
+            raise
     if (proof.get('status')=='rejected' or proof.get('jobId')!=job_id or proof.get('nativeCompleted') is not True
             or not proof.get('nativeJobId') or not (sl.profiles_dir()/f'{profile}.json').is_file()):return False
     # Only a recorded original native completion may be located after network recovery; no new OAuth.
@@ -725,7 +804,7 @@ def recover_owned_auth_slot(profile, job_id):
                     raise CredentialIsolationError('原官方凭据元数据不属于本任务。')
                 account = metadata['tokenCredentialAccount']
         identity=sl.verify_profile(profile)
-        login._apply_owned_slot(identity, account, reused=proof.get('nativeReused') is True)
+        login._apply_owned_slot(identity, account, reused=proof.get('nativeReused') is True, preserve_cli=preserve_cli)
     except NativeReceiptPending as exc:
         raise sl.VerifyError(exc.kind, str(exc)) from None
     except sl.VerifyError:raise

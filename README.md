@@ -1,8 +1,8 @@
-# 黑灯运营智能体商家版 0.4.23 · GitHub 源码内测
+# 黑灯运营智能体商家版 0.4.24 · GitHub 源码内测
 
 将下面这句话发给 WorkBuddy 即可安装。安装完成后，用自己的话说想做什么，例如“连上我的店，给这个商品先做一张样图”。
 
-> 请从 https://github.com/ctzlyj/heideng-ops-agent-merchant-skill/tree/codex/mac-merchant-connection 安装黑灯运营智能体商家版，按这个链接的源码安装到 WorkBuddy，装好告诉我。
+> 请从 https://github.com/ctzlyj/heideng-ops-agent-merchant-skill/tree/codex/mac-merchant-recovery-followup 安装黑灯运营智能体商家版，按这个链接的源码安装到 WorkBuddy，装好告诉我。
 
 本版支持在同一个登录页扫码，用商家自己的原图和贴图免费做样张，以及按一个指定 SKU 试发首图。样图、后台提交与买家端核验分别记录。市场专家的 0.4.20 授权卡仍在独立联调，审核期间小范围内测通过 GitHub 源码安装。
 
@@ -10,11 +10,13 @@
 
 Mac 上已有连接的商家，继续使用原安装回执绑定的状态目录。宿主先按店名尝试只读核店，登录、钥匙串和浏览器只在需要时才进入。iCloud 中的源码或运行文件显示云朵时，在访达选择“现在下载”；尤其要先让安装器和 `scripts/merchant.py` 本身可读。新安装可以把运行环境放在本机用户目录。已有授权、未决回执和商家资料继续保存在原位置。
 
+0.4.24 支持按原任务恢复同名店铺的未决授权。明确结束于登录前的旧试连会留下回执；官方 CLI 等待超时后，宿主先收尾并核对原任务。再次安装京麦 CLI 时会逐项核验其官方发行文件，修复缺失文件时保留原来的店铺和任务资料。[连接与恢复](references/experience-connection.md)
+
 本地 WorkBuddy/JoyCode/Codex 等宿主 Agent 理解和规划商家自然语言任务；黑灯提供电商经验导航、独立安装更新、协作边界和成熟执行工具。**经验目录不是能力白名单，status/run只是一个受保护的成熟包装器。**
 
 ## 给宿主 Agent 的安装入口
 
-宿主从给定的 GitHub tree 链接解析分支或提交。分支链接先解析为 40 位提交号；在临时目录 Git 检出该提交，核对 `git rev-parse HEAD` 与 `VERSION`，再运行根目录 `install.py`。公开源码可匿名读取。为仅取得源码，可用 `git clone --filter=blob:none --no-checkout --single-branch --branch codex/mac-merchant-connection <仓库URL> <临时目录>`，在该目录执行 `git sparse-checkout set --no-cone "/*" "!/updates/artifacts/"` 和 `git checkout --detach <所选提交>`。宿主遇到分支更新也以商家链接指定的提交为准。
+宿主从给定的 GitHub tree 链接解析分支或提交。分支链接先解析为 40 位提交号；在临时目录 Git 检出该提交，核对 `git rev-parse HEAD` 与 `VERSION`，再运行根目录 `install.py`。公开源码可匿名读取。为仅取得源码，可用 `git clone --filter=blob:none --no-checkout --single-branch --branch codex/mac-merchant-recovery-followup <仓库URL> <临时目录>`，在该目录执行 `git sparse-checkout set --no-cone "/*" "!/updates/artifacts/"` 和 `git checkout --detach <所选提交>`。宿主遇到分支更新也以商家链接指定的提交为准。
 
 ```text
 python install.py --host workbuddy --with-runtime --with-official --no-auto-update

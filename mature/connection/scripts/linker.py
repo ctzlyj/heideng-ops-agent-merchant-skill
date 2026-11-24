@@ -350,14 +350,19 @@ def remember_shop(profile, query, shop_name, ident, shortcut_path=""):
     sl.save_registry(reg)
 
 
-def _reconcile_original(pending, query, shop_name, vender_id):
+def _reconcile_original(pending, query, shop_name, vender_id, *, exact_task=False):
     original = pending['profile']
     try:
         try:
             sl.require_auth_slot(original, required=True, job_id=pending['jobId'])
-        except sl.VerifyError:
+        except sl.VerifyError as exc:
+            if exc.kind in ('native_receipt_pending','local_cli_timeout'):
+                raise
             from server import recover_owned_auth_slot
-            recover_owned_auth_slot(original, pending['jobId'])
+            if exact_task:
+                recover_owned_auth_slot(original, pending['jobId'], preserve_cli=True)
+            else:
+                recover_owned_auth_slot(original, pending['jobId'])
             sl.require_auth_slot(original, required=True, job_id=pending['jobId'])
         identity = sl.verify_profile(original)
         sl.assert_profile_proof(original, identity)
@@ -373,21 +378,57 @@ def _reconcile_original(pending, query, shop_name, vender_id):
             sl.update_registry(original, identity, extra={'browserProfileDir':str(directory),'browserChannel':channel})
         else:
             sl.update_registry(original, identity)
-        if expected_exact:
+        if expected_exact and not exact_task:
             remember_shop(original, query, shop_name, identity)
         sl.clear_pending(pending['jobId'])
-        return {'ok':True,'status':'ready','profile':original,'identity':identity,'reconciledOriginal':True}
+        return {'ok':True,'status':'ready','profile':original,'jobId':pending['jobId'],'identity':identity,'reconciledOriginal':True}
     except sl.VerifyError as exc:
         kind = 'native_receipt_pending' if 'native_receipt_pending' in (pending.get('outcome'),exc.kind) else 'callback_unknown'
         return {'ok':False,'status':'paused','errorKind':kind,'profile':original,'jobId':pending['jobId'],
                 'message':exc.message,'retryAllowed':False}
 
 
+def _original_receipt(pending, query):
+    profile = pending.get('profile')
+    job = pending.get('jobId')
+    if (not isinstance(profile, str) or not sl.PROFILE_RE.fullmatch(profile) or profile == 'default'
+            or not job or query.strip() != pending.get('query') or pending.get('processRunning') is not False
+            or pending.get('outcome') not in ('callback_unknown','native_receipt_pending')):
+        return None
+    proof = sl._proof_data()['profiles'].get(profile) or {}
+    if (proof.get('jobId') == job and proof.get('originalCliHome') == str(sl.jdo_home().resolve())
+            and proof.get('status') != 'rejected' and proof.get('nativeCompleted') is True):
+        return {'jobId':job,'profile':profile,'query':pending['query'],'outcome':pending['outcome']}
+    return None
+
+
 def _cmd_ensure_shop(a, wait_timeout=None):
     blocker = _env_blockers()
     if blocker:
         return blocker
+    job_id = getattr(a, 'job_id', None)
+    if job_id is not None:
+        pending = sl.load_pending()
+        original = getattr(a, 'profile', None)
+        if (not getattr(a,'resume',False) or getattr(a,'fresh',False) or getattr(a,'confirmed_shop_name',None)
+                or not original or not sl.PROFILE_RE.fullmatch(original) or original == 'default'
+                or not job_id or pending.get('jobId') != job_id or pending.get('profile') != original
+                or a.shop.strip() != pending.get('query') or pending.get('processRunning') is not False
+                or pending.get('outcome') not in ('callback_unknown','native_receipt_pending')):
+            return {'ok':False,'status':'blocked','errorKind':'original_task_mismatch',
+                    'message':'请使用同一条已暂停回执的店铺原称、Profile 和 jobId 对账。'}
+        # This selects one original task, even when the store name has multiple candidates.
+        # Do not scan other profiles, start a login, or turn this choice into a name alias.
+        if _original_receipt(pending, a.shop) is None:
+            return {'ok':False,'status':'paused','errorKind':'original_receipt_unverified','profile':original,
+                    'jobId':job_id,'message':'原任务尚无可核验的本目录官方完成记录。','retryAllowed':False}
+        return _reconcile_original(pending, a.shop, pending.get('shopName'), pending.get('venderId'), exact_task=True)
     res = sl.resolve(a.shop)
+    if res['status'] == 'ambiguous':
+        receipt = _original_receipt(sl.load_pending(), a.shop)
+        if receipt and any(item.get('profile') == receipt['profile'] for item in (res.get('candidates') or [])):
+            res['originalReceipt'] = receipt
+        return res
     if res['status'] not in ('needs_auth', 'error'):
         return res
     pending = sl.load_pending()
@@ -518,6 +559,8 @@ def _cmd_ensure_shop(a, wait_timeout=None):
 
 
 def cmd_ensure_shop(a):
+    if getattr(a,'job_id',None) is not None:
+        return _cmd_ensure_shop(a)  # Explicit readback never creates a service or desktop shortcut.
     foreground = (not getattr(a, 'no_wait', False) and not getattr(a, 'no_open', False) and not getattr(a, 'browser_config', None)
                   and os.environ.get('HEIDENG_BACKGROUND') != '1' and os.environ.get('JINGMAI_LINKER_BACKGROUND') != '1')
     if not foreground:
@@ -540,6 +583,8 @@ def cmd_ensure_shop(a):
                 result['desktopShortcut'] = snapshot['desktopShortcut']
         else:
             ended='paused' if snapshot.get('stage')=='paused' else snapshot.get('status','failed')
+            if result.get('errorKind') in ('runtime-file-missing', 'tls-runtime-file-missing'):
+                result['cliRuntimeError'] = result['errorKind']
             result.update(ok=False,status=ended,profile=snapshot.get('profile'),jobId=snapshot.get('id'),stage=snapshot.get('stage'),errorKind=snapshot.get('errorKind'),
                           processRunning=False,canLeave=True,retryAllowed=False,
                           nextAction='原命令已收尾；同店再次ensure-shop先核对原Profile，不手工重发OAuth。')
@@ -614,6 +659,7 @@ def main() -> int:
     p.add_argument("--no-open", action="store_true", help="暂不打开页面，返回等待浏览器状态")
     p.add_argument("--no-wait", action="store_true", help="立即返回任务与阶段，由 Agent 短轮询")
     p.add_argument('--resume', action='store_true', help='先核验已有结果，再恢复同任务')
+    p.add_argument('--job-id', help='配合 --resume、原 --profile 和原店铺叫法，只读核对这一笔已暂停的授权')
     p.add_argument('--confirmed-shop-name', help='用户确认的京麦官方店名；与原查询及 --resume 一起使用')
     p.add_argument('--fresh', action='store_true', help='明确放弃旧会话并新建任务；不用于普通网络中断恢复')
     p.add_argument('--browser-config', help='Agent 提供的非敏感浏览器适配配置文件')
@@ -658,6 +704,13 @@ def main() -> int:
     from heideng_merchant import CloudFileUnavailable
     try:
         result = args.func(args)
+        if (sys.platform == 'darwin' and args.func is cmd_ensure_shop
+                and not getattr(args, 'no_wait', False) and os.environ.get('HEIDENG_BACKGROUND') != '1'
+                and os.environ.get('JINGMAI_LINKER_BACKGROUND') != '1'
+                and result.get('cliRuntimeError', result.get('errorKind')) in ('runtime-file-missing', 'tls-runtime-file-missing')):
+            from heideng_merchant.cli_diagnostics import compare_connection_failure
+            from heideng_merchant.state import merchant_home
+            result = compare_connection_failure(result, merchant_home(), sl.find_jdo())
     except CloudFileUnavailable as exc:
         result = {'ok': False, **exc.receipt()}
     except Exception as exc:

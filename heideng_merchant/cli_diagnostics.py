@@ -76,3 +76,29 @@ def public_cli_check(client):
                         isinstance(receipt.get('versionPolicy'), dict) and receipt['versionPolicy'].get('product') == 'jdo-cli'):
                     return {**result, 'status': 'unavailable', 'stage': stage, 'reason': 'public-receipt-unverified'}
     return {**result, 'status': 'verified', 'stage': 'public-https'}
+
+
+def compare_connection_failure(result, state, executable):
+    """Keep the original connection receipt and compare the same binary in an empty CLI home."""
+    from . import CloudFileUnavailable
+    from .official import OfficialClient
+    from .safety import SafetyError
+    if result.get('ok') or result.get('cliRuntimeError', result.get('errorKind')) not in (
+            'runtime-file-missing', 'tls-runtime-file-missing'):
+        return result
+    client = OfficialClient(state)
+    try:
+        if client.platform_name != 'macos-arm64' or not executable or not client.ready():
+            return result
+        if not Path(executable).samefile(client.executable()):
+            return result
+        check = public_cli_check(client)
+    except CloudFileUnavailable as error:
+        check = error.receipt()
+    except (OSError, SafetyError, subprocess.SubprocessError):
+        check = {'status': 'unavailable', 'stage': 'comparison', 'reason': 'diagnostic-unavailable'}
+    if check.get('reason') in ('runtime-file-missing', 'tls-runtime-file-missing'):
+        check = {**check, 'message': '同一京麦程序在临时目录执行无账号的公开查询也报告缺文件。保留原连接回执，重新扫码无法验证这类运行错误。'}
+    elif check.get('status') == 'verified':
+        check = {**check, 'message': '同一京麦程序能够访问公开版本服务。店铺连接仍以原任务和核店回执为准。'}
+    return {**result, 'officialCliCheck': check, 'retryAllowed': False}

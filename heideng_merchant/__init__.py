@@ -3,7 +3,7 @@ import stat
 import sys
 from pathlib import Path
 
-VERSION = "0.4.23"
+VERSION = "0.4.24"
 SKILL_NAME = "heideng-ops-agent-merchant"
 
 

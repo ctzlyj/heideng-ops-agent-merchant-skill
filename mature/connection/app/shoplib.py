@@ -12,6 +12,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -19,6 +20,7 @@ import tempfile
 import time
 import unicodedata
 from contextlib import contextmanager
+from contextvars import ContextVar
 from redaction import safe_text
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -126,21 +128,49 @@ def extract_json(text: str):
     return None
 
 
+_cli_deadline = ContextVar('connection_cli_deadline', default=None)
+
+
+@contextmanager
+def cli_deadline(deadline):
+    token = _cli_deadline.set(deadline)
+    try:
+        yield
+    finally:
+        _cli_deadline.reset(token)
+
+
 def run_jdo(args, timeout: int = 60):
+    deadline = _cli_deadline.get()
+    if deadline is not None:
+        timeout = min(timeout, deadline-time.monotonic())
+        if timeout <= 0:
+            raise subprocess.TimeoutExpired('official CLI', 0)
     exe = find_jdo()
     if not exe:
         raise RuntimeError("未找到 jdo-cli")
     env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
-    proc = subprocess.run(
-        [str(exe), *args],
-        capture_output=True,
-        timeout=timeout,
-        env=env,
-        creationflags=CREATE_NO_WINDOW,
-    )
-    text = decode_bytes(proc.stdout or b"")
+    command = [str(exe), *args]
+    if os.name == 'posix':
+        # Native CLI distributions can spawn a helper. Keep this one invocation
+        # in its own process group, including any child holding its output pipe.
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                              start_new_session=True) as proc:
+            try:
+                stdout, stderr = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+                raise
+    else:
+        proc = subprocess.run(command, capture_output=True, timeout=timeout, env=env, creationflags=CREATE_NO_WINDOW)
+        stdout, stderr = proc.stdout, proc.stderr
+    text = decode_bytes(stdout or b"")
     if proc.returncode:
-        text += '\n' + decode_bytes(proc.stderr or b"")
+        text += '\n' + decode_bytes(stderr or b"")
     text = strip_ansi(text)
     return proc.returncode, text
 
@@ -277,6 +307,8 @@ def _proof_data():
     data = read_json(path)
     if not isinstance(data, dict) or not isinstance(data.get('profiles'), dict):
         raise VerifyError('credential_isolation', '授权证明状态不可读取，不推断凭据已经隔离。')
+    if not isinstance(data.get('preOAuthClosures', {}), dict):
+        raise VerifyError('credential_isolation', '历史连接收尾回执不可读取。')
     return data
 
 
@@ -285,11 +317,35 @@ def mark_auth_pending(profile, job_id, vender_id='', shop_name='', *, exact_shop
         data = _proof_data()
         old = data['profiles'].get(profile)
         if old and old.get('jobId') == job_id:
-            return
+            closed = (data.get('preOAuthClosures') or {}).get(job_id)
+            if closed and closed.get('profile') == profile and closed.get('status') == 'closed':
+                closed.update(status='resumed', resumedAt=int(time.time() * 1000))
+                write_json(linker_home() / 'authorization-proof.json', data)
+            return True
         data['profiles'][profile] = {'jobId': job_id, 'venderId': str(vender_id or ''),
                                      'shopName': shop_name or '', 'status': 'pending', 'slotVerified': False}
         if exact_shop_name:
             data['profiles'][profile]['exactShopName'] = True
+        write_json(linker_home() / 'authorization-proof.json', data)
+        return True
+
+
+def record_pre_oauth_closure(profile, job_id, outcome):
+    """Persist the joined worker's local receipt with its original job and CLI home."""
+    with _proof_lock():
+        data = _proof_data()
+        proof = data['profiles'].get(profile) or {}
+        if (proof.get('jobId') != job_id or proof.get('status') != 'pending'
+                or proof.get('nativeCompleted') or proof.get('slotVerified')):
+            return
+        closures = data.setdefault('preOAuthClosures', {})
+        receipt = closures.get(job_id) or {}
+        if not isinstance(receipt, dict) or (receipt and receipt.get('profile') != profile):
+            raise VerifyError('credential_isolation', '历史连接收尾回执与 Profile 不符。')
+        if receipt.get('status') == 'closed':
+            return
+        closures[job_id] = {'status':'closed', 'profile':profile, 'cliHome':str(jdo_home().resolve()),
+                            'shopName':proof.get('shopName') or '', 'outcome':outcome, 'closedAt':int(time.time()*1000)}
         write_json(linker_home() / 'authorization-proof.json', data)
 
 
@@ -350,11 +406,13 @@ def require_auth_slot(profile, required=False, *, job_id=None):
 
 def _check_profile_default(profile, proof):
     if proof.get('slotKind') == 'profile-default':
-        from server import check_profile_default_scope, NativeReceiptPending
+        from server import check_profile_default_scope, NativeReceiptPending, NativeStatusTimeout
         if proof.get('originalCliHome') != str(jdo_home().resolve()):
             raise VerifyError('credential_isolation', '当前 CLI 目录与原店铺任务不符。')
         try:
             check_profile_default_scope(profile, proof.get('profileDefaultScope'))
+        except NativeStatusTimeout as exc:
+            raise VerifyError(exc.kind, str(exc)) from None
         except NativeReceiptPending as exc:
             raise VerifyError('credential_isolation', str(exc)) from None
 
@@ -478,8 +536,11 @@ def classify_error(text: str) -> str:
         return "auth_expired"
     if any(k in t for k in ("权限", "forbidden", "403", "未开通", "未订购", "未开白", "service market", "not subscribed", "无访问")):
         return "permission"
-    if any(k in t for k in ("timed out", "timeout", "urlopen", "connection", "getaddrinfo", "超时", "10061", "10060")):
+    if any(k in t for k in ("urlopen", "getaddrinfo", "connection refused", "connection reset",
+                             "connection timed out", "connect timeout", "read timed out", "10061", "10060")):
         return "network"
+    if any(k in t for k in ("timed out", "timeout", "超时")):
+        return "local_cli_timeout"
     return "other"
 
 
@@ -508,7 +569,7 @@ def verify_profile(profile: str) -> dict:
     except RuntimeError as exc:
         raise VerifyError("no_cli", str(exc))
     except subprocess.TimeoutExpired:
-        raise VerifyError("network", "调用 venderinfo 超时")
+        raise VerifyError("local_cli_timeout", "本机官方 CLI 超时，未返回 venderinfo 身份回执。请检查是否有本机系统确认窗口，再通过原 Profile 核验。") from None
     data = extract_json(out)
     if code != 0 or not isinstance(data, dict) or not data.get("success"):
         detail = out.strip().splitlines()[-1] if out.strip() else f"退出码 {code}"
@@ -517,6 +578,7 @@ def verify_profile(profile: str) -> dict:
             detail = f"{first.get('message') or ''} {first.get('details') or ''}".strip() or detail
         kind = classify_error(out + ' ' + detail)
         explanations = {'permission': '店铺调用权限不足，请核对开白。', 'network': '店铺信息网络调用未完成。',
+                        'local_cli_timeout': '京麦 CLI 未在期限内返回店铺信息，请检查本机系统提示并核对原 Profile。',
                         'tls-runtime-file-missing': '京麦 CLI 初始化 TLS 时缺少本地文件，请运行 doctor-cli。',
                         'local-execution-permission': '宿主未允许本机运行所需系统操作，请核对本机执行权限。',
                         'auth_missing': '本 Profile 尚无可用授权。', 'auth_expired': '本 Profile 授权需要重新连接。'}
@@ -793,24 +855,36 @@ def record_scan(results: dict) -> None:
     save_registry(reg)
 
 
-def _only_unconnected_attempts(group, view, query, pending, proofs, verify):
+def _only_unconnected_attempts(group, view, query, pending, records, verify):
     for name in group['profiles']:
         e = view[name]
         if (not PROFILE_RE.fullmatch(name) or name == 'default' or not e.get('hasProfile') or
                 e.get('venderId') or e.get('shopId') or e.get('lastVerifiedAt') or
                 norm(e.get('shopName', '')) != norm(query)):
             return False
-        proof = proofs.get(name, {})
+        proof = records['profiles'].get(name, {})
+        job = proof.get('jobId')
+        closed = (records.get('preOAuthClosures') or {}).get(job) or {}
+        if not isinstance(closed, dict):
+            return False
         ended_before_oauth = (pending.get('profile') == name and pending.get('processRunning') is False
                               and pending.get('outcome') in ('login_timeout', 'oauth_not_opened')
                               and (not proof or proof.get('jobId') == pending.get('jobId')))
-        if (proof.get('nativeCompleted') or proof.get('slotVerified') or
-                ((pending.get('profile') == name or proof) and not ended_before_oauth)):
+        if pending.get('profile') != name and proof:
+            ended_before_oauth = (closed.get('status') == 'closed' and closed.get('profile') == name
+                                  and closed.get('cliHome') == str(jdo_home().resolve())
+                                  and norm(closed.get('shopName')) == norm(query))
+        if (proof.get('nativeCompleted') or proof.get('slotVerified') or closed.get('status') == 'resumed'
+                or ((pending.get('profile') == name or proof) and not ended_before_oauth)):
             return False
         try:
             verify(name)
         except VerifyError as exc:
             if exc.kind == 'auth_missing':
+                latest = _proof_data()
+                if (latest['profiles'].get(name, {}) != proof or
+                        (latest.get('preOAuthClosures') or {}).get(job, {}) != closed or load_pending() != pending):
+                    return False  # A concurrent attempt superseded the evidence while we were reading.
                 continue
         return False
     return True
@@ -842,10 +916,10 @@ def resolve(query: str, verify=verify_profile, live_scan: bool = True) -> dict:
                       and norm(g['entry'].get('shopName', '')) == norm(q)]
         if len(registered) == 1:
             pending = load_pending()
-            proofs = _proof_data()['profiles']
+            records = _proof_data()
             remaining = []
             for g in groups:
-                if g is registered[0] or not _only_unconnected_attempts(g, view, q, pending, proofs, verify):
+                if g is registered[0] or not _only_unconnected_attempts(g, view, q, pending, records, verify):
                     remaining.append(g)
                 else:
                     inactive.extend(g['profiles'])
@@ -1317,18 +1391,26 @@ def doctor(policy=None) -> dict:
             "或使用商家状态内已校验的官方 CLI")
     else:
         ver = ""
+        status_timeout = False
         try:
             code, out = run_jdo(["status"], timeout=30)
             payload = extract_json(out) or {}
             if code == 0 and payload.get('ok') is True:
                 ver = payload.get("cliVersion", "")
+        except subprocess.TimeoutExpired:
+            status_timeout = True
         except Exception:
             pass
         info = cli_version_info(ver, policy)
         add("jdo-cli", True, f"{exe} {ver}".strip())
         checks[-1].update({"version": ver, **info})
-        add("官方 CLI 状态回执", bool(ver), "已读取版本" if ver else "未取得可核对的状态回执",
-            "使用商家入口 doctor-cli 单独检查本机启动与京东公开 HTTPS")
+        if status_timeout:
+            add("官方 CLI 状态回执", False, "本机官方 status 等待超时，尚未取得版本回执",
+                "请查看是否有本机系统确认窗口，再用原商家状态重查 status")
+            checks[-1]['errorKind'] = 'local_cli_timeout'
+        else:
+            add("官方 CLI 状态回执", bool(ver), "已读取版本" if ver else "未取得可核对的状态回执",
+                "使用商家入口 doctor-cli 单独检查本机启动与京东公开 HTTPS")
         if info.get("needsUpdate"):
             add("jdo-cli 版本", False, info["note"], info["action"])
         add("jdo-cli 已初始化", config_path().exists(), str(config_path()),
@@ -1469,12 +1551,13 @@ def _download(url: str, timeout: int, opener=None) -> bytes:
 def install_jdo(policy_opener=None, download_opener=None, platform_ok=None, home=None) -> dict:
     """Merchant-only verified official installation; mature init/auth is unchanged."""
     existing = find_jdo()
-    if existing:
+    merchant = os.environ.get("HEIDENG_MERCHANT_HOME")
+    managed = bool(merchant and (Path(merchant)/'tools/official.json').is_file())
+    if existing and not managed:
         return {"ok": True, "installed": False, "path": str(existing),
                 "message": "已有京麦 CLI，未覆盖或降级。"}
     from heideng_merchant.official import OfficialClient
     from heideng_merchant.safety import SafetyError
-    merchant = os.environ.get("HEIDENG_MERCHANT_HOME")
     if not merchant:
         return _install_fail("merchant_home_required")
     try:
@@ -1482,7 +1565,8 @@ def install_jdo(policy_opener=None, download_opener=None, platform_ok=None, home
         result = client.install()
         executable = client.executable()
         os.environ["JDO_CLI_PATH"] = str(executable)
-        return {"ok": True, "installed": result.get("status") == "installed",
+        return {"ok": True, "installed": result.get("status") == "installed" and not managed,
+                "repaired": result.get("repaired", False), "releaseFilesVerified": result.get("releaseFilesVerified"),
                 "path": str(executable), "version": result.get("version", ""),
                 "source": "京麦官方校验下载", "binaryVerified": True}
     except SafetyError as exc:
