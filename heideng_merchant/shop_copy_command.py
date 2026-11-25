@@ -701,7 +701,7 @@ def compare(root, folder, frozen, target, args):
                   sourcePlatformStatus={k:source_info[k] for k in ('productStatus','productStatusNew') if k in source_info},
                   platformStatus={k:info[k] for k in ('productStatus','productStatusNew') if k in info},
                   readbackView='application' if args.apply_id else 'product',
-                  consumerPageStatus='unchecked',readGaps=gaps)
+                  consumerPageStatus='unchecked',buyerPurchaseStatus='unverified',readGaps=gaps)
     report['skuLinks'] = [{'sourceSkuId':s,'targetSkuId':t,'sourceUrl':'https://item.jd.com/'+s+'.html',
                            'targetUrl':'https://item.jd.com/'+t+'.html'} for s,t in report['skuPairs'].items()]
     if report['status']=='verified':
@@ -728,7 +728,8 @@ def compare(root, folder, frozen, target, args):
             mismatches.append({'field':c['field'],'source':str(c.get('source',c.get('sourceValue')))[:120],
                                'target':str(c.get('target',c.get('targetValue')))[:120]})
     return {k:report[k] for k in ('status','sourceProductId','targetProductId','sourcePlatformStatus','platformStatus','readbackView',
-                                  'consumerPageStatus','packagingListStatus','readbackScope','applicationStatus','saleState','auditState','checkedAt','readGaps')} | {
+                                  'consumerPageStatus','buyerPurchaseStatus','packagingListStatus','readbackScope','applicationStatus','saleState','auditState','checkedAt','readGaps')} | {
+            'buyerEvidence':'本次核对的是后台商品和库存。买家在特定地区、规格或预售条件下能否下单，需对应前台证据。',
             'merchantCodeCoverage':report.get('merchantCodeCoverage'), 'matchedSkuCount':len(report['skuPairs']),
             'checkCounts':counts,'skuLinkCount':len(report['skuLinks']),'skuLinks':report['skuLinks'][:3],
             'unresolvedFields':[c['field'] for c in checks if c.get('status')!='verified'][:12],

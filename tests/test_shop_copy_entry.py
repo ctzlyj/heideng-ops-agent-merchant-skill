@@ -185,6 +185,7 @@ class ShopCopyEntryTests(unittest.TestCase):
         self.entry.api.get.reset_mock()
         observed=self.call('compare','--task',start['taskId'],ok=False)
         self.assertEqual(observed['matchedSkuCount'],2,observed)
+        self.assertEqual(observed['buyerPurchaseStatus'],'unverified')
         self.assertFalse(any(call.args[1].endswith('/vender-brands') for call in self.entry.api.get.call_args_list))
         result=self.call('submit-one','--task',start['taskId'],*self.src,'--approval','other',
                          '--confirm','PUBLISH_ONE_COPY')
