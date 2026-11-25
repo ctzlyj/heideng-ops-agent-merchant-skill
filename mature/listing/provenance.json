@@ -17,7 +17,7 @@
     },
     "scripts/jdo_listing_mvp.py": {
       "upstreamSha256": "42281253267957388ed5e3cd111889898b3a4ac61952bb89c509f10d669b0a1e",
-      "sha256": "fe932adcbeb428970f26fea1d4a6d43b70940e04a14a19bf7d0404e15f951991",
+      "sha256": "01b6526fd8198f3c54ad16c732711fc86becc13ee1fb7049ec5cfc59555ec71d",
       "adapted": true
     },
     "scripts/jd_product_mover.py": {

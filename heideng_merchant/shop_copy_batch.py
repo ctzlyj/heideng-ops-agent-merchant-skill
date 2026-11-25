@@ -454,12 +454,12 @@ def dispatch(args, api):
         return _set_stop(root,args)
     if args.action=='batch-status':
         return _report(root,args.batch,scope)
-    if _stores(args,api)!=(scope['sourceShop'],scope['targetShop']):
-        raise ValueError('批次记录和当前实际店铺不一致')
     # Serialize batches in this target shop; each product still owns its original copy lock.
     shop_lock=safe_join(_base(),'locks/'+scope['targetShop']['shopId']+'.lock')
     try:
         with FileLock(shop_lock):
+            if _stores(args,api)!=(scope['sourceShop'],scope['targetShop']):
+                raise ValueError('批次记录和当前实际店铺不一致')
             phase=_authorize(root,args,scope)
             if args.delivery_evidence:
                 data=read_json(args.delivery_evidence)
@@ -493,6 +493,15 @@ def dispatch(args, api):
                 if held.get('active') and held.get('sourceProductId') in ids:
                     ids.remove(held['sourceProductId'])
                     ids.insert(0,held['sourceProductId'])
+                if held.get('active') and held.get('reason')=='repeated-official-permission-refusal' and args.correction_evidence:
+                    requested=read_json(args.correction_evidence,{})
+                    for h in category_holds.values():
+                        pid=h['sourceProductId']
+                        if (h.get('active') and pid in ids and h.get('systemicSignature')==held.get('platformCodes')
+                                and api.pair_key({**scope,'sourceProductId':pid})==requested.get('taskId')):
+                            ids.remove(pid)
+                            ids.insert(0,pid)
+                            break
             for pid in ids:
                 _check_stop(root)
                 path=_record_path(root,pid)
@@ -541,8 +550,15 @@ def dispatch(args, api):
                 if phase!='draft' and reason:
                     atomic_json(root/'hold.json',{'active':True,'sourceProductId':pid,'reason':reason,'checkedAt':row['checkedAt']})
                     break
-                if phase!='draft' and held.get('active') and held.get('sourceProductId')==pid:
+                recovering_permission=(held.get('reason')=='repeated-official-permission-refusal'
+                                       and row.get('status')=='submitted' and row.get('receiptDirectory') and
+                                       Path(row['receiptDirectory']).name!='publication' and category and
+                                       category_holds.get(category,{}).get('systemicSignature')==held.get('platformCodes'))
+                if phase!='draft' and held.get('active') and (held.get('sourceProductId')==pid or recovering_permission):
                     if row['status'] not in ('submitted','existing-target-for-comparison'):
+                        break
+                    if (held.get('reason') in ('readback-different','application-rejected') and
+                            (row.get('comparison') or {}).get('status')!='compared-fields-match'):
                         break
                     atomic_json(root/'hold.json',{**held,'active':False,'resolvedAt':row['checkedAt']})
                     held={}

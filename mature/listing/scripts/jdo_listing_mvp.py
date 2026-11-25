@@ -164,17 +164,17 @@ def parse_response(text: str, *, method=None, url=None) -> dict[str, Any]:
         errors = payload.get("errorList") or []
         if isinstance(errors,dict):
             errors=[errors]
+        complete_codes=isinstance(errors,list) and all(isinstance(item,dict) for item in errors)
         errors=[item for item in errors if isinstance(item,dict)] if isinstance(errors,list) else []
         message = "; ".join(
             f"{item.get('code', 'UNKNOWN')} {item.get('message', '')}" for item in errors
         )
         error=JdoError(message or "jdo-cli 调用失败")
         codes=[str(item.get('code','')) for item in errors]
-        error.platform_codes=sorted(set(codes)) if all(re.fullmatch(r'[0-9]{6,14}',c) for c in codes) else []
+        error.platform_codes=sorted(set(codes)) if complete_codes and all(re.fullmatch(r'[0-9]{6,14}',c) for c in codes) else []
         error.platform_call=(method,url)
         result_data=payload.get('data')
-        error.no_issued_ids=(result_data is None or isinstance(result_data,dict) and
-                             not any(result_data.get(k) for k in ('applyId','productId','jobId','taskId')))
+        error.no_issued_ids=(result_data is None or result_data=={})
         error.no_issued_ids=error.no_issued_ids and not any(payload.get(k) for k in ('applyId','productId','jobId','taskId'))
         request_id=str(payload.get('requestId') or '')
         error.request_id=request_id if re.fullmatch('[a-fA-F0-9-]{6,64}',request_id) else None

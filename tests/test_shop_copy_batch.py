@@ -52,7 +52,7 @@ class BatchCopyTests(unittest.TestCase):
                        'itemNum':r['productInfo']['itemNum']} for p,r in records.items()]
                 if 'productIdList' in params:rows=[r for r in rows if r['productId'] in params['productIdList']]
                 if 'itemNum' in params:rows=[r for r in rows if r['itemNum']==params['itemNum']]
-                return {'data':rows,'paginationData':{'currentPage':1,'pageNum':1,'totalItems':len(rows)}}
+                return {'success':True,'data':rows,'paginationData':{'currentPage':1,'pageNum':1,'totalItems':len(rows)}}
             return original(skill,url,params)
         api.get.side_effect=get
         def invoke(**kwargs):
@@ -330,3 +330,23 @@ class BatchCopyTests(unittest.TestCase):
         self.assertNotEqual(file_sha(dirs[0]/'publish-body.json'),file_sha(dirs[2]/'publish-body.json'))
         self.resume(batch,'--correction-evidence',str(proof))
         self.assertEqual(self.writes,[701,701,701])
+
+    def test_two_simultaneous_resumes_cannot_dispatch_the_same_correction_twice(self):
+        from argparse import Namespace
+        from concurrent.futures import ThreadPoolExecutor
+        from heideng_merchant import shop_copy_batch
+        self.reject[701]='1010300506'
+        batch=self.plan((701,))
+        original=self.run_phase(batch,'bulk')
+        _,updated,proof=self.correction(original)
+        self.blueprints[701]['productInfo']['logisticsInfo']['transportId']=191
+        del self.reject[701]
+        def resume(_):
+            args=Namespace(action='batch-resume',batch=batch,source_profile=SOURCE['profile'],source_config=self.config,
+                           target_profile=TARGET['profile'],target_config=self.config,stop_id=None,authorization_ref=None,
+                           delivery_evidence=updated,correction_evidence=proof)
+            return shop_copy_batch.dispatch(args,self.entry)
+        with ThreadPoolExecutor(2) as workers:
+            results=list(workers.map(resume,range(2)))
+        self.assertEqual(self.writes,[701,701])
+        self.assertTrue(all(r['uniqueMappedTargets']==1 for r in results))
