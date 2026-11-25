@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 from jd_product_mover import jd_title_units
 from photo_generation import atomic_json,load,sha
+from hot_replica_mode import available_brand_ids
 
 SCHEMA_VERSION='listing-package/v1'
 class ReconcileRequired(RuntimeError):pass
@@ -37,27 +38,16 @@ def option_valid(component,values):
  available={str(v['value']) for v in component.get('optionsValueList') or []}
  return bool(values) and (not available or set(map(str,values)).issubset(available))
 
-# The two observed platform rejections apply only to their original JD category.
-# New categories obtain bounds from their own current schema.
-OBSERVED_LOGISTICS_RULES = {
- '53207': {
-    'WareWeight': ('0.001', '10000', '1010300506 重量必填'),
-    'WareWide': ('0', '100000', '1010300506 宽度必填'),
- },
-}
-
-
 def missing_logistics(facts, reference):
  components = {c['componentCode']:c for c in reference.get('componentCatalog', [])}
  components.update({c['componentCode']:c for c in walk_components(reference.get('schema') or {})})
- observed = OBSERVED_LOGISTICS_RULES.get(str(facts.get('categoryId')), {})
  missing = []
  for field, code in [('weightKg','WareWeight'), ('packageWidthMm','WareWide'),
                      ('packageLengthMm','WareLength'), ('packageHeightMm','WareHeight')]:
   value = facts.get(field)
   component = components.get(code, {})
   if value in (None, ''):
-   if required(component) or component.get('required') is True or code in observed:
+   if required(component) or component.get('required') is True:
     missing.append(field)
    continue
   try:
@@ -65,11 +55,6 @@ def missing_logistics(facts, reference):
    if not value.is_finite() or value < 0:
     missing.append(field)
     continue
-   if code in observed:
-    low, high, _ = observed[code]
-    if not Decimal(low) < value < Decimal(high):
-     missing.append(field)
-     continue
    for rule in component.get('validateRule') or []:
     kind = rule.get('validateType')
     if kind in ('minimum','maximum'):
@@ -84,16 +69,19 @@ def missing_logistics(facts, reference):
 
 def missing_information(facts,reference):
  missing=[]
- for field in ('confirmed','title','categoryId','brandId','skus','freightTemplateId','sevenDayReturnCode'):
+ for field in ('confirmed','title','categoryId','brandId','skus'):
   value=facts.get(field)
   if value is None or value=='' or (field in ('confirmed','skus') and not value):missing.append(field)
  if jd_title_units(str(facts.get('title') or '')) > 60:
   missing.append('title-exceeds-60-units')
  missing.extend(missing_logistics(facts,reference))
+ for c in [*reference.get('componentCatalog', []), *walk_components(reference.get('schema') or {})]:
+  field={'WareTransport':'freightTemplateId','WareSevenDayReturn':'sevenDayReturnCode'}.get(c.get('componentCode'))
+  if field and (required(c) or c.get('required') is True) and facts.get(field) in ('',None):missing.append(field)
  if facts.get('confirmed') is not True and 'confirmed' not in missing:missing.append('confirmed')
  if int(facts.get('categoryId') or 0)!=int((reference.get('category') or {}).get('id') or 0):missing.append('category-template-mismatch')
  if facts.get('brandId') is not None:
-  brands={str(b.get('brandId')) for b in reference.get('brands') or []}
+  brands=available_brand_ids(reference)
   if str(facts['brandId']) not in brands:missing.append('brand-not-authorized')
  attrs={a['componentCode']:a for a in facts.get('categoryAttributes') or []}
  sku_components=[]

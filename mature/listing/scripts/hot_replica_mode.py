@@ -6,29 +6,28 @@ import re
 from pathlib import Path
 
 
-def no_brand_allowed(reference: dict) -> bool:
-    """True when the target category accepts brandId=-1 (无品牌)."""
-    brands = reference.get("brands") or []
-    return any(int(b.get("brandId") or 0) == -1 for b in brands)
+def available_brand_ids(reference):
+    allowed = {str(b["brandId"]) for b in reference.get("brands") or [] if b.get("brandId") is not None}
+    for component in (reference.get('schema') or {}).get('componentList') or []:
+        if component.get('componentCode') == 'WareBrand' and any(
+                str(opt.get('value')) == '-1' and str(opt.get('label','')).strip() == '无品牌'
+                for opt in component.get('optionsValueList') or []):
+            allowed.add('-1')
+    return allowed
 
 
-def brand_gate(reference: dict, category_label: str = "") -> dict:
-    """Hard pre-generation gate. Returns {'ok': bool, ...} evidence dict."""
-    if no_brand_allowed(reference):
-        return {
-            "ok": True,
-            "decision": "PROCEED",
-            "evidence": "类目授权品牌列表包含 brandId=-1（无品牌），可无品牌上架",
-            "category": category_label,
-        }
-    brand_names = [str(b.get("brandName") or "") for b in reference.get("brands") or []]
-    return {
-        "ok": False,
-        "decision": "SKIPPED_BRAND_REQUIRED",
-        "evidence": "类目授权品牌列表不含 brandId=-1（无品牌），平台将拒绝无品牌商品",
-        "category": category_label,
-        "authorizedBrandCount": len(brand_names),
-    }
+def no_brand_allowed(reference):
+    return '-1' in available_brand_ids(reference)
+
+
+def brand_gate(reference: dict, category_label: str = "", brand_id=None) -> dict:
+    """Check the actual draft brand against the target category's authorized choices."""
+    allowed = available_brand_ids(reference)
+    confirmed = brand_id is not None and str(brand_id) in allowed
+    return {"ok":confirmed, "decision":"PROCEED" if confirmed else "NEEDS_BRAND_EVIDENCE",
+            "brandId":brand_id, "authorizedBrandCount":len(allowed), "category":category_label,
+            "evidence":"草稿品牌与目标类目可选品牌一致" if confirmed else
+                       "核对本商品的真实品牌和目标店当前类目授权，保留已有素材与草稿。"}
 
 
 def style_image_mode(source: dict) -> dict:

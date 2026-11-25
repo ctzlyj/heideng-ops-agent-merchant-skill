@@ -4298,7 +4298,7 @@ def build_parser() -> argparse.ArgumentParser:
     repair.add_argument('--fee-approval-file',type=Path,help='对应免费试算 feeQuote 的商家费用批准记录。')
     repair.add_argument('--max-model-requests',type=int,help='本次已批准的模型请求上限；包含失败响应/质量重试，不是最终扣费。')
     repair.add_argument('--repair-kind',action='append',choices=tuple(IMAGE_SUFFIXES),help='仅修这些类型的已驳回槽位，可重复；付费修复必须显式指定。')
-    repair.add_argument('--reference-granularity',choices=('spu','sku'),help='新修复默认按 SPU 共图，逐 SKU 须显式选择。')
+    repair.add_argument('--reference-granularity',choices=('reference','spu','sku'),help='默认按同一商品内的相同参考图复用；外观相同可选 spu，共用链接仍需分开制作时选 sku。')
     repair.add_argument('--paid-generation',action=argparse.BooleanOptionalAction,default=False,help='默认只走免费路径/申诉；另获本次费用批准后显式开启模型修复。')
     repair.add_argument('--profile-dir', help='Own shop Chrome profile; enables Jingmai batch cutout first for rejected white/transparent')
     repair.add_argument('--jingmai-first', action=argparse.BooleanOptionalAction, default=True)

@@ -39,7 +39,7 @@ def _product_id(identity, detail):
     return pid
 
 
-def freeze_copy(source_shop, target_shop, source_detail, *, stock_rows=None, video_rows=None):
+def freeze_copy(source_shop, target_shop, source_detail, *, stock_rows=None, video_rows=None, source_components=None):
     source, target = _shop(source_shop), _shop(target_shop)
     if source['shopId']==target['shopId'] or source['profile'].casefold()==target['profile'].casefold():
         raise ValueError('跨店复制需要两个不同的已核验店铺及各自 Profile')
@@ -49,6 +49,10 @@ def freeze_copy(source_shop, target_shop, source_detail, *, stock_rows=None, vid
         video_rows={str(sid):rows for sid,rows in video_rows.items()}
     value = {'mode':'owned-shop-copy','sourceShop':source,'targetShop':target,'sourceProductId':pid,
              'sourceDetail':deepcopy(source_detail),'sourceStocks':deepcopy(stock_rows),'sourceVideos':deepcopy(video_rows)}
+    if source_components:
+        nodes = list(_template_nodes(source_components))
+        value['sourceComponentCodes'] = sorted({n['componentCode'] for n in nodes})
+        value['sourceDetailFields'] = sorted({n['productDetailField'] for n in nodes if isinstance(n.get('productDetailField'),str)})
     return {**value,'sha256':_digest(value)}
 
 
@@ -84,7 +88,12 @@ def _specs(row):
             return None
         spec={'dimension':dim,'attrId':aid,'name':name,'value':alias}
         if attr.get('templateSkuProps'):
-            spec['templateSkuProps']=attr['templateSkuProps']
+            boxes=attr['templateSkuProps']
+            if isinstance(boxes,str):
+                try:boxes=json.loads(boxes)
+                except ValueError:return None
+            if not isinstance(boxes,list):return None
+            spec['templateSkuProps']=boxes
         dimensions[dim]=spec
     return [dimensions[i] for i in sorted(dimensions)]
 
@@ -201,6 +210,69 @@ def plan_copy(frozen):
             'content':content,'skuCount':len(content['skus']),'imageUrls':list(dict.fromkeys(u for u in urls if u)),'writes':0}
 
 
+def local_copy_draft(frozen):
+    """A reviewable product draft from frozen observations; no target validation or media transfer."""
+    plan=plan_copy(frozen)
+    content=plan['content']
+    evidence=[]
+    follow=[]
+    def need(field,reason,action):
+        evidence.append({'field':field,'stage':'before-exact-publication','owner':'host',
+                         'reason':reason,'nextAction':action})
+    for field in ('title','categoryId','brandId','itemNumber','attributes'):
+        if content[field] is None:
+            need(field,'源商品未返回该字段','核对源商品当前编辑页或原发布回执，再对照目标类目组件。')
+    if content['packSpecification'] is None:
+        need('packSpecification','后台未返回包装规格描述','宿主按目标类目核对包装规格字段。此字段没有给出箱内物品清单。')
+    if content['packSpecification'] not in (None,'',[]):
+        need('packSpecification','已保留源字段原值，包装字段含义和目标写法待核','对照原商品编辑标签和两店当前类目模板。')
+    for field,value in content['packaging'].items():
+        if value is None:
+            need('packaging.'+field,'原包装尺寸或重量未核验','从本商品原资料补齐数值与单位。')
+    for channel,html in content['details'].items():
+        if html is None:
+            need('details.'+channel,'原详情未返回','分别核对源商品电脑端和移动端详情。')
+    rows=[]
+    for sid,sku in content['skus'].items():
+        row={'sourceSkuId':sid,**deepcopy(sku)}
+        for group_field,key,position in (('mainGroups','mainGroup','mainImages'),('rectangleGroups','rectangleGroup','rectangleImages')):
+            groups=content[group_field]
+            row[position]=None if groups is None else [] if not groups else groups.get(sku[key])
+            if row[position] is None:
+                need(f'sku.{sid}.{position}','图组归属或位置未核验','按原 SKU 和销售属性核对源图组，不合并各款序列。')
+        for key,label,action in (
+                ('merchantSku','商家编码','读取原 SKU 商家编码，保留前导零及重复值。'),
+                ('specifications','销售规格','读取完整销售属性与原值，按当前目标类目核对填写框。'),
+                ('price','京东价','核验源 SKU 的京东价。'),('stock','库存','查询同店原 SKU 库存。'),
+                ('upcCode','条码','查询原条码及目标类目的条码要求。'),
+                ('specImages','规格图','查询原 SKU 规格图及实际归属。'),
+                ('logo','缩略图','核验 SKU 当前缩略图及其与图组首位的关系。'),
+                ('videoIds','主图视频','查询原 SKU 视频素材关系，区分有、无与尚未查到。')):
+            if sku[key] is None:
+                need(f'sku.{sid}.{key}',label+'未核验',action)
+        if sku['specImages']:
+            follow.append({'action':'bind-spec-image-after-target-sku-id','sourceSkuId':sid,'sourceUrls':sku['specImages']})
+        if sku['videoIds']:
+            follow.append({'action':'verify-and-bind-main-video','sourceSkuId':sid,'sourceVideoIds':sku['videoIds']})
+        rows.append(row)
+    codes={}
+    for row in rows:
+        if row['merchantSku'] not in (None,''):
+            codes.setdefault(row['merchantSku'],[]).append(row['sourceSkuId'])
+    return {'status':'local-draft-ready','intent':'local-draft','sourceShop':frozen['sourceShop'],
+            'targetShop':frozen['targetShop'],'sourceProductId':frozen['sourceProductId'],'sourceFingerprint':frozen['sha256'],
+            'product':{k:v for k,v in content.items() if k!='skus'},'skuRows':rows,
+            'currentStage':{'completed':'local-draft','merchantDecisions':[],
+                            'summary':'本次只看草稿，可直接交付。已知值按原商品保留。发布前的核查留给宿主接着查。'},
+            'merchantCodeHandling':'按每个原 SKU 保留源店编码，包含重复值。没有本次改码交办或目标店明确的冲突依据时，沿用原值。',
+            'repeatedSourceMerchantCodes':{code:ids for code,ids in codes.items() if len(ids)>1},
+            'sourceImageUrls':plan['imageUrls'],'missing':[a['field'] for a in evidence],
+            'evidenceActions':evidence,'beforePublication':['核对目标店当前类目模板和可售品牌',
+                '核对目标店的运费、时效、退换与支付规则','核对各图位对应的目标媒体回执'],
+            'followUp':follow,'approvalFingerprint':None,
+            'publicationChecked':False,'platformWrites':0}
+
+
 def source_fidelity(frozen):
     """Stable observations used to approve *this* sample, excluding observation timestamps."""
     content=plan_copy(frozen)['content']
@@ -302,31 +374,40 @@ class _Detail(HTMLParser):
         return ''.join(html)
 
 
-def _pairs(source,target):
-    """Explicit merchant codes first; unique complete sale specs can identify a renamed/missing code."""
-    by_code={}
-    by_spec={}
-    for sid,sku in target.items():
-        if sku['merchantSku']:
-            by_code.setdefault(sku['merchantSku'],[]).append(sid)
-        if sku['specifications'] is not None:
-            by_spec.setdefault(_digest(sku['specifications']),[]).append(sid)
-    source_codes=Counter(s['merchantSku'] for s in source.values() if s['merchantSku'])
-    source_specs=Counter(_digest(s['specifications']) for s in source.values() if s['specifications'] is not None)
-    result={}
-    for sid,sku in source.items():
-        code=sku['merchantSku']
-        matches=by_code.get(code,[])
-        if code and source_codes[code]==1 and len(matches)==1:
-            result[sid]=matches[0]
-    used=set(result.values())
-    for sid,sku in source.items():
-        key=_digest(sku['specifications'])
-        matches=by_spec.get(key,[])
-        if sid not in result and source_specs[key]==1 and len(matches)==1 and matches[0] not in used:
-            result[sid]=matches[0]
-            used.add(matches[0])
-    return result
+def _spec_signature(specs):
+    if specs is None:
+        return None
+    # An unproven enum-ID change is not a writable SKU association. A caller
+    # with the target's verified template may first project the source options.
+    result=deepcopy(specs)
+    for axis in result:
+        for box in axis.get('templateSkuProps') or []:
+            if not isinstance(box,dict) or box.get('id') in (None,'') or box.get('value') in (None,''):
+                return None
+            box['id']=str(box['id'])
+            if box.get('valueId') is not None:
+                box['valueId']=str(box['valueId'])
+    return _digest(result)
+
+
+def pair_copy_skus(source,target):
+    """Return independent, one-to-one evidence. Never use the code being checked as the join key."""
+    sources={sid:_spec_signature(s['specifications']) for sid,s in source.items()}
+    counts=Counter(sources.values())
+    index={}
+    for sid,s in target.items():
+        key=_spec_signature(s['specifications'])
+        if key is not None:index.setdefault(key,[]).append(sid)
+    pairs={}; reasons={}
+    for sid,key in sources.items():
+        if key is None:reasons[sid]='source-specifications-incomplete'
+        elif counts[key]!=1:reasons[sid]='source-specifications-not-unique'
+        elif key not in index:reasons[sid]='no-exact-target-specifications'
+        elif len(index[key])!=1:reasons[sid]='target-specifications-not-unique'
+        elif not source[sid]['specifications'] and (len(source)!=1 or len(target)!=1):
+            reasons[sid]='empty-specifications-in-multiple-sku-product'
+        else:pairs[sid]=index[key][0]
+    return {'pairs':pairs,'reasons':reasons,'matchedBy':{sid:'unique-complete-specifications' for sid in pairs}}
 
 
 def _check(checks,field,source,target,*,status=None):
@@ -405,14 +486,53 @@ def _compare_groups(checks,field,group_key,source,target,pairs,media):
         _images(checks,label,urls,right.get(dest),media)
 
 
-def compare_copy(frozen,target_shop,target_detail,*,stock_rows=None,video_rows=None,media_evidence=None,delivery_evidence=None):
+def _copy_pairing(frozen,source_skus,target_skus,target_schema):
+    pair_source=source_skus
+    spec_gaps={}
+    if target_schema is not None:
+        _validate_reference(frozen,target_schema)
+        pair_source=deepcopy(pair_source)
+        catalog={n['componentCode']:n for n in _template_nodes((target_schema.get('schema') or {}).get('componentList') or [])}
+        for sid,raw in sku_rows(frozen['sourceDetail'],frozen['sourceProductId']).items():
+            axes={str(a.get('attrId')):a for a in raw.get('saleAttrs') or []}
+            for axis in pair_source[sid]['specifications'] or []:
+                key=axis['attrId']
+                try:
+                    props=_target_props(axes[key],catalog.get('sale-prop-'+key,{}),target_schema)
+                except ValueError as error:
+                    spec_gaps.setdefault(sid,[]).append(str(error))
+                    continue
+                if props is not None:
+                    axis['templateSkuProps']=props
+    return pair_source,pair_copy_skus(pair_source,target_skus),spec_gaps
+
+
+def pair_frozen_target_skus(frozen,target_detail,target_schema=None):
+    """Independently pair SKUs for an authorized edit; unresolved template projections cannot write."""
+    _validate(frozen)
+    target_pid=_product_id(frozen['targetShop'],target_detail)
+    if target_pid==frozen['sourceProductId']:
+        raise ValueError('目标回读仍指向原 SPU')
+    left=_view(frozen['sourceDetail'],None,None)['skus']
+    right=_view(target_detail,None,None)['skus']
+    _,pairing,gaps=_copy_pairing(frozen,left,right,target_schema)
+    for sid in gaps:
+        pairing['pairs'].pop(sid,None)
+        pairing['matchedBy'].pop(sid,None)
+        pairing['reasons'][sid]='target-template-projection-unverified'
+    return {**pairing,'specGaps':gaps}
+
+
+def compare_copy(frozen,target_shop,target_detail,*,stock_rows=None,video_rows=None,media_evidence=None,delivery_evidence=None,
+                 target_schema=None):
     _validate(frozen,target_shop)
     target_pid=_product_id(frozen['targetShop'],target_detail)
     if target_pid==frozen['sourceProductId']:
         raise ValueError('目标回读仍指向原 SPU，无法证明已复制出新商品')
     source=plan_copy(frozen)['content']
     target=_view(target_detail,stock_rows,video_rows)
-    pairs=_pairs(source['skus'],target['skus'])
+    pair_source,pairing,spec_gaps=_copy_pairing(frozen,source['skus'],target['skus'],target_schema)
+    pairs=pairing['pairs']
     checks=[]
     media=_media(frozen,media_evidence)
     video_media=_media(frozen,media_evidence,'videos')
@@ -422,10 +542,26 @@ def compare_copy(frozen,target_shop,target_detail,*,stock_rows=None,video_rows=N
         _check(checks,'packaging.'+field,value,target['packaging'][field])
     _check(checks,'skuCount',len(source['skus']),len(target['skus']))
     _check(checks,'matchedSkuCount',len(source['skus']),len(pairs),status='verified' if len(pairs)==len(source['skus']) else 'needs-evidence')
+    if target_schema is not None and not spec_gaps and len(pairs)!=len(source['skus']):
+        wanted=[_spec_signature(s['specifications']) for s in pair_source.values()]
+        actual=[_spec_signature(s['specifications']) for s in target['skus'].values()]
+        if None not in wanted and None not in actual and Counter(wanted)!=Counter(actual):
+            expected_only=Counter(wanted)-Counter(actual)
+            actual_only=Counter(actual)-Counter(wanted)
+            def examples(rows,unmatched):
+                return {'count':sum(unmatched.values()),'examples':[
+                    s['specifications'] for s in rows.values() if _spec_signature(s['specifications']) in unmatched][:3]}
+            _check(checks,'targetTemplateSpecificationCensus',examples(pair_source,expected_only),
+                   examples(target['skus'],actual_only),status='different')
+    code_checks=Counter()
     for sid,other in pairs.items():
         a,b=source['skus'][sid],target['skus'][other]
-        for field in ('merchantSku','specifications','price','stock','attributes','upcCode','enabled'):
+        for field in ('merchantSku','price','stock','attributes','upcCode','enabled'):
             _check(checks,f'sku.{sid}.{field}',a[field],b[field])
+            if field=='merchantSku':code_checks[checks[-1]['status']]+=1
+        wanted=pair_source[sid]['specifications']
+        status='needs-evidence' if sid in spec_gaps else 'verified'  # matched by the complete signature
+        _check(checks,f'sku.{sid}.specifications',wanted,b['specifications'],status=status)
         _images(checks,f'sku.{sid}.specImages',a['specImages'],b['specImages'],media)
         _images(checks,f'sku.{sid}.logo',a['logo'],b['logo'],media)
         _images(checks,f'sku.{sid}.mainVideoIds',a['videoIds'],b['videoIds'],video_media)
@@ -442,9 +578,16 @@ def compare_copy(frozen,target_shop,target_detail,*,stock_rows=None,video_rows=N
         _compare_detail_images(checks,label+'.images',a.images,b.images,media)
     from .shop_copy_delivery import compare_delivery
     delivery=compare_delivery(frozen['sourceDetail'],target_detail,frozen['sourceShop'],frozen['targetShop'],pairs,delivery_evidence)
+    beyond_templates=outside_creation_templates(frozen,target_schema)
+    excluded={c['field'] for c in checks if c['field'] in beyond_templates and c['source'] is None and c['target'] is None}
+    checks=[c for c in checks if c['field'] not in excluded]
     states={c['status'] for c in checks}|{delivery['status']}
     status='different' if 'different' in states else 'verified' if states=={'verified'} else 'needs-evidence'
-    return {'status':status,'checks':checks,'skuPairs':pairs,'delivery':delivery,'writes':0,
+    return {'status':status,'checks':checks,'skuPairs':pairs,'skuPairingEvidence':pairing,'specificationEvidenceGaps':spec_gaps,
+            'delivery':delivery,'writes':0,'outsideTemplateFields':sorted(excluded),
+            'merchantCodeCoverage':{'sourceSkuCount':len(source['skus']),'independentlyPaired':len(pairs),
+                                    'verified':code_checks['verified'],'different':code_checks['different'],
+                                    'unverified':len(source['skus'])-code_checks['verified']-code_checks['different']},
             'unmatchedSourceSkus':sorted(set(source['skus'])-set(pairs)),
             'unmatchedTargetSkus':sorted(set(target['skus'])-set(pairs.values())),
             'sourceShop':frozen['sourceShop'],'targetShop':frozen['targetShop'],'sourceProductId':frozen['sourceProductId'],
@@ -466,6 +609,87 @@ def _template_nodes(nodes):
         if node.get('componentCode'):
             yield node
         yield from _template_nodes(node.get('childrenComponents') or [])
+
+
+def _structured(node):
+    return str((node.get('extra') or {}).get('isStructure','')).lower() in ('true','1')
+
+
+def _target_props(attr, node, reference):
+    """Align independently observed source box IDs to a verified target template.
+
+    Target-local option IDs can change. The displayed alias, units and each
+    individual source value must survive the transfer.
+    """
+    from mature.listing.scripts.sale_attr_templates import build_props
+
+    aid=str(attr['attrId'])
+    templates=reference.get('structuredSaleTemplates') or {}
+    template=templates.get(aid)
+    source=attr.get('templateSkuProps')
+    if isinstance(source,str) and source:
+        try:source=json.loads(source)
+        except ValueError:raise ValueError('原结构化分项 JSON 无法解析') from None
+    if not (source or _structured(node) or template):
+        return None
+    if not isinstance(template,dict) or str(template.get('attrId'))!=aid:
+        raise ValueError('需从目标店当前末级类目的 sale-attr-templates 或同类目在售商品核实填写框、单位与选项')
+    proof=template.get('source') or {}
+    category=str(reference.get('categoryId') or (reference.get('category') or {}).get('id'))
+    if proof.get('kind')=='same-shop-same-category-product':
+        if str(proof.get('categoryId'))!=category or not proof.get('productId') or not proof.get('samples'):
+            raise ValueError('目标参考商品缺少同类目和当前店铺内的样本证据')
+    elif proof.get('kind')!='official-interface':
+        raise ValueError('缺少当前目标店铺结构化模板的来源回执')
+    if (('shopIdentity' in proof and _shop(proof['shopIdentity'])!=_shop(reference['shopIdentity']))
+            or ('categoryId' in proof and str(proof['categoryId'])!=category)):
+        raise ValueError('模板回执的店铺或类目与目标不符')
+    boxes=template.get('inputs') or []
+    keys=[str(b['id']) if b.get('id') is not None else '' for b in boxes]
+    if not boxes or '' in keys or len(set(keys))!=len(keys):
+        raise ValueError('目标模板填写框缺失或重复')
+    alias=attr.get('attrValueAlias')
+    if not source:
+        # A complete single enumerated value can be mapped without splitting a
+        # legacy alias into guesses, even when the source exposed no input boxes.
+        box=boxes[0]
+        if len(boxes)==1 and any(str(o['value'])+str(box.get('unit') or '')==alias for o in box.get('options') or []):
+            value=next(o['value'] for o in box['options'] if str(o['value'])+str(box.get('unit') or '')==alias)
+            source=[{'id':box['id'],'value':value,'unit':box.get('unit') or ''}]
+        else:
+            raise ValueError('源商品没有结构化分项，请从原通过体或源编辑回执取原始分项，不按标签切词')
+    if not isinstance(source,list):
+        raise ValueError('原结构化分项不是可核验的字段数组')
+    originals={}
+    for original in source:
+        if not isinstance(original,dict):
+            raise ValueError('原结构化分项不能定位')
+        key=str(original['id']) if original.get('id') is not None else ''
+        if (key not in keys or key in originals or original.get('value') in (None,'')
+                or any(k not in ('id','value','valueId','unit') and v not in (None,'') for k,v in original.items())):
+            raise ValueError('存在缺失、重复或不能映射至目标模板的原分项')
+        originals[key]=original
+    inputs=[]; values=[]
+    for key,box in zip(keys,boxes):
+        item=originals.get(key)
+        if item is None:
+            if box.get('optional') is True:continue
+            raise ValueError('缺少目标必填分项 '+key)
+        unit=str(item.get('unit') or '')
+        units=box.get('allowedUnits') or []
+        if ((units and unit not in units) or (not units and unit!=str(box.get('unit') or ''))
+                or (box.get('unitRequired') and not unit)):
+            raise ValueError('源与目标分项 '+key+' 的单位无法无损对应')
+        selected={**box,'unit':unit}
+        value=str(item['value'])
+        options=[o for o in box.get('options') or [] if str(o.get('value'))==value]
+        if len(options)>1 or (item.get('valueId') not in (None,'') and len(options)!=1):
+            raise ValueError('目标模板未能唯一核实分项 '+key+' 的枚举值 '+value)
+        inputs.append(selected); values.append(value)
+    props,display=build_props({'inputs':inputs},values)
+    if display!=alias:
+        raise ValueError('目标结构化填写框生成的展示值与原始别名不一致')
+    return props
 
 
 def _required(node):
@@ -508,8 +732,9 @@ def _prepare_schema(frozen,reference,media,delivery):
     nodes=list(_template_nodes((reference.get('schema') or {}).get('componentList') or []))
     catalog={node['componentCode']:node for node in nodes}
     schema=[]; missing=[]; follow=[]; used=set()
-    if len(_pairs(content['skus'],content['skus']))!=len(content['skus']):
-        missing.append('原 SKU 无法按商家编码或完整销售规格唯一对应')
+    omitted=outside_creation_templates(frozen,reference)
+    if len(pair_copy_skus(content['skus'],content['skus'])['pairs'])!=len(content['skus']):
+        missing.append('原 SKU 的完整销售规格无法唯一对应；商家编码不能证明自身归属')
     def add(sequence,code,value,required=False):
         if value is None:
             if required:missing.append(code+'：来源未核验')
@@ -541,12 +766,22 @@ def _prepare_schema(frozen,reference,media,delivery):
         missing.append('品牌在目标店铺此类目的可用回执待核验')
     add(schema,'WareTitle',content['title'],True)
     add(schema,'WareBrand',int(content['brandId']) if re.fullmatch(r'-?[0-9]+',content['brandId'] or '') else None,True)
-    add(schema,'WareItemnum',content['itemNumber'],True)
+    if 'itemNumber' not in omitted and (content['itemNumber']!='' or 'WareItemnum' in catalog):
+        add(schema,'WareItemnum',content['itemNumber'],True)
     for name,code in (('length','WareLength'),('width','WareWide'),('height','WareHeight'),('weight','WareWeight')):
-        add(schema,code,content['packaging'][name],True)
-    if content['packSpecification'] not in (None,'',[]):
-        missing.append('packSpecification 有源值，需核实其官方含义与可写组件，未将其当作包装清单')
-    elif content['packSpecification'] is None:
+        if 'packaging.'+name not in omitted:
+            add(schema,code,content['packaging'][name],True)
+    packing = content['packSpecification']
+    packing_fields = [n for n in (reference.get('schema') or {}).get('componentList',[])
+                      if n.get('productDetailField') == 'productInfo.packSpecification']
+    if packing not in (None,'',[]):
+        if (len(packing_fields)==1 and not packing_fields[0].get('childrenComponents')
+                and not packing_fields[0].get('properties') and not packing_fields[0].get('readOnly')
+                and isinstance(packing,str) and packing_fields[0]['componentCode'] not in used):
+            add(schema,packing_fields[0]['componentCode'],packing)
+        else:
+            missing.append('packSpecification 有源值，目标模板尚未给出唯一可写的包装规格字段。')
+    elif packing is None and 'packSpecification' not in omitted:
         missing.append('packSpecification 源字段未回读，原包装描述待核验')
     attrs=_attr_components(content['attributes'],'prop-product-',catalog,missing,'商品属性')
     if attrs:add(schema,'CategoryGroupList',attrs)
@@ -584,7 +819,8 @@ def _prepare_schema(frozen,reference,media,delivery):
     sku_nodes=[]
     for sid,row in content['skus'].items():
         parts=[]
-        add(parts,'SkuVendorSku',row['merchantSku'],True)
+        if f'sku.{sid}.merchantSku' not in omitted and (row['merchantSku']!='' or 'SkuVendorSku' in catalog):
+            add(parts,'SkuVendorSku',row['merchantSku'],True)
         add(parts,'SkuJdprice',row['price'],True)
         add(parts,'SkuStockNum',row['stock'],True)
         add(parts,'SkuEnableStatus',None if row['enabled'] is None else str(row['enabled']),True)
@@ -592,7 +828,8 @@ def _prepare_schema(frozen,reference,media,delivery):
             barcodes=[code for code in ('SkuWareUpccode','SkuUpcCode') if code in catalog]
             if len(barcodes)==1:add(parts,barcodes[0],str(row['upcCode']))
             else:missing.append('SKU '+sid+' 条码在目标模板的对应组件未唯一核验')
-        elif row['upcCode'] is None:missing.append('SKU '+sid+' 条码待核验')
+        elif row['upcCode'] is None and f'sku.{sid}.upcCode' not in omitted:
+            missing.append('SKU '+sid+' 条码待核验')
         if sid in values.get('SkuPromise',{}):add(parts,'SkuPromise',values['SkuPromise'][sid])
         attrs=_attr_components(row['attributes'],'prop-sku-',catalog,missing,'SKU '+sid)
         if attrs:add(parts,'SkuAttr',attrs)
@@ -613,8 +850,12 @@ def _prepare_schema(frozen,reference,media,delivery):
                 if order is None:missing.append('SKU '+sid+' 的规格排序待核验')
                 props={'attrValueAlias':'['+spec['value']+']','attrName':spec['name'],'mappingId':mid,
                        'index':str(spec['dimension']),'attrValuesSeqNo':order}
-                if attr.get('templateSkuProps'):
-                    missing.append('SKU '+sid+' 含结构化销售属性，需按目标类目模板核验结构及取值')
+                try:
+                    structured=_target_props(attr,catalog.get(code,{}),reference)
+                    if structured is not None:
+                        props['templateSkuProps']=json.dumps(structured,ensure_ascii=False,separators=(',',':'))
+                except ValueError as error:
+                    missing.append(f'SKU {sid} 销售属性 {code}：{error}')
                 sale.append({'componentCode':code,'properties':_properties(**props)})
                 if spec['dimension']==1:
                     for role in target_groups:
@@ -669,17 +910,54 @@ def _prepare_schema(frozen,reference,media,delivery):
     return schema,list(dict.fromkeys(missing)),follow
 
 
+def _validate_reference(frozen,target_schema):
+    if _shop(target_schema.get('shopIdentity') or {})!=frozen['targetShop']:
+        raise ValueError('类目模板缺少目标店铺身份或属于另一店铺')
+    category=(frozen['sourceDetail']['productInfo'].get('categoryDetail') or {}).get('lastCategoryId')
+    if not category or str(target_schema.get('categoryId') or (target_schema.get('category') or {}).get('id'))!=str(category):
+        raise ValueError('目标创建模板与来源商品类目不一致')
+
+
+def outside_creation_templates(frozen, target_schema):
+    """Only omit unreported fields that neither shop's current category template exposes."""
+    if not frozen.get('sourceComponentCodes') or not target_schema:
+        return set()
+    target_codes = {n['componentCode'] for n in _template_nodes(target_schema['schema']['componentList'])}
+    if not target_codes:
+        return set()
+    available = set(frozen['sourceComponentCodes']) | target_codes
+    product = frozen['sourceDetail']['productInfo']
+    omitted = set()
+    # Field paths, when present in both templates, also identify controls with category-specific names.
+    source_paths = frozen.get('sourceDetailFields')
+    target_paths = {n.get('productDetailField') for n in _template_nodes(target_schema['schema']['componentList'])
+                    if isinstance(n.get('productDetailField'),str)}
+    if (source_paths and target_paths and 'productInfo.packSpecification' not in set(source_paths) | target_paths
+            and product.get('packSpecification') is None):
+        omitted.add('packSpecification')
+    for field, code, keys in (
+        ('packaging.length','WareLength',('length',)), ('packaging.width','WareWide',('wide','width')),
+        ('packaging.height','WareHeight',('height',)), ('packaging.weight','WareWeight',('weight',)),
+        ('itemNumber','WareItemnum',('itemNum',)),
+    ):
+        if code not in available and all(product.get(key) is None for key in keys):
+            omitted.add(field)
+    for sid, row in sku_rows(frozen['sourceDetail'],frozen['sourceProductId']).items():
+        for field, key, codes in (('merchantSku','outerId',{'SkuVendorSku'}),
+                                  ('upcCode','upcCode',{'SkuUpcCode','SkuWareUpccode'})):
+            if available.isdisjoint(codes) and row.get(key) is None:
+                omitted.add(f'sku.{sid}.{field}')
+    return omitted
+
+
 def prepare_copy_schema(frozen,target_shop,target_schema,*,media_evidence=None,delivery_evidence=None):
     """Produce the exact category payload candidate. This function never submits it."""
     _validate(frozen,target_shop)
-    if _shop(target_schema.get('shopIdentity') or {})!=frozen['targetShop']:
-        raise ValueError('类目模板缺少目标店铺身份或属于另一店铺')
+    _validate_reference(frozen,target_schema)
     source=frozen['sourceDetail']
-    category=(source['productInfo'].get('categoryDetail') or {}).get('lastCategoryId')
-    if not category or str(target_schema.get('categoryId') or (target_schema.get('category') or {}).get('id'))!=str(category):
-        raise ValueError('目标创建模板与来源商品类目不一致')
     from .shop_copy_delivery import compare_delivery
     delivery=compare_delivery(source,None,frozen['sourceShop'],frozen['targetShop'],{},delivery_evidence)
     schema,missing,follow=_prepare_schema(frozen,target_schema,_media(frozen,media_evidence),delivery)
     return {'status':'needs-evidence' if missing else 'ready','schema':schema,'missing':missing,'followUp':follow,
-            'delivery':delivery,'sourceFingerprint':frozen['sha256'],'targetShop':frozen['targetShop'],'writes':0}
+            'delivery':delivery,'outsideTemplateFields':sorted(outside_creation_templates(frozen,target_schema)),
+            'sourceFingerprint':frozen['sha256'],'targetShop':frozen['targetShop'],'writes':0}

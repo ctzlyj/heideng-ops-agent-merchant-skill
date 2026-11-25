@@ -124,8 +124,8 @@
     },
     "scripts/jd_detail_evidence.py": {
       "upstreamSha256": "27e27f977f859501af2b3b94f7b308c3b7737a1f679647033b6ac93afa15c9d0",
-      "sha256": "27e27f977f859501af2b3b94f7b308c3b7737a1f679647033b6ac93afa15c9d0",
-      "adapted": false,
+      "sha256": "6427aa0e8a13b8f2c1e1d6294554f0b2257d1fbe73ccb67b7b0d0b02bc9ffede",
+      "adapted": true,
       "upstreamPath": "scripts/jd_detail_evidence.py"
     },
     "scripts/jd_image_search_capture.py": {
@@ -136,13 +136,13 @@
     },
     "scripts/jd_price_adjustment.py": {
       "upstreamSha256": "4f13ae5e9ad4851e9da6717b9540c142006e2d3b6918cf4035c220dcdb1c8016",
-      "sha256": "4f13ae5e9ad4851e9da6717b9540c142006e2d3b6918cf4035c220dcdb1c8016",
-      "adapted": false,
+      "sha256": "7a7b9405341a3761329298fc45156d0c2e5a6eac01bf992f93a265f2113f36bb",
+      "adapted": true,
       "upstreamPath": "scripts/jd_price_adjustment.py"
     },
     "scripts/jingmai_api.py": {
       "upstreamSha256": "7491085ad8c1923b9a0ae37878e61a2e1242a4f94d2d7737e3119b0a67eacd29",
-      "sha256": "1502d61d6216dac97b8e8d6792ca92ca9f886d42a2257d8aed3195c5139e0c60",
+      "sha256": "b2461ac8c07b19bceadeb64175bfad120ed0fe09a20430f18c649d8e9ac25758",
       "adapted": true,
       "upstreamPath": "scripts/jingmai_api.py",
       "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."

@@ -4,7 +4,7 @@
 Competitor hand price per SKU = manifest sourcePrice x --competitor-ratio
 (1.0 = "JD source price IS the competitor hand price"; use the ratio derived
 from the source link's subsidy tag when it has one, e.g. 0.85 for 15%).
-Target hand = competitor hand x --target-multiplier (default 0.97). JD price is
+Use the task's target multiplier and discount terms. JD price is
 reverse-solved with source_pricing.component_source_plan (Decimal, component
 rounding) - the ONLY legal calculation entry; hand-rolled float solving is
 forbidden (1-cent drift gets blocked by upload/preflight).
@@ -25,17 +25,11 @@ def main() -> int:
     ap.add_argument("--draft-root", default=str(SKILL / "outputs" / "migrations"))
     ap.add_argument("--work-dir", default=None,
                     help="output dir for price-plan-<sku>.json (default <draft>/hot-replica)")
-    ap.add_argument("--competitor-ratio", default="1.0",
+    ap.add_argument("--competitor-ratio",
                     help="sourcePrice -> competitor hand ratio; 1.0 when the JD price has no "
                          "active subsidy, else derive from the source tag (e.g. 0.85)")
-    ap.add_argument("--target-multiplier", default="0.97",
-                    help="target hand = competitor hand x this (user-confirmed 3%% under)")
+    ap.add_argument("--target-multiplier", help="本次交办的到手价倍率，省略时沿用草稿已确认的定价")
     a = ap.parse_args()
-    ratio = Decimal(str(a.competitor_ratio))
-    target_mult = Decimal(str(a.target_multiplier))
-    if ratio <= 0 or not (0 < target_mult <= 1):
-        print("FAIL: invalid ratios")
-        return 1
     root = pathlib.Path(a.draft_root)
     folder = next(root.glob(a.sku + "_*"), None)
     if not folder:
@@ -49,10 +43,21 @@ def main() -> int:
     source_price_by_sku = {str(v["sourceSku"]): Decimal(str(v["sourcePrice"]))
                            for v in manifest["variants"]}
     pricing = listing["source"]["pricing"]
+    terms = {'competitorRatio':a.competitor_ratio if a.competitor_ratio is not None else pricing.get('competitorRatio'),
+             'targetArrivalMultiplier':a.target_multiplier if a.target_multiplier is not None else pricing.get('targetArrivalMultiplier'),
+             'activityDiscountRate':pricing.get('activityDiscountRate'), 'nationalSubsidyRate':pricing.get('nationalSubsidyRate')}
+    missing = [key for key,value in terms.items() if value is None or value == '']
+    if missing:
+        print(json.dumps({'status':'needs-pricing-evidence','fields':missing,'draftChanged':False},ensure_ascii=False))
+        return 2
+    ratio = Decimal(str(terms['competitorRatio']))
+    target_mult = Decimal(str(terms['targetArrivalMultiplier']))
+    if not (ratio.is_finite() and target_mult.is_finite() and ratio > 0 and target_mult > 0):
+        raise ValueError('到手价比例必须是正的有限数字')
     pricing["roundingMode"] = "component"
     pricing["targetArrivalMultiplier"] = str(target_mult)
-    pricing["belowCompetitor"] = "0"
-    pricing["coupon"] = "0"
+    pricing["competitorRatio"] = str(ratio)
+    pricing.setdefault("belowCompetitor","0")
     rows = []
     for s in listing["skus"]:
         source_price = source_price_by_sku[str(s["sourceSku"])]

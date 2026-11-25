@@ -123,17 +123,23 @@ def _owned_copy_tasks(state, shop_id, vender_id, task_id):
         if (source.get('sha256') != revision or source.get('targetShop')!=record['targetShop'] or
                 source.get('sourceProductId')!=record.get('sourceProductId') or source.get('sourceShop')!=record.get('sourceShop')):
             continue
-        receipt = safe_join(root,'publication/result.json')
-        intent = safe_join(root,'publication/publish-body.submit-state.json')
+        from .shop_copy_batch import publication_directory
+        published=publication_directory(root)
+        receipt = safe_join(published,'result.json')
+        intent = safe_join(published,'publish-body.submit-state.json')
         data = read_json(receipt,{}).get('data')
         response = data if isinstance(data,dict) else {}
         saved = read_json(intent,{})
-        target_id = response.get('productId') or saved.get('productId') or record.get('existingTargetId')
+        recovered=read_json(published/'target-binding.json',{})
+        adopted=read_json(published/'existing-after-rejection.json',{})
+        target_id = (response.get('productId') or saved.get('productId') or
+                     (recovered.get('productId') if recovered.get('taskId')==key else None) or
+                     (adopted.get('productId') if adopted.get('taskId')==key else None) or record.get('existingTargetId'))
         submitted = any(s.get('productId') or s.get('applyId') for s in (response,saved))
         yield {'kind':'shop-copy','taskId':key,'goal':'自家两店复制商品','taskDirectory':str(root),
                'shopIdentity':record['targetShop'],'sourceShop':record['sourceShop'],'sourceProductId':record['sourceProductId'],
                'productId':str(target_id) if target_id else None,
-               'state':'submitted' if submitted else
+               'state':'submitted' if submitted else 'existing-target' if target_id else 'publication-rejected' if (published/'rejection.json').is_file() else
                        'needs-reconciliation' if intent.exists() else 'existing-target' if target_id else 'local-plan',
                'originalScope':str(source_path), 'updatedAt':max(p.stat().st_mtime for p in (index,receipt,intent) if p.is_file()),
                'nextAction':'从所属目标店和原 taskId 继续；已有目标或未决提交时先只读对账。'}
@@ -203,13 +209,16 @@ def task_context(state, shop_id, vender_id, task_id=None, *, goal=None, product_
     matches.extend(commercial_tasks(state, shop_id, vender_id))
     if goal in (None, 'shop-copy'):
         matches.extend(_owned_copy_tasks(state, shop_id, vender_id, task_id))
+    if goal in (None,'shop-copy','shop-copy-batch'):
+        from .shop_copy_batch import discover
+        matches.extend(discover(state,shop_id,vender_id,task_id))
     if goal in (None, 'diagnosis'):
         from .commerce_evidence import saved_handoffs
         matches.extend(saved_handoffs(state, shop_id, vender_id, product_id, task_id))
     matches = [entry for entry in matches if (not task_id or entry['taskId'] == task_id)
-               and (not goal or goal == entry.get('kind', 'materials'))
+               and (not goal or goal == entry.get('kind', 'materials') or goal=='shop-copy' and entry.get('kind')=='shop-copy-batch')
                and (not product_id or product_id == entry.get('productId') or product_id in entry.get('productIds', []))
-               and (not source_product_id or source_product_id == entry.get('sourceProductId'))]
+               and (not source_product_id or source_product_id == entry.get('sourceProductId') or source_product_id in entry.get('sourceProductIds',[]))]
     matches.sort(key=lambda item:item['updatedAt'],reverse=True)
     selection = 'ambiguous' if len(matches) > 1 else 'matched' if matches else 'not-found'
     return {'shopId':shop_id,'venderId':vender_id,'tasks':matches,'selection':selection}

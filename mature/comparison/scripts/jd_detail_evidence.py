@@ -8,21 +8,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from jd_price_adjustment import CatalogValidationError, normalize_size
+
 
 class DetailEvidenceError(ValueError):
     pass
 
 
 SKU_PATTERN = re.compile(r"\d{5,20}")
-CANONICAL_DIMENSIONS = re.compile(
-    r"\d+(?:\.\d+)?x\d+(?:\.\d+)?(?:x\d+(?:\.\d+)?)?cm"
-)
-DIMENSION_PATTERN = re.compile(
-    r"(?<!\d)(\d+(?:\.\d+)?)\s*(?:cm)?\s*[x×*]\s*"
-    r"(\d+(?:\.\d+)?)\s*(?:cm)?"
-    r"(?:\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:cm)?)?",
-    re.IGNORECASE,
-)
 ALLOWED_DIMENSION_EVIDENCE = {
     "jd_visible_product_image",
     "jd_detail_specification",
@@ -59,25 +52,11 @@ def _money(value: Any) -> str:
     return f"{amount:.2f}"
 
 
-def _number_text(value: str) -> str:
-    amount = Decimal(value)
-    if amount == amount.to_integral():
-        return str(amount.quantize(Decimal("1")))
-    return format(amount.normalize(), "f")
-
-
 def normalize_dimensions(value: Any) -> str:
-    text = str(value).strip().lower().replace("厘米", "cm")
-    text = re.sub(r"(?:长度|宽度|高度|深度|厚度|长|宽|高|深|厚)\s*(?=\d)", "", text)
-    text = re.sub(r"(?<=cm)\s*(?:长|宽|高|深|厚)", "", text)
-    canonical = CANONICAL_DIMENSIONS.fullmatch(re.sub(r"\s+", "", text))
-    if canonical:
-        return canonical.group(0)
-    match = DIMENSION_PATTERN.search(text)
-    if not match:
-        raise DetailEvidenceError(f"Cannot normalize dimensions from {value!r}.")
-    dimensions = [_number_text(part) for part in match.groups() if part is not None]
-    return "x".join(dimensions) + "cm"
+    try:
+        return normalize_size(str(value))
+    except CatalogValidationError as exc:
+        raise DetailEvidenceError(f"Cannot normalize dimensions from {value!r}.") from exc
 
 
 def normalize_jd_image_url(value: Any) -> str:

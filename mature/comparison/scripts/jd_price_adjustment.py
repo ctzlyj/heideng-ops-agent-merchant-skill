@@ -75,32 +75,29 @@ def parse_target_gap(value: str | Decimal) -> Decimal:
 
 
 def normalize_size(value: str) -> str:
-    text = unicodedata.normalize("NFKC", str(value)).lower()
-    patterns = (
-        r"宽\s*(\d+)\s*(?:厘米|cm)?\s*(?:[x×*]|[-_/，, ])*\s*高?\s*(\d+)\s*(?:厘米|cm)?",
-        r"(\d+)\s*[x×*]\s*(\d+)\s*(?:厘米|cm)?",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            return f"{int(match.group(1))}x{int(match.group(2))}"
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:厘米|cm)", text, flags=re.IGNORECASE)
+    text = unicodedata.normalize("NFKC", str(value)).strip().lower()
+    text = re.sub(r"\s+", "", text).replace("毫米", "mm").replace("厘米", "cm")
+    match = re.fullmatch(r"宽(\d+(?:\.\d+)?(?:cm|mm)?)\s*[-×x*]?高(\d+(?:\.\d+)?(?:cm|mm)?)", text)
     if match:
-        return f"{match.group(1)}cm"
-    match = re.search(r"(\d+(?:\.\d+)?)\s*件套", text)
-    if match:
-        return f"{match.group(1)}件套"
-    match = re.search(r"(\d+(?:\.\d+)?)\s*支", text)
-    if match:
-        return f"{match.group(1)}支"
-    raise CatalogValidationError(f"Cannot normalize size: {value!r}")
+        text = "x".join(match.groups())
+    parts = re.split(r"[x×*]", text)
+    axes = [re.fullmatch(r"(\d+(?:\.\d+)?)(mm|cm|m|寸|件套|支)?", part) for part in parts]
+    if not all(axes) or (len(parts) == 1 and not axes[0].group(2)):
+        raise CatalogValidationError(f"Cannot normalize size: {value!r}")
+    numbers = [format(Decimal(axis.group(1)).normalize(), 'f') for axis in axes]
+    units = [axis.group(2) or '' for axis in axes]
+    # Only a trailing unit applies to the complete tuple. Never assume cm.
+    if all(unit in ('', units[-1]) for unit in units) and (all(units) or not any(units[:-1])):
+        return 'x'.join(numbers) + units[-1]
+    return 'x'.join(number + unit for number, unit in zip(numbers, units))
 
 
 def canonical_spec(value: str) -> str:
     """Total spec-grouping key: parsed dimension when possible, exact variant value otherwise."""
 
-    text = unicodedata.normalize("NFKC", str(value)).lower()
-    text = re.sub(r"\s+", "", text)
+    text = '' if value is None else str(value).strip()
+    if not text:
+        raise CatalogValidationError("Missing sale specification")
     if text.startswith("variant:"):
         return text
     try:
@@ -242,11 +239,11 @@ def plan_catalog(
 
     by_size: dict[str, list[dict[str, Any]]] = {}
     for competitor in competitor_skus:
-        by_size.setdefault(normalize_size(str(competitor["size"])), []).append(competitor)
+        by_size.setdefault(canonical_spec(competitor["size"]), []).append(competitor)
 
     output: list[dict[str, Any]] = []
     for own in own_skus:
-        own_size = normalize_size(str(own.get("size", "")))
+        own_size = canonical_spec(own.get("size", ""))
         candidates = by_size.get(own_size, [])
         if not candidates:
             raise CatalogValidationError(f"No exact-size competitor candidate for own SKU {own['sku_id']} ({own_size}).")
@@ -266,7 +263,7 @@ def plan_catalog(
                 "current_final_price": format(current_price, ".2f"),
                 "competitor_sku": str(selected["sku_id"]),
                 "competitor_design": str(selected.get("design", "")),
-                "competitor_size": normalize_size(str(selected["size"])),
+                "competitor_size": canonical_spec(selected["size"]),
                 "competitor_price": format(price_plan.competitor_price, ".2f"),
                 "target_gap": format(price_plan.target_gap, ".2f"),
                 "competitor_url": str(selected["url"]),

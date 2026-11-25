@@ -1,7 +1,8 @@
 ---
 name: heideng-ops-agent-merchant
 description: 京东 POP 商家在本地 Agent 宿主中用自然语言交办运营任务；提供电商经验导航、独立安装更新与成熟工具。适用于连接店铺、内容信息分、上新复刻实拍、图文优化、采集比价、经营广告诊断及已有视频交接，也支持按任务组合其他商家已授权官方能力。
-version: 0.4.26
+metadata:
+  version: 0.4.27
 ---
 
 # 黑灯运营智能体商家版
@@ -13,7 +14,7 @@ version: 0.4.26
 ## 开放执行与共同边界
 
 - 安装完成只需报告版本、是否可用和影响当前交办的缺项。要回答“现在连着哪些店”，先用 `shop-locations` 找到本安装登记的位置，在对应安装中运行 `run connection -- audit --no-write` 只读核店。清单、官方授权、专用网页和桌面入口分别有自己的证据。多次安装的记录保留在各自原位置；统一查看时引用原安装，绝不复制浏览器资料、凭据或授权证明。排障日志只取必要字段；避免输出整个进程环境、请求头或含令牌的配置。
-- 商家说“我自己的老店搬到新店，先照原样做一个”，走 [自家店铺复制](references/owned-shop-copy.md)。从两店官方后台读取原规格、价格库存和素材，不照搬其他类目的经验值。“暂不上架”先交付本地计划；“第一条上架给我看”将发布范围限定为这一件。商家说检查不对时，先回读该件并逐项对照，避免让商家自己找差异或先删再建。
+- 自家两店照原样搬商品、核对已搬商品或修正原链接，见[自家店铺复制](references/owned-shop-copy.md)。源店后台给出各规格的事实，目标店当前类目和编辑能力决定如何落地。“暂不上架”交本地草稿，“先上一个”只试发这一件，“其余都搬好”沿用已有样品和整批授权。按原件逐项查差异，优先保留目标链接。
 
 - 通常先复用成熟路径；Agent 可跨模块组合、调整顺序、采用宿主现有工具、读取京麦官方当前 Skill/文档并调用 jdo-cli，或在商家任务目录写局部脚本。目录未命中不代表“不支持”；真实缺权限、工具、资料、服务时只报告具体缺口，其余可行部分继续。
 - `status/run`、capability choices、登记 entry 和来源哈希只界定**这个成熟包装器**的范围。不要回落旧 builtin、修改受保护快照或加任意 entry 绕过口；它们不限制整个宿主 Agent 的合法能力。
@@ -21,7 +22,9 @@ version: 0.4.26
 - 同一目标/范围/费用已有明确批准就沿用，不增加黑灯层重复确认；真实目标、覆盖范围、模型/平台、费用或预算变化要说明。写入未知先关联原回执/远端状态，不能换工具重提。完整分类见 [执行策略与硬边界](references/execution-policy.md)。
 - 不因安装、连接或读到经营建议就擅自开始业务；用户不交办不运营，不自建定时任务。只读任务无需生图 Key/付费生成准备；按本任务实际需要准备依赖。
 
-**主图优化、复刻、上新和详情图由宿主逐图设计。** 宿主先核对商品事实、目标客群和经营问题，读取同店商品的真实前台轮播及规格图，再决定复用哪些素材、每个图位要表达什么。将每张需要新做的图、对应参考和完整提示词交给本任务工具。商品信息分维护可以沿用槽位默认模板，也可以用 `--image-prompts-file` 完整替换。商家只需确认业务上的选择和新增费用。
+商家要改设计时，由宿主根据商品、客群和具体图位选参考、设计新图。原样复制保留每组原图及顺序，核验买家看到的效果时再打开对应规格的前台。已有合格素材可以直接复用。商品信息分维护可以沿用槽位默认模板，也可用 `--image-prompts-file` 指定本商品的设计。
+
+工具报缺项或拒绝时，先看是哪件商品、哪个字段、哪一步受影响。宿主可自行读取源商品原字段、目标类目模板、当前编辑记录及平台业务回执，选择现有链接的编辑方式、继续准备草稿或推进其他商品。本地校验只能说明这个工具能否处理当前输入。需要商家补资料或决定更换链接时，说清楚已查到什么、剩下哪个事实或经营选择只有商家能给。
 
 商家要“上次那张样图”时，先用 `sample-context` 取接受回执。直接展示原图、目标规格的 SKU 链接和上传状态；有对比图时说明左图是哪件商品哪个规格的原图。保留有证据的链接和状态，未证实的来源标待核。商家要看图或听意见时，先交付已有结果。
 
@@ -41,7 +44,8 @@ macOS 连接失败时先沿原 Profile 只读核店。保留主动登录、复�
 |---|---|
 | 连接店铺、已有授权、新授权 | [连接与身份](references/experience-connection.md) |
 | 短标题、信息分、素材与透明图 | [商品内容与信息分](references/experience-materials.md) |
-| 上新、实拍、链接复刻、矩阵 | [商品上新](references/experience-listing.md) |
+| 自家两店搬商品、核对差异、原链接修编码 | [自家店铺复制](references/owned-shop-copy.md) |
+| 上新、实拍、重制素材、矩阵 | [商品上新](references/experience-listing.md) |
 | 主图、详情图、SKU图、整店刷新 | [图文优化](references/experience-images.md) |
 | 素材、逐SKU到手价和断点采集 | [采集](references/experience-collection.md) |
 | 同规格比价、确认后的改价 | [比价与定价](references/experience-comparison.md) |
@@ -54,7 +58,7 @@ macOS 连接失败时先沿原 Profile 只读核店。保留主动登录、复�
 
 本版是 GitHub 源码内测。WorkBuddy 读取商家提供的链接所指提交，运行仓库根目录的安装器并核对安装回执。仅在安装完成后说明现在可以交办什么。商家首次说连接店铺时直接走该本地 Skill 的 `run connection -- ensure-shop`；扫码、京东官方授权与核店各用相应回执。市场专家的卡片与资格流程属于独立联调渠道。店铺连接和免费贴图均无需生图 Key。具体安装参数见[内测安装入口](README.md)。
 
-由 Agent 从实际源码/解压目录执行 `python install.py --host codex --with-runtime --with-official`；JoyCode 用 `--host joycode`，WorkBuddy 已核对使用标准个人路径时用 `--host workbuddy`；宿主实际配置不同则用其 `--skills-dir`，不猜用户名/路径。核心与神经抠图 Python 依赖默认准备，标准在线安装还调用原 `prepare-cutout --download` 准备固定 SHA 的 Lite 权重；离线或权重下载失败独立标记未就绪，不影响其他能力。独立名 `heideng-ops-agent-merchant`、状态 `~/.heideng-merchant`；升级不覆盖内部版、个人 Skill、商家记忆、任务结果或运行数据。同版本异包/降级/哈希保护保持，不以手改回执或 rollback→install 当正常更新。
+由 Agent 从实际源码/解压目录执行 `python install.py --host codex --with-runtime --with-official --no-auto-update`；JoyCode 用 `--host joycode`，WorkBuddy 已核对使用标准个人路径时用 `--host workbuddy`；宿主实际配置不同则用其 `--skills-dir`，不猜用户名/路径。核心与神经抠图 Python 依赖默认准备，标准在线安装还调用原 `prepare-cutout --download` 准备固定 SHA 的 Lite 权重；离线或权重下载失败独立标记未就绪，不影响其他能力。独立名 `heideng-ops-agent-merchant`、状态 `~/.heideng-merchant`；升级不覆盖内部版、个人 Skill、商家记忆、任务结果或运行数据。同版本异包/降级/哈希保护保持，不以手改回执或 rollback→install 当正常更新。
 
 包装器用法：`python scripts/merchant.py status`；`python scripts/merchant.py run [--entry scripts/已登记入口.py] <capability> -- <原成熟参数>`。入口/来源以 `registry.json` 和 `mature/*/provenance.json` 为准。它是复用成熟工具的便捷路径，**不是所有 Agent 工作必经的统一执行器**。
 
@@ -70,6 +74,6 @@ macOS 连接失败时先沿原 Profile 只读核店。保留主动登录、复�
 
 ## 软件更新与版本使用（不是经营调度）
 
-安装0.4.0后常规空闲更新默认开启，24h入口触发/失败退避，用户可说关闭/开启；见 [持续更新](references/continuous-updates.md)。没有交办不会开展经营业务，软件维护不发消息、不登录、不扫码、不调用模型。每个实际任务（包括宿主直调工具/局部脚本/读取资料）先用update usage begin标记唯一任务ID，从返回的packageRoot程序快照使用本任务经验/工具；每步前heartbeat、结束end。当前任务保留loadedVersion，后续任务按宿主实际刷新节点使用diskVersion，不能擅自重启宿主或声称当前聊天立即更新。
+GitHub 源码内测使用安装链接固定的版本。成熟工具在运行期间持有安装锁。长任务跨调用使用同版代码或需要跨版本恢复时，可用 `update usage begin` 取得 `packageRoot` 快照，租约到期前续期，结束时释放。查看资料、整理结果可直接进行。软件空闲更新、宿主实际加载的版本和旧任务恢复见[持续更新](references/continuous-updates.md)。
 
 旧任务unknown回执和商家私有状态不删；必要时usage标记原回执恢复引用。包内来源pin/哈希、业务授权和费用边界均不因自动更新削弱。旧0.3.1需要由宿主首次升级到有更新组件的版本；私有仓库必须是商家本人的读取权限，不能给维护者Token。

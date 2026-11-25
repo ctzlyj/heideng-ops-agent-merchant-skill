@@ -54,7 +54,10 @@ class RepairScopeTests(unittest.TestCase):
         from tempfile import TemporaryDirectory
         rows=[{'skuId':'1','productId':'10'},{'skuId':'2','productId':'10'}]
         sources={'1':{'logo':'a'},'2':{'logo':'b'}}
-        self.assertEqual(pop_repair.repair_references(rows,sources,{}),{'1':('1','a'),'2':('1','a')})
+        self.assertEqual(pop_repair.repair_references(rows,sources,{}),{'1':('1','a'),'2':('2','b')})
+        self.assertEqual(pop_repair.repair_references(rows,sources,{},'spu'),{'1':('1','a'),'2':('1','a')})
+        same={'1':{'logo':'a'},'2':{'logo':'a'}}
+        self.assertEqual(len({ref for _,ref in pop_repair.repair_references(rows,same,{}).values()}),1)
         self.assertEqual(pop_repair.repair_references(rows,sources,{},'sku')['2'],('2','sku:2|b'))
         with TemporaryDirectory() as directory:
             reserve,_=pop_repair.repair_request_budget(Path(directory),2,ValueError)

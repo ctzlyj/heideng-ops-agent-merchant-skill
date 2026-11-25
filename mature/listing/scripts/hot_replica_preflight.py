@@ -70,7 +70,9 @@ def main():
 
     # Hard brand gate BEFORE any plan / generation quota.
     reference = mover.read_json(pathlib.Path(a.reference))
-    gate = hotmode.brand_gate(reference, str(reference.get("category", {}).get("name") or ""))
+    listing = mover.read_json(folder / "listing.json")
+    gate = hotmode.brand_gate(reference, str(reference.get("category", {}).get("name") or ""),
+                              (listing.get("product") or {}).get("brandId"))
     (work / f"brand-gate-{SKU}.json").write_text(json.dumps(gate, ensure_ascii=False, indent=2),
                                                  encoding="utf-8")
     if not gate["ok"]:
@@ -78,7 +80,6 @@ def main():
         return 2
     print("BRAND_GATE PROCEED |", gate["evidence"])
 
-    listing = mover.read_json(folder / "listing.json")
     details = sorted([i for i in listing["images"] if i.get("role") == "detail"],
                      key=lambda x: int(x.get("order") or 0))
 

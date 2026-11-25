@@ -30,7 +30,7 @@ def build_parser():
     task.add_argument('--shop-id', required=True)
     task.add_argument('--vender-id', required=True)
     task.add_argument('--task-id')
-    task.add_argument('--goal', choices=['materials','listing','sample','creative','sku-edit','diagnosis','shop-copy'])
+    task.add_argument('--goal', choices=['materials','listing','sample','creative','sku-edit','diagnosis','shop-copy','shop-copy-batch'])
     task.add_argument('--product-id', help='目标商品 SPU')
     task.add_argument('--source-product-id', help='复刻来源 SPU')
     sample = sub.add_parser('sample-context', help='找回已认可的原样图、对应规格链接和上传回执')

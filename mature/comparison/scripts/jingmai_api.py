@@ -197,27 +197,27 @@ def snapshot(detail):
 
 
 def normalize_sku(row):
-    values = [(str(item.get("attrName", "")), str(item.get("attrValueAlias", ""))) for item in row.get("saleAttrs", [])]
-    size_values = []
-    for name, value in values:
-        if "尺寸" in name or "规格" in name or "尺码" in name:
-            try:
-                size_values.append(normalize_size(value))
-            except ValueError:
-                pass
-    if not size_values:
+    values = [(str(item.get("attrName") or ""), "" if item.get("attrValueAlias") is None else str(item["attrValueAlias"]))
+              for item in row.get("saleAttrs") or []]
+    design_names = {"颜色", "款式", "图案"}
+    size_fields = [(name, value) for name, value in values if name not in design_names]
+    size = None
+    if len(size_fields) == 1 and size_fields[0][1].strip():
+        size = canonical_spec(size_fields[0][1])
+    elif size_fields and all(name and value.strip() for name, value in size_fields):
+        dimensions = sorted((name, canonical_spec(value)) for name, value in size_fields)
+        size = "variant:" + json.dumps(dimensions, ensure_ascii=False, separators=(",", ":"))
+    elif not values:
         try:
-            size_values.append(normalize_size(str(row.get("skuName", ""))))
+            size = normalize_size(str(row.get("skuName", "")))
         except ValueError:
             pass
-    unique_sizes = set(size_values)
-    size = next(iter(unique_sizes)) if len(unique_sizes) == 1 else None
-    design = " / ".join(value for name, value in values if name in {"颜色", "款式", "图案"})
+    design = " / ".join(value for name, value in values if name in design_names)
     if not design:
         design = " / ".join(value for name, value in values if "尺寸" in name or "规格" in name or "尺码" in name)
     if not design:
         design = str(row.get("skuName", "")).strip()
-    if size is None and not size_values and design:
+    if size is None and not size_fields and design:
         # A product whose only variant dimension is its design has no separate size spec;
         # group it by that exact variant value so exact-SKU matching stays possible.
         size = canonical_spec(design)

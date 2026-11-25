@@ -17,17 +17,17 @@
     },
     "scripts/jdo_listing_mvp.py": {
       "upstreamSha256": "42281253267957388ed5e3cd111889898b3a4ac61952bb89c509f10d669b0a1e",
-      "sha256": "05c29abe07fef0f2eb83d42a697204c26bd65a557b5503edda7c8b5b162c8f9e",
+      "sha256": "01b6526fd8198f3c54ad16c732711fc86becc13ee1fb7049ec5cfc59555ec71d",
       "adapted": true
     },
     "scripts/jd_product_mover.py": {
       "upstreamSha256": "31f462335937282c47234fbbddc5baa12713f0668a63b38c09eafd60da3c5318",
-      "sha256": "7121225a815d6796b4d23ff29dd5198f7a751181473ba3ddc8fbaadba5dc5190",
+      "sha256": "b5be991a10b95bbafa37d9f47c633b4c23dc8fcf567fcb355548caefb64d7c36",
       "adapted": true
     },
     "scripts/jd_product_pipeline.py": {
       "upstreamSha256": "389d5df3d1f64000fd2febeeed6fed19a32adb3c4465191b2fe9331e8fdbc372",
-      "sha256": "8f65b8481c9f1f1f39fd9ca3e3297e8f12bab95dfc3377fa08324e0a6d335727",
+      "sha256": "f22f0bc5653e0b20948e9488aed17252453df18d4be084301255ff65abda58a4",
       "adapted": true
     },
     "scripts/source_pricing.py": {
@@ -42,17 +42,17 @@
     },
     "scripts/hot_replica_mode.py": {
       "upstreamSha256": "6864794dad6785bfb9ffca0916b8c78d5b21d2d86a074046f7af9df7c90021bc",
-      "sha256": "3ed94a9f4c154d6e4f62c56f7ce3ecc123c62d8166644d64b32e0a7bc75ef625",
+      "sha256": "cf40002d862b762174355ac96d88a91f6c9aba1595fa2a02ddd49b8ab44ff7f0",
       "adapted": true
     },
     "scripts/photo_listing.py": {
       "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
-      "sha256": "80270f2e75836cfd77df1a6090644176d40c11e1cb73a28e4f843cecf3d310e4",
+      "sha256": "3463d311d5ae9eae47ef6e9274e07f5c6b7d043f311dbf394a6820247192519b",
       "adapted": true
     },
     "scripts/photo_contract.py": {
       "upstreamSha256": "053d351a11a3045ba7958eb58d9bb32ad52ed96398c674078f9eba3a832943f1",
-      "sha256": "d26a99985235e780d15d72b634f3e03452a9b36b63fe7e76f83d5e0ccd94f554",
+      "sha256": "3f7373a9af16293dea62a64e6ad56212ebb08c4024c0f6453076b92984689905",
       "adapted": true
     },
     "scripts/photo_generation.py": {
@@ -87,12 +87,12 @@
     },
     "scripts/sale_attr_templates.py": {
       "upstreamSha256": "97471cda42fc31c5365167c8dd3b5786f9eec8436a046cd75ad51c4ee475fa83",
-      "sha256": "97471cda42fc31c5365167c8dd3b5786f9eec8436a046cd75ad51c4ee475fa83",
-      "adapted": false
+      "sha256": "027d84745aa5e811c7a1789306e5ed925ee4af4f5b3b3c5932b2475a75b50086",
+      "adapted": true
     },
     "scripts/merchant_template_import.py": {
       "upstreamSha256": "044333ad7db87336c1244687837ec2078f08503ff88ee546377cf80d8912b067",
-      "sha256": "d43d3de01953f722e07b5125e9ffb8e9830c80a9be1810aa91d1d94258aa9645",
+      "sha256": "347eeb558a1f798aa922d03724bcfbc2cb6783dbe9bdb1c2919ba290d5744ae7",
       "adapted": true
     },
     "scripts/matrix_listing.py": {
@@ -152,12 +152,12 @@
     },
     "references/structured-sale-attributes.md": {
       "upstreamSha256": "66d3d4b16e9b84169f088059571a4ce4f874469a5752976e1f4c0119134cbff9",
-      "sha256": "66d3d4b16e9b84169f088059571a4ce4f874469a5752976e1f4c0119134cbff9",
-      "adapted": false
+      "sha256": "af2e710a68c5ab2bb2377bf3be2d30577bc1d76d6293e4f60e9de2d3c6212f52",
+      "adapted": true
     },
     "references/sku-image-group-binding.md": {
       "upstreamSha256": "41a53963bb8ca879f39843e86cb77e7be74e4b39650c81c009f5a3acfde1e367",
-      "sha256": "998ca32926d1cc4105690dd83b12b750dfd4f1829e4e82fd364bf863da61a679",
+      "sha256": "97f5ff65602f9729f18826e7b6e0eb2e8b31c687930a538f1922ff4b9bd63036",
       "adapted": true
     },
     "references/large-requests-and-cli-versions.md": {
@@ -192,12 +192,12 @@
     },
     "scripts/hot_replica_price_plan.py": {
       "upstreamSha256": "b1112da92d32d6a49a64d5bca4011543a329a0e41491428ec2ff0f1489ac5ded",
-      "sha256": "71b6ada75c2732bf883f3b0e3ec477aa9905164dcf63fe519102602a85a25d24",
+      "sha256": "b26eb7f350f9419120d00f39070c4715665b3bc0a06d2740e5ff2a5730d473ac",
       "adapted": true
     },
     "scripts/hot_replica_preflight.py": {
       "upstreamSha256": "ce4b2b80440ab3bda69d4a852677cf1b6cb0607da483217dbefc55b4f9a554ee",
-      "sha256": "dcead19e499fb1191558463ae2e7b736215ef2c510357141d43d3a2a0ea38dc2",
+      "sha256": "a06a31e75e1221d68f0999eabe32fbd084bd663092043afe7e0f69eb0db3803c",
       "adapted": true
     },
     "scripts/hot_replica_publish.py": {
@@ -212,7 +212,7 @@
     },
     "references/jd-hot-replica-mode.md": {
       "upstreamSha256": "d27e25f00e9645de397430dc084262a44b8aa5cd44348b331e0707201c63854a",
-      "sha256": "16c5c74bfa6d52c2ad3e6c542e71d8993205b88037ad84b2515df48492362d4c",
+      "sha256": "d4d51089a2884303e6d40d6cad61e9c5d5a035543a55c22ba4895deeea6e0e1e",
       "adapted": true
     }
   },

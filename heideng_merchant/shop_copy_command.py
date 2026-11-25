@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import time
 
 import jdo_listing_mvp as api
 import jd_product_pipeline as pipeline
@@ -126,7 +127,7 @@ def category(detail):
     return int(detail['productInfo']['categoryDetail']['lastCategoryId'])
 
 
-def reference(shop, detail, *, for_creation=True):
+def reference(shop, detail, *, for_creation=True, with_sale_templates=True):
     cid = category(detail)
     response = api.get('jdo-product-publish', '/rest/sp-product/v0/product-schemas',
                        {'scene':'pop','lastCategoryId':str(cid)}).get('data')
@@ -137,12 +138,41 @@ def reference(shop, detail, *, for_creation=True):
         raise ValueError('当前店铺的类目模板缺少组件')
     brands = (api.get('jdo-product-publish', '/rest/sp-seller/v0/vender-brands',
                       {'queryType':2, 'categoryId':cid}).get('data') if for_creation else [])
-    return {'shopIdentity':shop, 'category':{'id':cid}, 'schema':schema, 'brands':brands}
+    result = {'shopIdentity':shop, 'category':{'id':cid}, 'schema':schema, 'brands':brands}
+    if with_sale_templates:
+        import sale_attr_templates as sat
+        structured = [n for n in copy._template_nodes(schema['componentList'])
+                      if n.get('componentCode','').startswith('sale-prop-') and
+                      str((n.get('extra') or {}).get('isStructure','')).lower() in ('true','1')]
+        if structured:
+            def official(category_id):
+                return api.get('jdo-product-publish','/rest/sp-product/v0/categories/{categoryId}/sale-attr-templates',
+                               {'categoryId':category_id}).get('data')
+            def samples(category_id):
+                found = []
+                for row in pipeline.list_products(category_id=category_id):
+                    status = row.get('productStatusNew') or row.get('productStatus')
+                    if str(status) not in ('1','103'):
+                        continue
+                    sample = read_owned_detail(int(row['productId']))
+                    if category(sample)==category_id:
+                        found.append({**sample,'liveProductStatus':int(status)})
+                    if len(found)==6:
+                        break
+                return found
+            try:
+                resolved = sat.resolve(structured,cid,fetch_official=official,fetch_samples=samples)
+            except (api.JdoError,pipeline.PipelineError,ValueError,KeyError,TypeError):
+                resolved = {'templates':{},'missing':[n['componentCode'] for n in structured]}
+            for template in resolved['templates'].values():
+                template['source'].update(shopIdentity=shop,categoryId=cid)
+            result.update(structuredSaleTemplates=resolved['templates'],structuredSaleTemplateGaps=resolved['missing'])
+    return result
 
 
 def read_components(shop, detail):
     try:
-        return reference(shop, detail, for_creation=False)['schema']['componentList']
+        return reference(shop, detail, for_creation=False, with_sale_templates=False)['schema']['componentList']
     except (api.JdoError, ValueError):
         return []  # A read-only seller can still provide the product and its selected freight ID.
 
@@ -178,9 +208,23 @@ def pair_key(frozen):
 
 
 def require_target(frozen, args):
+    if not args.target_config or not args.target_profile:
+        raise ValueError('此步骤需要目标店配置和 Profile 以实时核店')
     target = verify(args.target_config, args.target_profile)
     if target != frozen['targetShop']:
         raise ValueError('实际目标店铺与这笔原任务不一致')
+    return target
+
+
+def local_target(frozen, args):
+    target = frozen['targetShop']
+    if args.target_profile and args.target_profile != target['profile']:
+        raise ValueError('本地草稿归属于另一目标店 Profile')
+    if args.target_config:
+        config = read_json(args.target_config) or {}
+        store = (config.get('stores') or {}).get(target['profile']) or config.get('store') or {}
+        if any(str(store.get(k)) != target[k] for k in ('shopId','venderId')):
+            raise ValueError('本地配置的店铺编号与该草稿归属不符')
     return target
 
 
@@ -196,7 +240,8 @@ def freeze(args):
         api.recheck_verified_jdo_store()
     source = verify(args.source_config, args.source_profile)
     detail, stocks, videos, gaps = read_product(args.product_id)
-    frozen = copy.freeze_copy(source, target, detail, stock_rows=stocks, video_rows=videos)
+    source_components = read_components(source, detail)
+    frozen = copy.freeze_copy(source, target, detail, stock_rows=stocks, video_rows=videos, source_components=source_components)
     task = pair_key(frozen)
     root = task_directory(task)
     with FileLock(root/'copy.lock'):
@@ -206,7 +251,7 @@ def freeze(args):
             if existing_id and str(prior.get('targetProductId')) != str(existing_id):
                 raise ValueError('本任务已有其他目标或未决提交，请先按原回执对账')
             return prior
-        freight = capture_freight(api, detail, read_components(source, detail), source)
+        freight = capture_freight(api, detail, source_components, source)
         api.recheck_verified_jdo_store()
         plan = copy.plan_copy(frozen)
         folder = safe_join(root, 'revisions/' + frozen['sha256'][:24])
@@ -234,7 +279,7 @@ def empty_media(frozen):
     return {k:frozen[k] for k in ('sourceShop','targetShop','sourceProductId')} | {'images':[]}
 
 
-def stage_media(folder, frozen, target):
+def stage_media(folder, frozen, target, *, before_write=None):
     from PIL import Image
     from heideng_merchant.sample_comparison import download_image
     from heideng_merchant.sku_image_edit import media_space
@@ -281,6 +326,8 @@ def stage_media(folder, frozen, target):
             if zone is None:
                 zone = media_space(api)
             intent = {'status':'uploading','sha256':content_hash,'shopIdentity':target}
+            if before_write:
+                before_write()
             atomic_json(path, intent)
             response = api.upload(*zone, staged)
             if not response.get('imgUrl'):
@@ -335,6 +382,24 @@ def delivery_evidence(folder, frozen, detail, target, components, extra, *, sour
 
 def prepare(folder, frozen, target, args):
     from heideng_merchant.owned_product_copy import prepare_copy_schema
+    if args.intent == 'local-draft':
+        if args.delivery_evidence:
+            supplied = read_json(args.delivery_evidence)
+            if not isinstance(supplied,dict):
+                raise ValueError('本地配送证据不是有效的原回执')
+            atomic_json(folder/'delivery-input.json',supplied)
+        draft = copy.local_copy_draft(frozen)
+        path = folder/'local-draft.json'
+        atomic_json(path,draft)
+        from heideng_merchant.shop_copy_preview import preview
+        preview_file = folder/'商品草稿.md'
+        pending = preview_file.with_suffix('.tmp')
+        pending.write_text(preview(draft),encoding='utf-8')
+        pending.replace(preview_file)
+        return {'status':'local-draft-ready','draftFile':str(path),'previewFile':str(preview_file),'sourceProductId':frozen['sourceProductId'],
+                'skuCount':len(draft['skuRows']),'missing':draft.get('missing',[]),
+                'currentStage':draft['currentStage'],'merchantCodeHandling':draft['merchantCodeHandling'],
+                'evidenceActions':draft.get('evidenceActions',[]),'targetShop':target,'platformWrites':0}
     source = frozen['sourceDetail']
     ref = reference(target, source)
     delivery = delivery_evidence(folder, frozen, {}, target, ref['schema']['componentList'], args.delivery_evidence)
@@ -348,10 +413,6 @@ def prepare(folder, frozen, target, args):
         return {'status':'needs-evidence','missing':prepared.get('missing',[]),'evidenceFile':str(folder/'prepared.json'),
                 'platformWrites':0}
     schema = prepared['schema']
-    if args.intent == 'local-draft':
-        atomic_json(folder/'pilot.json', {'intent':'local-draft','revision':frozen['sha256']})
-        return {'status':'local-draft-ready','draftFile':str(folder/'prepared.json'),'followUp':prepared.get('followUp',[]),
-                'sourceProductId':frozen['sourceProductId'],'targetShop':target,'platformWrites':0}
     cid = category(source)
     body = {'scene':'pop','schema':json.dumps(schema,ensure_ascii=False,separators=(',',':')),
             'productApplyDTO':{'categoryDTO':{'lastCategoryId':cid}}}
@@ -363,7 +424,8 @@ def prepare(folder, frozen, target, args):
 
 
 def publication_state(root, task):
-    body_dir = root/'publication'
+    from .shop_copy_batch import publication_directory
+    body_dir = publication_directory(root)
     result = read_json(body_dir/'result.json', {}) or {}
     data = result.get('data') if isinstance(result.get('data'),dict) else {}
     marker = body_dir/'publish-body.submit-state.json'
@@ -375,7 +437,30 @@ def publication_state(root, task):
     apply_id = data.get('applyId') or saved.get('applyId')
     status = ('submitted' if target_id or apply_id else
               'submission-needs-reconciliation' if marker.exists() else 'not-submitted')
+    refusal=read_json(body_dir/'rejection.json',{})
+    if refusal:
+        if not marker.exists() or not refusal.get('payloadSha256') or refusal['payloadSha256']!=saved.get('payloadSha256') or target_id or apply_id:
+            raise ValueError('平台拒绝回执与原申请记录不一致')
+        status='publication-rejected'
     pointer = read_json(root/'current.json',{})
+    adopted=read_json(body_dir/'existing-after-rejection.json',{})
+    if adopted:
+        if (status!='publication-rejected' or adopted.get('taskId')!=task or adopted.get('targetShop')!=pointer.get('targetShop')
+                or adopted.get('sourceProductId')!=pointer.get('sourceProductId')
+                or adopted.get('originalBodySha256')!=refusal.get('payloadSha256') or not adopted.get('productId')):
+            raise ValueError('只读认领记录与原拒绝或店铺不符')
+        status,target_id='existing-target-for-comparison',adopted['productId']
+    binding=read_json(body_dir/'target-binding.json')
+    if binding:
+        if (binding.get('kind')!='original-application' or binding.get('taskId')!=task or not apply_id or
+                str(binding.get('applyId'))!=str(apply_id) or not saved.get('payloadSha256') or
+                binding.get('payloadSha256')!=saved['payloadSha256'] or
+                any(binding.get(k)!=pointer.get(k) for k in ('sourceShop','targetShop','sourceProductId')) or
+                not re.fullmatch('[1-9][0-9]*',str(binding.get('productId',''))) or
+                target_id and str(target_id)!=str(binding['productId'])):
+            raise ValueError('原申请补回的目标编号与提交回执不一致')
+        target_id=binding['productId']
+        status='submitted'
     bound = pointer.get('existingTargetId')
     if bound is not None:
         if status != 'not-submitted' or pointer.get('taskId') != task or not str(bound).isdigit():
@@ -384,7 +469,8 @@ def publication_state(root, task):
     return {'status':status,
             'taskId':task,'targetProductId':target_id,'applyId':apply_id,
             'followUp':read_json(body_dir/'follow-up.json',[]),
-            'receiptDirectory':str(body_dir),'consumerPageStatus':'unchecked','replayed':False}
+            'receiptDirectory':str(body_dir),'consumerPageStatus':'unchecked','replayed':False,
+            **({'rejection':refusal} if refusal else {})}
 
 
 def validation_passed(response):
@@ -406,9 +492,98 @@ def validation_passed(response):
     return isinstance(findings,list) and all(isinstance(row,dict) and str(row.get('detectResult'))=='0' for row in findings)
 
 
-def submit_one(root, folder, frozen, target, args):
+def _business_components(body):
+    """Compare field content independent of JSON whitespace and generated application mapping IDs."""
+    pieces={}
+    def visit(node):
+        if isinstance(node,list):
+            for item in node:visit(item)
+        elif isinstance(node,dict):
+            code=node.get('componentCode')
+            if isinstance(code,str):
+                value=node.get('value')
+                props={p['key']:p.get('value') for p in node.get('properties',[]) if p.get('key')
+                       and p['key'] not in ('mappingId','imgRefId','colorId')}
+                if props or not isinstance(value,list):
+                    pieces.setdefault(code,[]).append({'properties':props,'value':value})
+                if isinstance(value,list):visit(value)
+    visit(json.loads(body['schema']))
+    return pieces
+
+
+def _retry_after_refusal(root,folder,frozen,target,task,prior,body,evidence_file):
+    from .shop_copy_batch import publication_attempts
+    history=publication_attempts(root)
+    original=history[-1]
+    refused=prior.get('rejection',{})
+    old_body=read_json(original/'publish-body.json',{})
+    old_sha=file_sha(original/'publish-body.json')
+    original_scope=read_json(original/'request-scope.json',{})
+    if (not refused.get('noIssuedIds') or old_sha!=refused.get('payloadSha256') or
+            original_scope!={'taskId':task,'sourceShop':frozen['sourceShop'],'targetShop':target,
+                             'sourceProductId':frozen['sourceProductId'],'revision':frozen['sha256'],'bodySha256':old_sha}):
+        return None,{**prior,'nextAction':'原明确拒绝、无受理编号或请求归属证据不完整。'}
+    proof=read_json(evidence_file) if evidence_file else {}
+    if not isinstance(proof,dict) or proof.get('taskId')!=task:
+        return None,prior
+    if (proof.get('originalBodySha256')!=old_sha or proof.get('targetShop')!=target or not isinstance(proof.get('receipt'),str) or
+            str(proof.get('platformCode')) not in refused.get('platformCodes',[]) or not isinstance(proof.get('fields'),list)):
+        return None,{**prior,'nextAction':'需关联原失败代码、原请求 SHA、相同目标店及已修正字段的官方证据。'}
+    receipt_path=safe_join(Path(evidence_file).resolve().parent,proof['receipt'])
+    if not receipt_path.is_file() or not re.fullmatch('[a-f0-9]{64}',str(proof.get('receiptSha256',''))) or file_sha(receipt_path)!=proof['receiptSha256']:
+        return None,{**prior,'nextAction':'现场修正证据缺失或摘要不符。'}
+    before,after=_business_components(old_body),_business_components(body)
+    changed=sorted(code for code in set(before)|set(after) if before.get(code)!=after.get(code))
+    if any(_business_components(read_json(path/'publish-body.json'))==after for path in history):
+        return None,{**prior,'nextAction':'这份业务请求已经发送过，保留全部原回执，不再提交。'}
+    if not proof['fields'] or not all(isinstance(code,str) and code in changed for code in proof['fields']):
+        return None,{**prior,'nextAction':'没有可核对的业务字段修正，原发布请求不会重放。'}
+    if str(proof['platformCode']) in ('99904030007','99904030008'):
+        grant=proof.get('permissionChange') or {}
+        if (grant.get('action')!='POST.sp-product.v0.product-applies' or grant.get('shop')!=target or
+                grant.get('from')!='denied' or grant.get('to')!='granted' or not grant.get('receipt') or
+                not isinstance(grant.get('checkedAt'),int) or grant['checkedAt']<=refused.get('observedAt',0)):
+            return None,{**prior,'nextAction':'原拒绝涉及权限，须核对该店该正式发品能力的新授权回执。'}
+        permission_receipt=safe_join(Path(evidence_file).resolve().parent,grant['receipt'])
+        if not permission_receipt.is_file() or file_sha(permission_receipt)!=grant.get('receiptSha256'):
+            return None,{**prior,'nextAction':'目标店新权限回执缺失或凭证摘要不符，未提交。'}
+    # Same lookup as the mature photo-listing confirm-not-created flow. Require a complete
+    # catalogue response, and preserve ambiguous/possible matches for non-writing review.
+    top={n['componentCode']:n.get('value') for n in json.loads(old_body['schema'])}
+    item_num=str(top.get('WareItemnum') or '')
+    title=str(top.get('WareTitle') or '')
+    if not title:
+        return None,{**prior,'nextAction':'原申请没有可独立查证的商品标题。'}
+    rows=pipeline.list_products(require_success=True)
+    matches={str(p['productId']) for p in rows if p.get('productName')==title or
+             (item_num and str(p.get('itemNum') or '')==item_num)}
+    if matches:
+        if len(matches)==1:
+            pid=next(iter(matches));detail=read_owned_detail(int(pid))
+            info=detail['productInfo']
+            rows_for_sku=copy.pair_frozen_target_skus(frozen,detail)
+            n=len(frozen['sourceDetail']['skuList'])
+            if (info.get('productName')==title and (not item_num or str(info.get('itemNum'))==item_num) and
+                    len(rows_for_sku['pairs'])==len(detail.get('skuList') or [])==n and n):
+                atomic_json(original/'existing-after-rejection.json',{'taskId':task,'sourceProductId':frozen['sourceProductId'],
+                            'targetShop':target,'productId':pid,'originalBodySha256':old_sha,'checkedAt':int(time.time())})
+                return None,publication_state(root,task)
+        return None,{**prior,'candidateProductIds':sorted(matches),'nextAction':'已有候选目标，先核实映射。'}
+    # Keep paths short even across several independent corrected refusals.
+    name='correction' if len(history)==1 else 'r-'+digest([task,old_sha,after])[:16]
+    retry=safe_join(history[0],name)
+    correction={'taskId':task,'sourceShop':frozen['sourceShop'],'targetShop':target,'sourceProductId':frozen['sourceProductId'],
+                'revision':frozen['sha256'],'previousBodySha256':old_sha,'platformCodes':refused['platformCodes'],
+                'changedFields':changed,'correctionEvidenceSha256':digest(proof),'resolvedFields':proof['fields'],
+                'absence':{'checkedAt':int(time.time()),'checkedCatalogProducts':len(rows),'itemNumber':item_num,
+                           'title':title,'matchingProducts':[]}}
+    return retry,correction
+
+
+def submit_one(root, folder, frozen, target, args, *, before_write=None):
     prior = publication_state(root,args.task)
-    if prior['status'] != 'not-submitted':
+    retry=prior['status']=='publication-rejected' and getattr(args,'correction_evidence',None)
+    if prior['status'] != 'not-submitted' and not retry:
         return prior
     original = folder/'pilot.json'
     plan = read_json(original) or {}
@@ -426,15 +601,19 @@ def submit_one(root, folder, frozen, target, args):
     if source != frozen['sourceShop']:
         raise ValueError('重新核对时源店铺已变化')
     detail, stocks, videos, _ = read_product(int(frozen['sourceProductId']))
-    current = copy.freeze_copy(source,target,detail,stock_rows=stocks,video_rows=videos)
+    current_components = read_components(source, detail)
+    current = copy.freeze_copy(source,target,detail,stock_rows=stocks,video_rows=videos,
+                               source_components=current_components if 'sourceComponentCodes' in frozen else None)
     if copy.source_fidelity(current) != copy.source_fidelity(frozen):
         raise ValueError('原商品在打样后发生变化，请重新取原商品、核对差异')
     old_freight = delivery['source']
-    current_freight = capture_freight(api,detail,read_components(source,detail),source,
+    current_freight = capture_freight(api,detail,current_components,source,
                                       template_ids=list(old_freight.get('freightReads', {})))
     check_freight_reads(old_freight, current_freight)
     target = require_target(frozen,args)
     ref = reference(target,detail)
+    if copy.outside_creation_templates(frozen,ref) - copy.outside_creation_templates(current,ref):
+        raise ValueError('原草稿略过的字段需要重新核对源类目，请按本商品当前模板更新草稿。')
     fresh_delivery = delivery_evidence(folder,frozen,{},target,ref['schema']['componentList'],None,
                                        source_capture=current_freight)
     check_freight_reads(delivery['target'], fresh_delivery['target'])
@@ -444,21 +623,41 @@ def submit_one(root, folder, frozen, target, args):
     if fresh['status'] != 'ready' or fresh['schema'] != json.loads(body['schema']):
         raise ValueError('目标模板、媒体或配送规则与已审草稿不一致，请重新准备样品')
     out = root/'publication'
+    correction=None
+    if retry:
+        out,correction=_retry_after_refusal(root,folder,frozen,target,args.task,prior,body,args.correction_evidence)
+        if out is None:
+            return correction
     brand = next(c['value'] for c in json.loads(body['schema']) if c['componentCode']=='WareBrand')
     validation = {**body,'productApplyDTO':{'brandId':brand,'categoryDTO':body['productApplyDTO']['categoryDTO']}}
+    if before_write:
+        before_write()
     atomic_json(out/'validation-body.json',validation)
     with redirect_stdout(io.StringIO()):
         rc = api.command_validate_jd(argparse.Namespace(body=out/'validation-body.json',output=out/'validation-result.json'))
     response = read_json(out/'validation-result.json') or {}
     if rc or not validation_passed(response):
         return {'status':'validation-needs-review','receipt':str(out/'validation-result.json'),'publishedProducts':0}
+    if before_write:
+        before_write()
     atomic_json(out/'publish-body.json',body)
+    payload_sha=file_sha(out/'publish-body.json')
+    request_scope={'taskId':args.task,'sourceShop':frozen['sourceShop'],'targetShop':target,
+                   'sourceProductId':frozen['sourceProductId'],'revision':frozen['sha256'],'bodySha256':payload_sha}
+    atomic_json(out/'request-scope.json',request_scope)
+    if correction:
+        atomic_json(out/'correction.json',{**correction,'payloadSha256':payload_sha})
     atomic_json(out/'follow-up.json',fresh.get('followUp',[]))
     try:
         api.submit_product_once(out/'publish-body.json',out/'result.json')
-    except (api.JdoError, OSError, RuntimeError):
+    except (api.JdoError, OSError, RuntimeError) as exc:
         if not (out/'publish-body.submit-state.json').exists():
             raise
+        codes=getattr(exc,'platform_codes',[])
+        if (getattr(exc,'platform_call',None)==('POST','/rest/sp-product/v0/product-applies') and getattr(exc,'no_issued_ids',False) and codes and
+                set(codes)<={'1010300506','10103001002','99904030007','99904030008'}):
+            atomic_json(out/'rejection.json',{'status':'official-rejection','payloadSha256':file_sha(out/'publish-body.json'),
+                        'platformCodes':codes,'noIssuedIds':True,'requestId':getattr(exc,'request_id',None),'observedAt':int(time.time())})
     return publication_state(root,args.task)
 
 
@@ -478,9 +677,14 @@ def compare(root, folder, frozen, target, args):
         stocks, videos, gaps = None, None, ['application-readback-only']
     else:
         detail, stocks, videos, gaps = read_product(int(pid))
-    delivery = delivery_evidence(folder, frozen, detail, target, read_components(target,detail), args.delivery_evidence)
+    try:
+        ref = reference(target,detail,for_creation=False)
+    except (api.JdoError,ValueError,KeyError,TypeError):
+        ref = None
+    components = ref['schema']['componentList'] if ref else read_components(target,detail)
+    delivery = delivery_evidence(folder, frozen, detail, target, components, args.delivery_evidence)
     report = copy.compare_copy(frozen,target,detail,stock_rows=stocks,video_rows=videos,
-                               media_evidence=read_json(folder/'media.json'),delivery_evidence=delivery)
+                               media_evidence=read_json(folder/'media.json'),delivery_evidence=delivery,target_schema=ref)
     original = read_json(folder/'delivery-evidence.json',{})
     if original and not args.delivery_evidence:
         try:
@@ -497,12 +701,23 @@ def compare(root, folder, frozen, target, args):
                   sourcePlatformStatus={k:source_info[k] for k in ('productStatus','productStatusNew') if k in source_info},
                   platformStatus={k:info[k] for k in ('productStatus','productStatusNew') if k in info},
                   readbackView='application' if args.apply_id else 'product',
-                  consumerPageStatus='unchecked',readGaps=gaps)
+                  consumerPageStatus='unchecked',buyerPurchaseStatus='unverified',readGaps=gaps)
     report['skuLinks'] = [{'sourceSkuId':s,'targetSkuId':t,'sourceUrl':'https://item.jd.com/'+s+'.html',
                            'targetUrl':'https://item.jd.com/'+t+'.html'} for s,t in report['skuPairs'].items()]
     if report['status']=='verified':
         report['status']='compared-fields-match'
-    report['bulkAuthorized'] = False
+    report['readbackScope'] = 'single-product'
+    report['checkedAt'] = int(time.time())
+    report['applicationStatus'] = {k:v for k,v in (detail.get('applyInfo') or {}).items()
+                                   if k in ('applyId','draftComputeStatus','applyStatus')}
+    status_data = info.get('productStatus')
+    live_code = info.get('productStatusNew')
+    if live_code is None:
+        live_code = status_data.get('productStatusNew') if isinstance(status_data,dict) else status_data
+    report['saleState'] = ('unknown' if args.apply_id else 'on-sale' if str(live_code) in ('1','103') else
+                           'not-on-sale' if str(live_code) in ('0','2','8','104','105') else 'unknown')
+    audit_code=str(report['applicationStatus'].get('draftComputeStatus'))
+    report['auditState']='pending' if audit_code=='1' else 'rejected' if audit_code=='3' else 'unknown'
     atomic_json(folder/'comparison.json',report)
     checks = [*report['checks'], *report['delivery'].get('checks',[])]
     counts = {state:sum(c.get('status') == state for c in checks)
@@ -513,7 +728,9 @@ def compare(root, folder, frozen, target, args):
             mismatches.append({'field':c['field'],'source':str(c.get('source',c.get('sourceValue')))[:120],
                                'target':str(c.get('target',c.get('targetValue')))[:120]})
     return {k:report[k] for k in ('status','sourceProductId','targetProductId','sourcePlatformStatus','platformStatus','readbackView',
-                                  'consumerPageStatus','packagingListStatus','bulkAuthorized','readGaps')} | {
+                                  'consumerPageStatus','buyerPurchaseStatus','packagingListStatus','readbackScope','applicationStatus','saleState','auditState','checkedAt','readGaps')} | {
+            'buyerEvidence':'本次核对的是后台商品和库存。买家在特定地区、规格或预售条件下能否下单，需对应前台证据。',
+            'merchantCodeCoverage':report.get('merchantCodeCoverage'), 'matchedSkuCount':len(report['skuPairs']),
             'checkCounts':counts,'skuLinkCount':len(report['skuLinks']),'skuLinks':report['skuLinks'][:3],
             'unresolvedFields':[c['field'] for c in checks if c.get('status')!='verified'][:12],
             'firstDifferences':mismatches[:4],
@@ -521,12 +738,14 @@ def compare(root, folder, frozen, target, args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='自家两店单商品原样复制')
+    from heideng_merchant import shop_copy_batch as batches
+    parser = argparse.ArgumentParser(description='自家两店商品复制与按原批次恢复')
     subs = parser.add_subparsers(dest='action',required=True)
-    for name in ('inventory','freeze','stage-media','prepare','submit-one','compare'):
+    batches.register(subs)
+    for name in ('inventory','freeze','stage-media','prepare','submit-one','compare','repair-sku-codes'):
         p = subs.add_parser(name)
-        p.add_argument('--target-config', type=Path, required=True)
-        p.add_argument('--target-profile', required=True)
+        p.add_argument('--target-config', type=Path, required=name!='prepare')
+        p.add_argument('--target-profile', required=name!='prepare')
         if name in ('inventory','freeze','submit-one'):
             p.add_argument('--source-config', type=Path, required=True)
             p.add_argument('--source-profile', required=True)
@@ -549,9 +768,19 @@ def main(argv=None):
         if name == 'compare':
             p.add_argument('--product-id', type=int)
             p.add_argument('--apply-id', type=int, help='用原申请单回读目标商品的编辑值')
+        if name == 'repair-sku-codes':
+            p.add_argument('--product-id',type=int)
+            mode=p.add_mutually_exclusive_group()
+            mode.add_argument('--check-only',action='store_true')
+            mode.add_argument('--reconcile',action='store_true')
+            mode.add_argument('--confirm',choices=['REPAIR_TARGET_SKU_CODES'])
+        if name=='submit-one':
+            p.add_argument('--correction-evidence',type=Path)
     args = parser.parse_args(argv)
     try:
-        if args.action == 'inventory':
+        if args.action in batches.ACTIONS:
+            result=batches.dispatch(args,sys.modules[__name__])
+        elif args.action == 'inventory':
             result = inventory(args)
         elif args.action == 'freeze':
             result = freeze(args)
@@ -559,13 +788,14 @@ def main(argv=None):
             root = task_directory(args.task)
             with FileLock(safe_join(root,'copy.lock')):
                 folder, frozen = load_copy(root)
-                target = require_target(frozen,args)
+                local = args.action == 'prepare' and args.intent == 'local-draft'
+                target = local_target(frozen,args) if local else require_target(frozen,args)
                 if args.action == 'stage-media':
                     prior = publication_state(root,args.task)
                     result = prior if prior['status'] != 'not-submitted' else stage_media(folder, frozen, target)
                 elif args.action == 'prepare':
-                    prior = publication_state(root,args.task)
-                    result = prior if prior['status'] != 'not-submitted' else prepare(folder, frozen, target, args)
+                    prior = {} if local else publication_state(root,args.task)
+                    result = prepare(folder, frozen, target, args) if local or prior['status'] in ('not-submitted','publication-rejected') else prior
                 elif args.action == 'submit-one':
                     result = submit_one(root, folder, frozen, target, args)
                     result.update(sourceProductId=frozen['sourceProductId'],targetShop=target,
@@ -576,21 +806,24 @@ def main(argv=None):
                                 task=args.task, product_id=result['targetProductId'], apply_id=None, delivery_evidence=None))
                         except (api.JdoError,ValueError,KeyError,OSError):
                             result['comparison'] = {'status':'awaiting-readback','nextAction':'从原复制任务只读对账。'}
+                elif args.action=='repair-sku-codes':
+                    from heideng_merchant.shop_copy_repair import repair_codes
+                    result=repair_codes(root,folder,frozen,target,args,api=api,read_product=read_owned_detail)
                 else:
                     result = compare(root, folder, frozen, target, args)
-        result['ok'] = result['status'] in ('inventory-ready','local-plan','media-ready','local-draft-ready',
+        result.setdefault('ok',result['status'] in ('inventory-ready','local-plan','media-ready','local-draft-ready',
                                              'pilot-prepared','submitted','existing-target-for-comparison',
-                                             'compared-fields-match')
-        if result['status'] in ('submission-needs-reconciliation','upload-needs-reconciliation'):
+                                             'compared-fields-match'))
+        if result['status'] in ('submission-needs-reconciliation','upload-needs-reconciliation','publication-rejected'):
             result['retryAllowed'] = False
         print(json.dumps(result,ensure_ascii=False))
         return 0 if result['ok'] else 2
     except api.JdoError:
-        print(json.dumps({'status':'needs-platform-receipt','message':'官方店铺请求未完成，请保留本任务并核对原回执。'},ensure_ascii=False))
+        print(json.dumps({'ok':False,'status':'needs-platform-receipt','message':'官方店铺请求未完成，请保留本任务并核对原回执。'},ensure_ascii=False))
         return 2
     except (KeyError, TypeError, ValueError, OSError) as error:
         from heideng_merchant.safety import redact
-        print(json.dumps({'status':'blocked','message':redact(str(error))},ensure_ascii=False))
+        print(json.dumps({'ok':False,'status':'blocked','message':redact(str(error))},ensure_ascii=False))
         return 2
 
 
