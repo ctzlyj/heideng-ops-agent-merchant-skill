@@ -588,7 +588,7 @@ def _fetch_same_shop_samples(category_id,limit=6):
  return out
 
 def discover_sale_templates(root,reference):
- """Official interface first; else same-shop same-category on-sale products; else stop and ask once."""
+ """Read official and same-shop evidence for this category's sale dimensions."""
  root=Path(root);m=read_manifest(root);verify_store(m['store']);category=int((m.get('facts') or {}).get('categoryId') or (reference.get('category') or {}).get('id') or 0)
  components=[c for c in walk_components(reference.get('schema') or {}) if c['componentCode'].startswith('sale-prop-')]
  result=sat.resolve(components,category,fetch_official=_fetch_official_sale_templates,fetch_samples=_fetch_same_shop_samples)
@@ -664,7 +664,7 @@ def build_listing(m,root,reference,*,planned_tasks=None):
  definitions={name:{'componentCode':c['componentCode'],'attrName':c['componentTitle']} for name,c in zip(('style','size'),specs)}
  key=m.get('packageId') or hashlib.sha256(json.dumps(m['store'],sort_keys=True).encode()).hexdigest()[:16]
  product={'productKey':'PN-'+key[:16],'title':f['title'],'brandId':f['brandId'],'itemNumber':'PN-'+key[:24],
-          'sevenDayReturnCode':f['sevenDayReturnCode'],'freightTemplateId':f['freightTemplateId'],
+          'sevenDayReturnCode':f.get('sevenDayReturnCode'),'freightTemplateId':f.get('freightTemplateId'),
           'saleDimensionCodes':[c['componentCode'] for c in specs],'includeSizeSaleAttribute':len(dimensions)>=2,'mainImageMode':'multi_set','detailMobile':True,**({'detailPolicy':dp.exemption(m)['type'],'detailExemptionReason':dp.exemption(m)['reason']} if dp.exemption(m) else {}),'saleAttributeComponents':definitions}
  for field in ('packageLengthMm','packageWidthMm','packageHeightMm','weightKg'):
   if f.get(field) not in (None,''):product[field]=f[field]
@@ -693,7 +693,7 @@ def build_listing(m,root,reference,*,planned_tasks=None):
   style=sale[0]['alias'] if sale else s['spec'];size=sale[1]['alias'] if len(sale)>1 else style
   if style not in styles:styles.append(style)
   if size not in sizes:sizes.append(size)
-  skus.append({'skuKey':s['key'],'jdPrice':str(s['jdPrice']),'stock':int(s['stock']),'enabled':True,'vendorSku':s.get('vendorSku') or f'PN-{key[:12]}-{i:03d}',
+  skus.append({'skuKey':s['key'],'jdPrice':str(s['jdPrice']),'stock':int(s['stock']),'enabled':True,'vendorSku':s.get('vendorSku'),
                'styleAlias':style,'sizeAlias':size,'saleValues':sale,'styleMappingId':sale[0]['mappingId'] if sale else '0000000000','sizeMappingId':sale[1]['mappingId'] if len(sale)>1 else '0000000000',
                'styleOrder':styles.index(style)+1,'sizeOrder':sizes.index(size)+1,'skuAttributes':deepcopy(s['skuAttributes']),**({'styleTemplateSkuProps':deepcopy(s['styleTemplateSkuProps'])} if s.get('styleTemplateSkuProps') else {}),**({'sizeTemplateSkuProps':deepcopy(s['sizeTemplateSkuProps'])} if s.get('sizeTemplateSkuProps') else {})})
   if s['key'] not in sku_images:raise ValueError('Missing generated SKU image')
@@ -927,8 +927,7 @@ def verify_package(root,attempts=18,interval=10):
   if n+1<attempts:time.sleep(interval)
  else:raise ReconcileRequired('Product propagation pending; only retry readback')
  atomic_json(root/'.publish/readback-apply.json',apply);atomic_json(root/'.publish/readback-product.json',detail)
- expected={s['vendorSku']:s for s in listing['skus']};online={str(s.get('outerId')):s for s in detail['skuList']};problems=[]
- if set(online)!=set(expected) or len(detail['skuList'])!=len(expected):problems.append('SKU merchant-code set mismatch')
+ online,problems=match_published_variants(listing,detail['skuList'])
  from image_patch_update import group_urls
  groups=group_urls(apply)
  if (detail.get('productInfo') or {}).get('productName')!=listing['product']['title']:problems.append('title mismatch')
@@ -941,9 +940,12 @@ def verify_package(root,attempts=18,interval=10):
   spec_images={}
   problems.append('SKU image ownership not verified')
  stocks={str(s.get('skuId')):s for s in cli.query_sku_stocks([int(s['skuId']) for s in detail['skuList']])}
- for key,sku in expected.items():
+ for sku in listing['skus']:
+  key=sku['skuKey']
   remote=online.get(key)
   if not remote:continue
+  if sku.get('vendorSku') is not None and (remote.get('outerId') is None or str(remote['outerId'])!=str(sku['vendorSku'])):
+   problems.append('merchant code '+key)
   value=(remote.get('priceInfo') or {}).get('jdPrice')
   if value is None or float(value)!=float(sku['jdPrice']):problems.append('price '+key)
   if int(remote.get('skuEnableStatus') or 0)!=1:problems.append('disabled SKU '+key)
@@ -967,7 +969,7 @@ def verify_package(root,attempts=18,interval=10):
    if groups.get(str(first.get('attrValues'))) != sku_urls:problems.append('SKU gallery '+key)
   if not sku_urls or spec_images.get(str(remote['skuId']))!=sku_urls[0]:problems.append('SKU image '+key)
   for v in m['variants']:
-   if v.get('vendorSku')==key:v['skuId']=int(remote['skuId'])
+   if v.get('key')==key:v['skuId']=int(remote['skuId'])
  details=[cli.detail_image_url(i['upload']['imgUrl']) for i in listing['images'] if i['role']=='detail']
  for d,url in zip(m.get('detailImages') or [],details):d['onlineUrl']=url
  readback=dp.readback_detail((apply.get('productInfo') or {}).get('productDetailDesc') or {},details);detail_problems=list(readback['problems'])
@@ -983,7 +985,7 @@ def verify_package(root,attempts=18,interval=10):
  m['deliveryChecks']=dp.delivery_checks(m);m['deliveryChecks']['statement']=dp.completion_statement(m['deliveryChecks'])
  if problems:m['deliveryChecks']['statement']='已提交，交付待核对：'+'、'.join(problems)
  m['skuIds']=[int(s['skuId']) for s in detail['skuList']];m['status']='VERIFIED' if not problems else 'VERIFICATION_FAILED';m['timings']['verifySeconds']=round(time.monotonic()-began,2);m['verification']={'problems':problems,'skuCount':len(online),'at':time.strftime('%Y-%m-%dT%H:%M:%S')}
- links=consumer_links(detail['skuList'],expected)
+ links=consumer_links(online.values())
  m['consumerLinks']=links
  m['verification'].update(consumerLinks=links,consumerPageStatus='unchecked')
  atomic_json(root/'manifest.json',m)
@@ -993,12 +995,46 @@ def verify_package(root,attempts=18,interval=10):
          'problems':problems,'deliveryChecks':dp.delivery_checks(m),'statement':m['deliveryChecks']['statement']}
 
 
-def consumer_links(skus, expected):
+def match_published_variants(listing, remote_rows):
+    """Match on the complete set of sale dimensions before checking merchant codes."""
+    product = listing['product']
+    definitions = product.get('saleAttributeComponents') or {}
+    legacy_codes = [definitions[key]['componentCode'] for key in ('style', 'size') if key in definitions]
+    by_spec = {}
+    problems = []
+    sku_ids = set()
+    for row in remote_rows:
+        attrs = row.get('saleAttrs')
+        sku_id = str(row.get('skuId') or '')
+        if not isinstance(attrs, list) or not sku_id.isdecimal() or sku_id in sku_ids:
+            problems.append('missing or duplicate SKU identity')
+            continue
+        sku_ids.add(sku_id)
+        spec = tuple(sorted((str(a.get('attrId')), str(a.get('attrValueAlias'))) for a in attrs))
+        by_spec.setdefault(spec, []).append(row)
+    result = {}
+    local_specs = set()
+    for sku in listing['skus']:
+        if 'saleValues' in sku:
+            fields = [(v['componentCode'], v['alias']) for v in sku['saleValues']]
+        else:
+            fields = list(zip(legacy_codes, cli.expected_sale_aliases(product, sku), strict=True))
+        spec = tuple(sorted((code.removeprefix('sale-prop-'), str(value)) for code,value in fields))
+        if spec in local_specs or len(by_spec.get(spec, [])) != 1:
+            problems.append('ambiguous or missing sale specifications '+sku['skuKey'])
+        else:
+            result[sku['skuKey']] = by_spec[spec][0]
+        local_specs.add(spec)
+    if len(remote_rows) != len(listing['skus']) or set(by_spec) != local_specs:
+        problems.append('SKU specification set mismatch')
+    return result, problems
+
+
+def consumer_links(skus, expected=None):
     links = []
     for sku in skus:
         sku_id = str(sku.get('skuId') or '')
-        local = expected.get(str(sku.get('outerId')))
-        if not local or not sku_id.isdecimal():
+        if not sku_id.isdecimal() or (expected is not None and str(sku.get('outerId')) not in expected):
             continue
         aliases = [attr.get('attrValueAlias') for attr in sku.get('saleAttrs') or []]
         links.append({'skuId': int(sku_id), 'spec': ' / '.join(x for x in aliases if x),
@@ -1068,7 +1104,8 @@ def main(argv=None):
   elif command=='questions':
    m=read_manifest(root);reference=load(root/'reference.json',{});missing=missing_information(m.get('facts') or {},reference)
    structured=load(root/'sale-attr-templates.json',{}) or {};missing=missing+(['sale-attribute-template:'+m_['attrName'] for m_ in structured.get('missing') or []])
-   question={'askTogetherOnce':True,'missingFields':missing,**({'saleAttributeQuestion':structured['ask']} if structured.get('ask') else {}),'rule':'参数必须由用户提供或明确确认；看不清的结构要求补拍，不按参考商品猜参数'}
+   question={'missingFields':missing,**({'templateNextAction':structured['ask']} if structured.get('ask') else {}),
+             'rule':'从本商品已有资料、销售属性原值和当前店铺模板查缺项。只有仍缺的实物事实或经营选择需要商家一次补充。'}
    atomic_json(root/'missing-information.json',question);result=question
   elif command=='make-plan':
    r=make_plan(root,preview=args.preview,only=args.only,design=load(args.image_prompts_file),redo=args.redo);result={**r,'tasks':len(r['tasks'])}

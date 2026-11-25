@@ -10,6 +10,63 @@ def load(name):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
 class ExtraListingTests(unittest.TestCase):
+    def test_audit_workbook_shows_product_facts_and_current_price_terms(self):
+        from PIL import Image
+        from openpyxl import load_workbook
+        mover = load('jd_product_mover')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Image.new('RGB',(4,4)).save(root/'sku.png')
+            source = {'sourceUrl':'source','sourceSku':'300','sourceSpu':'400',
+                      'variants':[{'sourceSku':'300','skuImage':'sku.png','sourcePrice':15}]}
+            listing = {'product':{'title':'收纳袋','brandName':'本店牌','mainImageMode':'shared'},
+                       'category':{'name':'收纳','id':92},'skus':[{'sourceSku':'300','styleAlias':'蓝','sizeAlias':'双只',
+                           'skuKey':'one','vendorSku':'=原商家码','stock':0,'enabled':True,'jdPrice':18.5}],
+                       'source':{'pricing':{'coupon':0,'activityDiscountRate':0,'nationalSubsidyRate':0}}}
+            mover.build_audit_workbook(source,listing,root/'盘点.xlsx')
+            book=load_workbook(root/'盘点.xlsx')
+            try:
+                sheet=book['SKU明细']
+                self.assertEqual((sheet['E3'].value,sheet['E3'].data_type),('=原商家码','s'))
+                self.assertEqual([sheet[key].value for key in ('H3','I3','K3','L3','M3')],[0,0,18.5,18.5,0])
+                summary=dict(list(book['商品信息'].values)[1:])
+                self.assertEqual(summary['品牌'],'本店牌')
+                self.assertNotIn('工艺',summary)
+            finally:
+                book.close()
+
+    def test_brand_gate_checks_actual_brand_instead_of_requiring_brandless_category(self):
+        mode=load('hot_replica_mode')
+        reference={'brands':[{'brandId':17}]}
+        self.assertTrue(mode.brand_gate(reference,brand_id=17)['ok'])
+        for unrelated in (None,18,-1):
+            self.assertFalse(mode.brand_gate(reference,brand_id=unrelated)['ok'])
+
+    def test_first_category_refresh_never_queries_a_decorative_painting_category_by_default(self):
+        from unittest.mock import patch
+        cli=load('jdo_listing_mvp')
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli,'get') as get:
+            with self.assertRaisesRegex(cli.JdoError,'末级类目'):
+                cli.refresh_reference(Path(tmp)/'new.reference.json')
+            get.assert_not_called()
+
+    def test_price_planner_does_not_invent_a_three_percent_discount(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            folder=root/'42_商品'
+            folder.mkdir()
+            listing=folder/'listing.json'
+            listing.write_text('{"source":{"pricing":{}},"skus":[]}',encoding='utf-8')
+            (folder/'manifest.json').write_text('{"variants":[]}',encoding='utf-8')
+            before=listing.read_bytes()
+            result=subprocess.run([sys.executable,'-I','-B',str(ROOT/'scripts/mature_entry.py'),
+                                   str(SCRIPTS/'hot_replica_price_plan.py'),'--sku','42','--draft-root',tmp],
+                                  capture_output=True)
+            self.assertEqual(result.returncode,2,result.stderr)
+            self.assertIn('targetArrivalMultiplier',json.loads(result.stdout)['fields'])
+            self.assertEqual(listing.read_bytes(),before)
+
     def test_real_taobao_and_tmall_id_parser_is_retained(self):
         module=load('taobao_product_mvp')
         self.assertEqual(module.taobao_item_id('https://item.taobao.com/item.htm?id=12345'),'12345')
@@ -34,9 +91,9 @@ class ExtraListingTests(unittest.TestCase):
                 path.write_text(json.dumps(data), encoding="utf-8")
             for n in (1, 2):
                 Image.new("RGB", (63, 53), (n * 60, 0, 30)).save(draft / f"main{n}.png")
-            write(root / "category.json", {"brands": [{"brandId": -1}]})
+            write(root / "category.json", {"brands": [{"brandId": 17}]})
             write(root / "analysis.json", {"drops": [], "continuity": {"pages": []}})
-            write(draft / "listing.json", {"product": {"title": "product"}, "skus": [], "images": [
+            write(draft / "listing.json", {"product": {"title": "product","brandId":17}, "skus": [], "images": [
                 {"role": "spu_main", "order": n, "localPath": f"main{n}.png", "imageKey": f"SPU-MAIN-{n:02d}"}
                 for n in (2, 1)]})
             args = ["preflight", "--draft-root", str(root), "--sku", "42", "--reference", str(root / "category.json"),

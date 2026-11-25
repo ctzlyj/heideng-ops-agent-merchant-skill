@@ -15,14 +15,14 @@
 - 链接只采素材不上架，先用 [采集](experience-collection.md)，不得因素材齐全自动发布。
 - 常见新商品：源资料/类目与品牌判断→真实SKU和图片→原本地包/预检→确认后的发布与回读。已有合格草稿可直接复用，不强制从采集重跑。
 - 实拍：锁定真实商品外观/规格与风格参考用途，沿用 photo_listing 的包契约；图片需要修复才组合 [图文](experience-images.md)，事实不能由风格参考反向改写。
-- 完整复刻：原 hot_replica_preflight→apply→hot_replica_publish，详情连续性、shared/series 判断与规格图落位复用成熟实现，不另造发布流程；宿主根据源链接画面、SKU 差异和本次目标提供完整逐图提示词。当前预检的 `--analysis-file` 接收宿主对真实图像的 drops 与 continuity {spec,pages}；page索引对应剔除后保留页，不能填假判断绕预检。
+- 商家要参照有权使用的来源重制图片时，可用 hot_replica_preflight、apply、hot_replica_publish。宿主根据实际画面、SKU 差异和本次目标设计图位。`--analysis-file` 接收对真实图像的 drops 与 continuity {spec,pages}，page 索引对应剔除后保留页。自家店铺原样搬运直接保留源图组。
 - 矩阵沿用原 matrix_listing 的差异方案与发布回执。同一店/商品/覆盖与费用已有批准，不要求每进一个模块再确认一次。
 
 ## 实拍与本店复刻的宿主操作
 
 商家给的是本店 SPU 时，使用 `photo-listing init --shop <已核实目标> --source-spu <SPU> --package <任务包> --title <标题>`。工具从本店编辑详情提取有序 SPU 轮播、规格首图和详情，记录每张图片的来源、顺序及内容哈希。用 `.reference-cache/assets.json` 中的 `role`、`group` 和 `productPhoto` 识别各图。外部参考使用 `--reference <京东SKU链接> --photos <商家实拍>` 并运行 `reference`。外部参考仅供分析风格。无需参考的商家上新使用 `--no-reference`。
 
-宿主查看实图、SKU 和已验证卖点，决定每张图的经营目的、版式、文案和商品事实。先做 `refresh`、`set-facts`、`questions`，核对标题 60 单位、包装三边、毛重和类目事实。缺实测包装数据时一次问清楚。复刻同一商品时先核对是否可以沿用已有 SKU 图和详情图。
+宿主查看实图、SKU 和已验证卖点，决定每张新图的用途。用 `refresh`、`set-facts`、`questions` 核对商品事实及目标类目要求；包装尺寸和毛重可读原商品或本店已有资料。确需实物测量时再请商家补相应数值。复刻同一商品时可沿用合格的 SKU 图和详情图。
 
 商家说“第一张图”时，先核对其打开的 SKU 链接和选中的规格。对于本店复刻，`.reference-cache/assets.json` 的 `sourceSkus[源SKU编号]` 会列出该规格的候选首图 `firstImageCandidates`，包括后台规格图、对应销售属性组的轮播首图；无专属图时使用共享轮播候选。读 `entries` 可看后续轮播、用途、顺序和来源。实际打开消费者页面并核实选中规格后，可用 `record-first-view --package <包> --source-sku <编号> --url <SKU页> --product-photo <候选的productPhoto> --screenshot <首屏截图>` 保存证据。页面打不开时标明“后台候选，消费者页待核”。买家端显示顺序随商品、规格和页面而定。
 
@@ -44,7 +44,7 @@
 
 ## 实际工具入口
 
-- `run listing -- <jd_product_pipeline原参数>`；登记 `scripts/publish_local_draft.py` 处理已有草稿。
+- `run listing -- <jd_product_pipeline原参数>` 可复用已有类目规则与参考，`scripts/publish_local_draft.py` 处理已有草稿。旧表格导入器保留了现代装饰画模板，其他类目选择本商品的类目模板和实际销售维度；不能据该导入器的限制判断京东只支持两个维度。自家两店直接用 shop-copy。
 - `run photo-listing -- ...` / `run matrix-listing -- ...`。
 - `run link-replica -- --sku <真实源SKU> --draft-root <任务草稿> --store-config <实际店铺配置> --reference <当前类目参考> --decisions <真实预检> --confirm PUBLISH_TO_JD`。
 - 新资料/分析/局部脚本放商家任务目录，不写入 mature 快照。官方目录外能力仍可按 [环境](merchant-cli-environment.md) 调用。

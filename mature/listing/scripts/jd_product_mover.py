@@ -24,7 +24,7 @@ from openpyxl import Workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from PIL import Image
 
-from source_pricing import component_mode, component_source_plan
+from source_pricing import component_mode, component_source_audit, component_source_plan
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -201,39 +201,16 @@ def parse_detail_urls(payload: str) -> list[str]:
     return urls
 
 
-def normalize_size(value: str) -> str:
-    normalized = value.strip().replace("厘米", "cm")
-    match = re.search(
-        r"(?:宽)?\s*(\d+(?:\.\d+)?)\s*(?:cm)?\s*(?:[xX×*]|-{1,3}|[—–])\s*(?:高)?\s*(\d+(?:\.\d+)?)\s*(?:cm)?",
-        normalized,
-        re.I,
-    )
-    if not match:
-        single = re.search(r"(\d+(?:\.\d+)?)\s*(寸|cm|厘米)", normalized, re.I)
-        if not single:
-            raise MoverError(f"无法识别尺寸：{value}")
-        number = single.group(1).rstrip("0").rstrip(".") if "." in single.group(1) else single.group(1)
-        unit = "cm" if single.group(2).lower() in {"cm", "厘米"} else "寸"
-        return f"{number}{unit}"
-    width = match.group(1).rstrip("0").rstrip(".") if "." in match.group(1) else match.group(1)
-    height = match.group(2).rstrip("0").rstrip(".") if "." in match.group(2) else match.group(2)
-    return f"{width}×{height}cm"
-
-
 def normalize_dimension_alias(value: str) -> str:
+    """Keep the seller's complete value, including units, dimensions and bundle labels."""
     alias = value.strip()
     if not alias:
         raise MoverError("销售属性值为空")
-    try:
-        return normalize_size(alias)
-    except MoverError:
-        return alias
+    return alias
 
 
 def safe_sale_alias(value: str) -> str:
-    result = re.sub(r"\s+", " ", value).strip()
-    while result and sum(1 if character.isascii() else 2 for character in result) > 48:
-        result = result[:-1].rstrip()
+    result = value.strip()
     if not result:
         raise MoverError("销售属性别名为空")
     return result
@@ -281,23 +258,15 @@ def ordered_size_aliases(values: list[str]) -> list[str]:
 
 
 def split_style_and_size(value: str, fallback_style: str) -> tuple[str, str]:
-    normalized = value.strip().replace("厘米", "cm")
-    dimension = re.search(
-        r"(?:宽)?\s*\d+(?:\.\d+)?\s*(?:cm)?\s*(?:[xX×*]|-{1,3}|[—–])\s*(?:高)?\s*\d+(?:\.\d+)?\s*(?:cm)?",
-        normalized,
-        re.I,
-    )
-    if dimension:
-        size = normalize_size(dimension.group(0))
-        style = (normalized[:dimension.start()] + " " + normalized[dimension.end():]).strip()
-    else:
-        single = re.search(r"\d+(?:\.\d+)?\s*(?:寸|cm)", normalized, re.I)
-        if not single:
-            raise MoverError(f"无法从销售属性拆分款式和尺寸：{value}")
-        size = normalize_size(single.group(0))
-        style = (normalized[:single.start()] + " " + normalized[single.end():]).strip()
-    style = re.sub(r"\s+", " ", style).strip(" -_/，,；;：:")
-    return style or fallback_style, size
+    # Only split a complete trailing size. Compound labels remain one original variant.
+    unit = r"(?:毫米|厘米|公分|英寸|寸|mm|cm|m|米)"
+    number = r"\d+(?:\.\d+)?"
+    axis = rf"(?:[长宽高深厚]\s*)?{number}\s*{unit}?"
+    size = rf"(?:{axis}(?:\s*[x×*—–-]\s*{axis})+|{number}\s*{unit})"
+    match = re.fullmatch(rf"(?P<style>.*?)(?P<size>{size})", value.strip(), re.I)
+    if not match:
+        raise MoverError(f"无法从销售属性拆分款式和尺寸：{value}")
+    return match['style'].strip() or fallback_style, match['size'].strip()
 
 
 def variant_style_and_size(
@@ -409,6 +378,11 @@ def infer_scenes(title: str, rules: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def target_price(source_price: str | Decimal, pricing: dict[str, Any]) -> Decimal:
+    if pricing.get("mode") == "source-price":
+        source = Decimal(str(source_price))
+        if not source.is_finite() or source <= 0 or source != source.quantize(Decimal("0.01")):
+            raise MoverError("按原价沿用需要大于0且精确到分的来源价格")
+        return source
     if component_mode(pricing):
         return component_source_plan(source_price, pricing).jd_price
     source = Decimal(str(source_price))
@@ -756,7 +730,11 @@ def build_listing(
         and int(review.get("targetCategoryId") or 0) == int(rules["category"]["id"])
         and int((reference.get("category") or {}).get("id") or 0) == int(rules["category"]["id"])
     )
-    if not reviewed_mapping and (not source.get("categoryIds") or int(source["categoryIds"][-1]) != expected_category):
+    if source.get("schemaVersion") == "merchant-template/v1":
+        target_category = int(source.get("targetCategoryId") or 0)
+        if not target_category or target_category != int(rules["category"]["id"]) or target_category != int(reference["category"]["id"]):
+            raise MoverError("工作簿目标类目、类目规则与当前参考不一致")
+    elif not reviewed_mapping and (not source.get("categoryIds") or int(source["categoryIds"][-1]) != expected_category):
         raise MoverError(f"源商品类目与规则不一致，预期来源类目{expected_category}：{source.get('categoryIds')}")
     product_key = f"{str(source.get('productKeyPrefix') or 'JD').upper()}-{source['sourceSpu']}"
     source_title = source["title"]
@@ -813,7 +791,7 @@ def build_listing(
                 (value for name, value in attributes.items() if name in {"尺寸", "规格"}),
                 values[-1] if values else "",
             )
-            size = normalize_size(size_source)
+            size = normalize_dimension_alias(size_source)
         prepared.append({
             **variant,
             "style": safe_sale_alias(style),
@@ -907,7 +885,7 @@ def build_listing(
         listing["skus"].append({
             "skuKey": sku_key,
             "productKey": product_key,
-            "vendorSku": str(item.get("vendorSku") or "").strip(),
+            **({"vendorSku": str(item["vendorSku"])} if item.get("vendorSku") is not None else {}),
             "jdPrice": float(target_price(item["sourcePrice"], rules["pricing"])),
             "stock": int(item.get("stock", defaults["stock"])),
             "shortTitle": "",
@@ -978,6 +956,7 @@ def build_listing(
 def build_audit_workbook(
     source: dict[str, Any], listing: dict[str, Any], destination: Path,
 ) -> None:
+    from jdo_listing_mvp import resolved_vendor_sku
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "SKU明细"
@@ -985,22 +964,36 @@ def build_audit_workbook(
     sheet.append([
         "序号", "SKU图", "款式名称", "规格尺寸", "商家SKU", "同行售价",
         "低于同行", "国补优惠", "活动优惠", "优惠券", "京东价", "预计到手价",
-        "库存覆盖", "装裱", "题材", "是否启用", "源SKU", "校验结果",
+        "库存", "规格属性", "属性值", "是否启用", "源SKU", "核对状态",
     ])
     source_by_sku = {item["sourceSku"]: item for item in source["variants"]}
     embedded_images: set[str] = set()
     image_buffers: list[io.BytesIO] = []
     last_row = len(listing["skus"]) + 2
+    pricing = (listing.get("source") or {}).get("pricing") or {}
     for row_index, sku in enumerate(listing["skus"], start=3):
         source_row = source_by_sku[sku["sourceSku"]]
+        attrs = sku.get("skuAttributes") or []
+        estimate = None
+        if all(pricing.get(k) is not None for k in ("activityDiscountRate","nationalSubsidyRate","coupon")):
+            if component_mode(pricing):
+                estimate = component_source_audit(sku['sourcePrice'],sku['jdPrice'],pricing)['arrivalPrice']
+            else:
+                jd = Decimal(str(sku['jdPrice']))
+                estimate = (jd*(1-Decimal(str(pricing['activityDiscountRate'])))*
+                            (1-Decimal(str(pricing['nationalSubsidyRate'])))-Decimal(str(pricing['coupon']))).quantize(
+                                Decimal('0.01'), rounding=ROUND_HALF_UP)
         sheet.append([
-            "=ROW()-2", "", sku["styleAlias"], sku["sizeAlias"], sku.get("vendorSku") or "", source_row["sourcePrice"], 0.10,
-            0.15, 0.15, 0,
-            f'=IF(F{row_index}="","",ROUND((F{row_index}-G{row_index}+J{row_index})/((1-H{row_index})*(1-I{row_index})),2))',
-            f'=IF(K{row_index}="","",ROUND(K{row_index}*(1-H{row_index})*(1-I{row_index})-J{row_index},2))',
-            sku["stock"], sku["mountingLabel"], sku["subjectLabel"], "是", sku["sourceSku"],
-            f'=IF(OR(C{row_index}="",D{row_index}="",E{row_index}="",F{row_index}="",G{row_index}="",H{row_index}="",I{row_index}="",J{row_index}="",K{row_index}="",L{row_index}="",M{row_index}="",N{row_index}="",O{row_index}="",P{row_index}=""),"缺少必填",IF(COUNTIF($E$3:$E${last_row},E{row_index})>1,"SKU编码重复","通过"))',
+            row_index-2, "", sku["styleAlias"], sku["sizeAlias"], resolved_vendor_sku(listing,sku), source_row["sourcePrice"],
+            pricing.get("belowCompetitor"), pricing.get("nationalSubsidyRate"), pricing.get("activityDiscountRate"),
+            pricing.get("coupon"), sku["jdPrice"], estimate, sku["stock"],
+            " / ".join(str(a.get("attrName") or a.get("componentCode") or "") for a in attrs),
+            " / ".join(str(a.get("valueLabel") or a.get("valueId") or "") for a in attrs),
+            "是" if sku.get("enabled") else "否", str(sku["sourceSku"]), "本地草稿",
         ])
+        for cell in sheet[row_index]:
+            if cell.data_type == "f":
+                cell.data_type = "s"
         sheet.cell(row_index, 5).number_format = "@"
         sheet.cell(row_index, 17).number_format = "@"
         image_path = source_row["skuImage"]
@@ -1027,17 +1020,19 @@ def build_audit_workbook(
         ("源链接", source["sourceUrl"]), ("源SKU", source["sourceSku"]),
         ("源SPU", source["sourceSpu"]), ("标题", listing["product"]["title"]),
         ("末级类目", f"{listing['category']['name']} ({listing['category']['id']})"),
-        ("品牌", "无品牌"), ("工艺", "印刷"),
-        ("运费模板", listing["product"]["freightTemplateLabel"]),
-        ("主图模式", "多套主图"),
-        ("7天无理由", listing["product"]["sevenDayReturnLabel"]),
-        ("价格说明", "京东价按默认15%国补、15%直降和0元券反推；上架后由用户批量报名活动"),
-        ("主图视频", (listing.get("video") or {}).get("localPath") or "无"),
-        ("商家编码前缀", listing["product"]["vendorSkuPrefix"]),
-        ("款式起始号", listing["product"]["vendorStyleStart"]),
+        ("品牌", listing["product"].get("brandName") or listing["product"].get("brandId")),
+        ("运费模板", listing["product"].get("freightTemplateLabel")),
+        ("主图模式", listing["product"].get("mainImageMode")),
+        ("7天无理由", listing["product"].get("sevenDayReturnLabel")),
+        ("价格说明", "京东价取本件草稿。预计到手价按已记录活动条件计算，实际成交价待核。"),
+        ("主图视频", (listing.get("video") or {}).get("localPath")),
+        ("商家编码前缀", listing["product"].get("vendorSkuPrefix")),
+        ("款式起始号", listing["product"].get("vendorStyleStart")),
         ("SKU数", len(listing["skus"])),
     ]:
         summary.append(row)
+        if summary.cell(summary.max_row,2).data_type == "f":
+            summary.cell(summary.max_row,2).data_type = "s"
     summary.column_dimensions["A"].width = 22
     summary.column_dimensions["B"].width = 90
     destination.parent.mkdir(parents=True, exist_ok=True)

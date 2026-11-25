@@ -74,6 +74,49 @@ def sanitized_env(home):
 
 
 class MatureListingTests(unittest.TestCase):
+    def test_real_source_aliases_and_optional_merchant_codes_survive_draft_creation(self):
+        mover = module("jd_product_mover")
+        for alias in ("10×20毫米", "10×20×30cm", "30×40cm 双只装", "30×40cm 单只装", "【A】*/："):
+            self.assertEqual(mover.normalize_dimension_alias(alias), alias)
+        self.assertEqual(mover.split_style_and_size("硬款10×20×30毫米", "原款"), ("硬款", "10×20×30毫米"))
+        cli = module("jdo_listing_mvp")
+        data = manifest()
+        data["product"].pop("freightTemplateId")
+        data["product"].pop("sevenDayReturnCode")
+        data["skus"][0]["vendorSku"] = "000134"
+        del data["skus"][1]["vendorSku"]
+        top = {part["componentCode"]: part["value"] for part in cli.build_publish_schema(data)}
+        rows = [{part["componentCode"]:part["value"] for part in row["value"]} for row in top["SKUS"]]
+        self.assertEqual(rows[0]["SkuVendorSku"], "000134")
+        self.assertNotIn("SkuVendorSku", rows[1])
+        self.assertNotIn("WareTransport", top)
+        self.assertNotIn("WareSevenDayReturn", top)
+        data["skus"][1]["vendorSku"] = "000134"
+        ref = {"category":{"id":1}, "componentCatalog":[]}
+        errors,_ = cli.validate_manifest(Path("local/listing.json"), data, ref, planned=True)
+        self.assertFalse(any("编码" in error or "运费" in error or "退货" in error for error in errors))
+        del data["skus"][1]["vendorSku"]
+        ref["componentCatalog"] = [{"path":"root/SKUS","componentCode":"SkuVendorSku","required":True},
+                                   {"path":"root","componentCode":"WareTransport","required":True}]
+        errors,_ = cli.validate_manifest(Path("local/listing.json"), data, ref, planned=True)
+        self.assertTrue(any("商家编码" in error for error in errors))
+        self.assertTrue(any("运费模板" in error for error in errors))
+
+    def test_photo_verification_pairs_by_all_sale_axes_with_duplicate_or_swapped_codes(self):
+        pl = module("photo_listing")
+        sizes = ("10×20毫米 单只", "10×20毫米 双只")
+        rows = [{"skuKey":str(i), "vendorSku":"001", "saleValues":[
+            {"componentCode":"sale-prop-9","alias":size}]} for i,size in enumerate(sizes)]
+        remote = [{"skuId":i+10, "outerId":"001", "saleAttrs":[{"attrId":9,"attrValueAlias":size}]}
+                  for i,size in reversed(list(enumerate(sizes)))]
+        pairs,issues = pl.match_published_variants({"product":{}, "skus":rows},remote)
+        self.assertFalse(issues)
+        self.assertEqual({key:item["skuId"] for key,item in pairs.items()}, {"0":10,"1":11})
+        remote[0]["saleAttrs"] = remote[1]["saleAttrs"]
+        pairs,issues = pl.match_published_variants({"product":{}, "skus":rows},remote)
+        self.assertTrue(issues)
+        self.assertEqual(pairs,{})
+
     def test_real_builder_preserves_optional_logistics_without_inventing(self):
         cli = module("jdo_listing_mvp")
         m = manifest(); before = copy.deepcopy(m)
@@ -278,8 +321,8 @@ class MatureListingTests(unittest.TestCase):
         pl=module("photo_listing"); pc=module("photo_contract")
         fields=pc.missing_information({"categoryId":53207,"title":"图"*31,"weightKg":"0","packageWidthMm":0,
             "packageLengthMm":0,"packageHeightMm":0},{})
-        self.assertTrue({"title-exceeds-60-units","weightKg","packageWidthMm"}.issubset(fields))
-        self.assertTrue({"packageLengthMm","packageHeightMm"}.isdisjoint(fields))
+        self.assertIn("title-exceeds-60-units",fields)
+        self.assertTrue({"weightKg","packageWidthMm","packageLengthMm","packageHeightMm"}.isdisjoint(fields))
         self.assertEqual(pc.missing_logistics({"categoryId":1}, {}), [])
         schema = {"schema":{"componentCode":"WareHeight","validateRule":[{"validateType":"required","validateRule":True},{"validateType":"minimum","validateRule":10}]}}
         self.assertEqual(pc.missing_logistics({"categoryId":2,"packageHeightMm":9}, schema), ["packageHeightMm"])

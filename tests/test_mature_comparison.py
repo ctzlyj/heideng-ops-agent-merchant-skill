@@ -88,8 +88,8 @@ def offline_price_source(now):
     return {"shop_id": "10001", "mode": "repricing", "captured_at": now.isoformat(),
         "preflight": {"status": "READY", "purpose": "price", "checked_at": now.isoformat()},
         "price_context": "ordinary_single_item", "expected_competitor_sku_ids": ["90001"],
-        "competitor_skus": [{"sku_id": "90001", "size": "60x120", "design": "A", "price": "12.34", "url": "https://item.jd.com/90001.html"}],
-        "own_skus": [{"sku_id": "80001", "size": "60x120", "design": "A", "current_final_price": "99.00"}],
+        "competitor_skus": [{"sku_id": "90001", "size": "60x120cm", "design": "A", "price": "12.34", "url": "https://item.jd.com/90001.html"}],
+        "own_skus": [{"sku_id": "80001", "size": "60x120cm", "design": "A", "current_final_price": "99.00"}],
         "activity": {"model": "legacy_direct_subsidy_v1", "direct_rate": "0.15", "subsidy_rate": "0.15",
             "starts_at": (now-timedelta(days=1)).isoformat(), "ends_at": (now+timedelta(days=1)).isoformat(),
             "confirmed_at": now.isoformat(), "sku_ids": ["80001"]}}
@@ -98,7 +98,7 @@ def offline_price_source(now):
 class MatureAlgorithmTests(unittest.TestCase):
     def test_exact_dimensions_and_cent_inversion_are_upstream_algorithms(self):
         m = module("jd_price_adjustment")
-        self.assertEqual(m.canonical_spec("宽80厘米-高40厘米"), "80x40")
+        self.assertEqual(m.canonical_spec("宽80厘米-高40厘米"), "80x40cm")
         dimensions = module("jd_detail_evidence")
         self.assertNotEqual(dimensions.normalize_dimensions("80x40x2cm"), dimensions.normalize_dimensions("80x40cm"))
         plan = m.create_price_plan(Decimal("12.34"), Decimal("0.15"), Decimal("0.15"))
@@ -118,6 +118,18 @@ class MatureAlgorithmTests(unittest.TestCase):
         self.assertEqual(rows[0]["recommended_jd_price"], "10.90")
         with self.assertRaises(m.CatalogValidationError):
             m.validate_competitor_catalog(["90001", "90002", "90003"], competitors)
+
+    def test_repricing_requires_complete_matching_units_dimensions_and_package(self):
+        m = module("jd_price_adjustment")
+        own = {"sku_id": "1", "size": "10×20毫米 双只装", "current_final_price": "21.00"}
+        good = {"sku_id": "2", "size": own["size"], "price": "19.00", "url": "fixture"}
+        for wrong in ("10×20毫米 单只装", "10×20厘米 双只装", "10×20×30毫米 双只装"):
+            with self.subTest(wrong=wrong), self.assertRaises(m.CatalogValidationError):
+                m.plan_catalog([own], [dict(good, size=wrong)], Decimal(0), Decimal(0), {})
+        self.assertEqual(m.plan_catalog([own], [good], Decimal(0), Decimal(0), {})[0]["competitor_sku"], "2")
+        for left, right in (("10x20mm","10x20cm"), ("10x20", "10x20cm"), ("10x20x30cm","10x20cm"),
+                            ("XL","L"), ("编码A b", "编码Ab")):
+            self.assertNotEqual(m.canonical_spec(left), m.canonical_spec(right))
 
     def test_top10_uses_verified_price_not_search_display_price(self):
         m = module("same_product_market")
@@ -288,8 +300,10 @@ class MatureBoundaryTests(unittest.TestCase):
             self.assertEqual(record["sha256"], hashlib.sha256((BUNDLE/name).read_bytes()).hexdigest(), name)
             if not record["adapted"]:
                 self.assertEqual(record["sha256"], record["upstreamSha256"], name)
-        for name in ("jd_price_adjustment", "same_product_market", "competitor_discovery", "jd_detail_evidence", "image_similarity", "hot_spu_comparison"):
+        for name in ("same_product_market", "competitor_discovery", "image_similarity", "hot_spu_comparison"):
             self.assertFalse(manifest["files"]["scripts/"+name+".py"]["adapted"])
+        for name in ("jd_price_adjustment", "jd_detail_evidence"):
+            self.assertTrue(manifest["files"]["scripts/"+name+".py"]["adapted"])
 
     def test_policy_defaults_are_merchant_scoped_not_personal(self):
         m = module("store_pricing")

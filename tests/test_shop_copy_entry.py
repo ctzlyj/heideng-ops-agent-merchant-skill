@@ -103,7 +103,10 @@ class ShopCopyEntryTests(unittest.TestCase):
         self.assertEqual(frozen['gallerySlots'],{'0000000000':2,'sourcegroup1':3,'sourcegroup2':3})
         self.assertEqual(frozen['sourceExampleSkuUrl'],'https://item.jd.com/201.html')
         task=['--task',frozen['taskId']]
-        self.assertEqual(self.call('prepare',*task,ok=False)['status'],'needs-evidence')
+        draft=self.call('prepare',*task)
+        self.assertEqual(draft['status'],'local-draft-ready')
+        self.assertEqual(draft['currentStage']['merchantDecisions'],[])
+        self.assertIn('000134',Path(draft['previewFile']).read_text(encoding='utf-8'))
         self.upload.assert_not_called()
         self.call('stage-media',*task,'--confirm','UPLOAD_COPY_MEDIA')
         count=self.upload.call_count
@@ -125,6 +128,11 @@ class ShopCopyEntryTests(unittest.TestCase):
         result=self.call('submit-one',*args)
         self.assertEqual((result['status'],result['targetProductId']),('submitted',802))
         self.assertEqual(result['consumerPageStatus'],'unchecked')
+        with patch.object(self.entry,'verify',side_effect=AssertionError('local preview contacted a shop')):
+            output=StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(self.entry.main(['prepare',*task]),0)
+            self.assertIn('000134',Path(json.loads(output.getvalue())['previewFile']).read_text(encoding='utf-8'))
         repeated=self.call('submit-one',*args)
         self.assertEqual((repeated['targetProductId'],repeated['comparison']['status']),
                          (result['targetProductId'],result['comparison']['status']))
@@ -132,7 +140,8 @@ class ShopCopyEntryTests(unittest.TestCase):
         current=self.call('compare',*task)
         self.assertEqual(current['sourceProductId'],'701')
         self.assertTrue(current['skuLinks'])
-        self.assertFalse(current['bulkAuthorized'])
+        self.assertNotIn('bulkAuthorized',current)
+        self.assertEqual(current['readbackScope'],'single-product')
 
     def test_lost_reply_is_only_reconciled_and_freight_drift_stops_before_publish(self):
         task,plan=self.make_pilot()
@@ -173,6 +182,10 @@ class ShopCopyEntryTests(unittest.TestCase):
 
     def test_existing_sample_is_read_back_without_creating_a_replacement(self):
         start=self.call('freeze',*self.src,'--product-id','701','--existing-target-id','802')
+        self.entry.api.get.reset_mock()
+        observed=self.call('compare','--task',start['taskId'],ok=False)
+        self.assertEqual(observed['matchedSkuCount'],2,observed)
+        self.assertFalse(any(call.args[1].endswith('/vender-brands') for call in self.entry.api.get.call_args_list))
         result=self.call('submit-one','--task',start['taskId'],*self.src,'--approval','other',
                          '--confirm','PUBLISH_ONE_COPY')
         self.assertEqual(result['status'],'existing-target-for-comparison')

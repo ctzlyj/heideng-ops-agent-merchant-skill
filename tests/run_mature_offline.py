@@ -14,6 +14,7 @@ MODULES += ['test_listing_feasibility', 'test_commercial_task_context', 'test_ex
 MODULES += ['test_sample_delivery', 'test_sample_comparison', 'test_sample_upload_state']
 
 MODULES.append('test_dual_commercial_images')
+MODULES.append('test_merchant_template_import')
 
 def main():
     source_only='--source-only' in sys.argv

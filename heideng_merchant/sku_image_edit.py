@@ -276,6 +276,10 @@ def sku_edit_directory(identity, pid):
     return merchant_home()/'work'/'sku-image-edits'/str(int(identity['venderId']))/str(int(pid))
 
 
+def code_repair_directory(identity, pid):
+    return merchant_home()/'work'/'sku-code-repairs'/str(int(identity['venderId']))/str(int(identity['shopId']))/str(int(pid))
+
+
 def gallery_write_directory(api, identity, pid):
     listing_root = Path(getattr(api, 'STATE_ROOT', merchant_home()/'mature'/'listing'))
     return listing_root/'outputs'/'gallery-writes'/str(int(identity['venderId']))/str(int(pid))
@@ -299,6 +303,23 @@ def require_settled_edit(path, description):
 
 def require_no_pending_sku_edit(identity, pid):
     require_settled_edit(sku_edit_directory(identity, pid)/'current.json', '规格图整版编辑')
+    # Legacy callers can lack shopId; their existing vendor/product lock still protects the operation.
+    require_no_pending_code_repair(identity, pid)
+
+
+def require_no_pending_code_repair(identity, pid):
+    if identity.get('shopId'):
+        paths=[code_repair_directory(identity, pid)/'current.json']
+    else:
+        vendor = merchant_home()/'work'/'sku-code-repairs'/str(int(identity['venderId']))
+        paths=vendor.glob(f'*/{int(pid)}/current.json')
+    for path in paths:
+        record=read_json(path,{})
+        if record.get('status')=='rejected':
+            from .shop_copy_repair import proven_rejection
+            if not proven_rejection(record):
+                raise ValueError(f'本商品的商家编码编辑缺少原平台拒绝回执，请先核对：{path}')
+        require_settled_edit(path, '商家编码编辑')
 
 
 def run(api, get_detail, identity, pid, images, package=None, *, check_only=False, reconcile=False):
@@ -349,6 +370,7 @@ def run(api, get_detail, identity, pid, images, package=None, *, check_only=Fals
         if prior.get('status') == 'verified' and prior.get('inputs') == inputs and old == prior['expected']:
             return readback(api, pid, prior)
         require_settled_edit(gallery_directory/'current.json', '主图提交')
+        require_no_pending_code_repair(identity,pid)
         zone, category = media_space(api)
         targets = {}
         store = {k:identity[k] for k in ('shopId','venderId','shopName','profile') if k in identity}

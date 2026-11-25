@@ -1,6 +1,6 @@
-# 自家两店先复制一件商品
+# 自家两店原样搬货、续办和原链接修正
 
-商家交办“把老店的商品搬到新店，先做一个给我看”时，宿主先确定源店、目标店和这一个商品。用两店的官方身份回执取得各自的店名、shopId、venderId 和 Profile，保存在本机任务的店铺配置里。商家只需说店名和目标。查数、取图、核配送和对照由宿主完成。
+宿主按交办选择本地草稿、单件试发、继续整批或编辑某条已有链接。两店的店名、shopId、venderId 和 Profile 可从原核店回执取得。已有商品优先查原链接；商家要照原样时，保留每款的完整销售属性、单位、商家编码、图组和顺序。
 
 ## 先把源商品读完整
 
@@ -20,11 +20,25 @@
 
 下列步骤均沿用原 `--task <taskId> --target-profile <目标Profile> --target-config <目标配置>`。
 
-1. 商家已授权把图片转入目标店素材区时，运行 `stage-media --confirm UPLOAD_COPY_MEDIA`。按源图字节哈希复用目标店上传结果；返回待核回执时先查原上传。仅看本地计划时停在 freeze。
-2. 运行 `prepare --delivery-evidence <两店规则证据.json>` 生成目标类目下的一件本地草稿或具体缺项。已登记的同任务证据可继续使用。商家要“暂不上架”时，交付草稿和差异，线上商品保持原状态。
-3. 只有商家明确交办对外发布这一件时，才使用 `prepare --intent publish-one` 取得本次草稿指纹，再用 `submit-one --source-profile <源Profile> --source-config <源配置> --approval <指纹> --confirm PUBLISH_ONE_COPY`。提交前重新核对两店、源事实与目标类目，经过平台校验才发送创建申请。原提交结果未知时保留原任务，续跑只查回执。一件试发不扩大到整店。
+1. 商家想先看看时，运行 `prepare --task <taskId> --intent local-draft`，用 `previewFile` 展示可读草稿。原快照可以离线查看。原店多款共用一个商家编码是源数据事实，按规格保留；只有商家交办改码或目标店实际拒绝这一写法时才需要处理。缺条码、视频或当前类目模板的具体查证项列在发布前，由宿主跟进。未读取到的包装规格不能据此判断包装清单缺失。本阶段的经营决定看回执 `currentStage.merchantDecisions`。
+2. 发布范围已明确时，按任务的转存授权运行 `stage-media --confirm UPLOAD_COPY_MEDIA`。按源图字节复用目标店素材，上传结果未知时查原回执。用 `prepare --intent publish-one --delivery-evidence <两店规则证据.json>` 核对目标类目、媒体和配送，已登记证据可沿用。
+3. `submit-one --source-profile <源Profile> --source-config <源配置> --approval <指纹> --confirm PUBLISH_ONE_COPY` 将这件商品的提交固定到刚核对的内容。技术指纹由宿主从准备结果取得。同一范围已授权时直接继续。创建请求结果未知时保留原任务并查原申请。
 4. 有目标商品编号后自动尝试只读对照。可用 `compare` 接着核验，或用 `compare --product-id <指定目标商品>` 核对已知商品。比较编辑申请时加原 `--apply-id`。报告分别给出源、目标规格链接，已对上、不同和缺少证据的字段；完整明细在 `reportFile`。商家要买家端效果时再实开对应规格核验。审核中保留平台状态，审核时间以实际回执为准。
 
 规格图或视频如需目标 SKU 编号，依草稿里的 followUp 和源目标规格对照，从原登记的图片、视频入口完成后重查。页面证据未齐、已知不一致或商家尚在看样品时，保留剩余商品的计划。需要修现有商品时先核实可编辑字段；删除旧商品、重建或批量发布分别按商家的实际授权执行。
 
 新对话里用目标店的 `task-context --shop-id <店铺编号> --vender-id <商家编号> --goal shop-copy --source-product-id <源商品>` 找回原任务。遇到上一次已提交但结果未明，优先查原申请和已知的目标商品。
+
+## 整批交办与恢复
+
+用 `batch-plan --inventory <盘点返回的 inventoryFile>` 固定本次两店和源商品集合，可用重复的 `--product-id` 选取商家要的部分。已知样品可用 `--pilot-id` 指定；已有记录中的源→目标商品编号对照可用 `--existing-map` 读入，核对已搬商品。盘点、建批和运行时沿用两店的 config/profile。
+
+- 本地预览用 `batch-run --batch <批次ID> --phase draft`。明确只试发一件时用 `--phase pilot --confirm PUBLISH_COPY_PILOT`；商家交办其余整批时用 `--phase bulk --confirm PUBLISH_FROZEN_SCOPE`。两个写入阶段的 `--authorization-ref` 引用商家这次已给的交办，宿主直接带入。
+- `batch-status --batch <批次ID>` 从原回执汇总每件的源编号、目标编号、核对差异和平台状态。用 `batch-resume --batch <批次ID>` 继续原阶段。在途申请先查原编号；已成功的样品继续用原链接。
+- 商家叫停时，执行 `batch-stop --batch <批次ID>`，说明当时已发出的请求。后来明确要求恢复时，带原停止回执的 `--stop-id` 和恢复交办的 `--authorization-ref`，避免旧进程重新开跑。
+
+## 修已有链接的商家编码
+
+用原任务运行 `repair-sku-codes` 先盘点。按完整规格独立配对后，比对编码的每个字符。商家编码会重复，也可能被填到另一个尺码上。商家明确指定的已有目标用 `--product-id <目标SPU>`；自动认领用原发布回执关联。可修且在交办范围内时，宿主沿同一目标带 `--confirm REPAIR_TARGET_SKU_CODES`；涉及的店铺和配置参数见子命令帮助。已有申请结果可沿同一任务用 `--reconcile` 回查。分别说明申请详情和线上回读的结果。
+
+遇到错误，先根据这次商品的后台字段、当前模板及明确的业务拒绝定位受影响的动作。核对“尺寸”时注意原销售属性可能另带结构化字段、单位和选项。某类目旧商品的一次拒绝不足以解释另一商品。若原链接现有编辑方式确有证据表明无法满足目标，再向商家说明换链接的代价，让商家决定。

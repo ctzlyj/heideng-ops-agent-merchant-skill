@@ -22,6 +22,7 @@ from typing import Any
 from PIL import Image
 
 from source_pricing import component_mode, component_source_audit
+from hot_replica_mode import available_brand_ids
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,6 @@ STATE_ROOT = Path(os.environ.get("HEIDENG_MERCHANT_HOME", str(Path.home() / ".he
 REFERENCE = STATE_ROOT / "config" / "modern-decorative-painting.reference.json"
 STORE_CONFIG = STATE_ROOT / "config" / "store.local.json"
 CATEGORY_ID = 35381
-CATEGORY_NAME = "现代装饰画"
 JDO_CLI = Path.home() / ".jdo-cli" / "bin" / "jdo-cli.exe"
 JDO_BRIDGE = ROOT / "scripts" / "jdo_large_body_bridge.py"
 JDO_RUNTIME = STATE_ROOT / "outputs" / ".runtime" / "jdo-cli.pyc"
@@ -152,7 +152,7 @@ def decode_process_output(value: bytes) -> str:
     return value.decode("utf-8", errors="replace")
 
 
-def parse_response(text: str) -> dict[str, Any]:
+def parse_response(text: str, *, method=None, url=None) -> dict[str, Any]:
     cleaned = text.strip()
     if cleaned.startswith("HTTP ") and ":" in cleaned:
         cleaned = cleaned.split(":", 1)[1].strip()
@@ -162,10 +162,23 @@ def parse_response(text: str) -> dict[str, Any]:
         raise JdoError(f"jdo-cli 返回非 JSON 内容：{cleaned[:300]}") from exc
     if payload.get("success") is False:
         errors = payload.get("errorList") or []
+        if isinstance(errors,dict):
+            errors=[errors]
+        errors=[item for item in errors if isinstance(item,dict)] if isinstance(errors,list) else []
         message = "; ".join(
             f"{item.get('code', 'UNKNOWN')} {item.get('message', '')}" for item in errors
         )
-        raise JdoError(message or "jdo-cli 调用失败")
+        error=JdoError(message or "jdo-cli 调用失败")
+        codes=[str(item.get('code','')) for item in errors]
+        error.platform_codes=sorted(set(codes)) if all(re.fullmatch(r'[0-9]{6,14}',c) for c in codes) else []
+        error.platform_call=(method,url)
+        result_data=payload.get('data')
+        error.no_issued_ids=(result_data is None or isinstance(result_data,dict) and
+                             not any(result_data.get(k) for k in ('applyId','productId','jobId','taskId')))
+        error.no_issued_ids=error.no_issued_ids and not any(payload.get(k) for k in ('applyId','productId','jobId','taskId'))
+        request_id=str(payload.get('requestId') or '')
+        error.request_id=request_id if re.fullmatch('[a-fA-F0-9-]{6,64}',request_id) else None
+        raise error
     return payload
 
 
@@ -227,7 +240,7 @@ def _invoke_with_official_cli(
     environment["JDO_ENV"] = "prod"
     completed = subprocess.run([str(executable), *arguments], cwd=ROOT, env=environment, capture_output=True, check=False)
     output = "\n".join(part for part in (decode_process_output(completed.stdout), decode_process_output(completed.stderr)) if part)
-    return parse_response(output)
+    return parse_response(output,method=method.upper(),url=url)
 
 
 def run_jdo_large(
@@ -280,7 +293,7 @@ def run_jdo_large(
     finally:
         request_path.unlink(missing_ok=True)
     output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
-    return parse_response(output)
+    return parse_response(output,method=method.upper(),url=url)
 
 
 def get(skill: str, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -365,9 +378,15 @@ def flatten(components: list[dict[str, Any]], path: str = "root") -> list[dict[s
 
 
 def refresh_reference(
-    output: Path, category_id: int = CATEGORY_ID, category_name: str = CATEGORY_NAME,
+    output: Path, category_id: int | None = None, category_name: str = "",
     brand_category_id: int | None = None,
 ) -> dict[str, Any]:
+    old = (load_json(output).get('category') or {}) if output.is_file() else {}
+    category_id = int(category_id or old.get('id') or 0)
+    if category_id <= 0:
+        raise JdoError('尚无本商品的类目编号，请从商品事实取得末级类目后传 --category-id')
+    if not category_name:
+        category_name = str(old.get('name') or '') if str(old.get('id'))==str(category_id) else ''
     brands = get(
         "jdo-product-publish",
         "/rest/sp-seller/v0/vender-brands",
@@ -455,14 +474,17 @@ def size_suffix(order: int) -> str:
     return result
 
 
-def resolved_vendor_sku(manifest: dict[str, Any], sku: dict[str, Any]) -> str:
+def resolved_vendor_sku(manifest: dict[str, Any], sku: dict[str, Any]) -> str | None:
+    if sku.get("vendorSku") is not None:
+        return str(sku["vendorSku"])
     product = manifest.get("product") or {}
-    prefix = str(product.get("vendorSkuPrefix") or "GZH").strip()
-    style_start = int(product.get("vendorStyleStart") or 10000)
+    prefix = product.get("vendorSkuPrefix")
+    if not prefix:
+        return None
+    style_start = int(product.get("vendorStyleStart", 10000))
     style_order = int(sku.get("vendorStyleOrder") or sku.get("styleOrder") or 0)
     size_order = int(sku.get("vendorSizeOrder") or sku.get("sizeOrder") or 0)
-    generated = f"{prefix}{style_start + style_order - 1:05d}{size_suffix(size_order)}"
-    return str(sku.get("vendorSku") or generated).strip()
+    return f"{prefix}{style_start + style_order - 1:05d}{size_suffix(size_order)}"
 
 
 def size_dimensions(value: str) -> tuple[Decimal, Decimal, str]:
@@ -570,16 +592,12 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
         "productKey": "商品内部编号",
         "title": "商品标题",
         "brandId": "品牌ID",
-        "sevenDayReturnCode": "无理由退货代码",
-        "freightTemplateId": "运费模板ID",
     }
-    freight_component = next(
-        (item for item in reference.get("componentCatalog") or []
-         if item.get("path") == "root" and item.get("componentCode") == "WareTransport"),
-        None,
-    )
-    if freight_component and freight_component.get("required") is False:
-        required_fields.pop("freightTemplateId")
+    catalog = reference.get("componentCatalog") or []
+    for code, field, label in (("WareSevenDayReturn", "sevenDayReturnCode", "无理由退货代码"),
+                               ("WareTransport", "freightTemplateId", "运费模板ID")):
+        if any(c.get("path") == "root" and c.get("componentCode") == code and c.get("required") is True for c in catalog):
+            required_fields[field] = label
     for field, label in required_fields.items():
         if not present(product.get(field)):
             errors.append(f"商品信息缺少：{label} ({field})")
@@ -588,10 +606,9 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
     if title_units > 60:
         errors.append(f"商品标题超过京东60字符单位限制：当前{title_units}（汉字按2计算）")
     errors.extend(multi_set_manifest_errors(manifest))
-    valid_brand_ids = {str(item.get("brandId")) for item in reference.get("brands", [])}
+    valid_brand_ids = available_brand_ids(reference)
     if (
         present(product.get("brandId"))
-        and str(product.get("brandId")) != "-1"
         and str(product.get("brandId")) not in valid_brand_ids
     ):
         errors.append("品牌ID不在当前店铺可选品牌列表中")
@@ -636,15 +653,7 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
                 errors.append(f"{field} 超过实时Schema上限{limit}")
             if rule.get("validateType") == "minimum" and value < limit:
                 errors.append(f"{field} 低于实时Schema下限{limit}")
-    vendor_sku_prefix = str(product.get("vendorSkuPrefix") or "GZH").strip()
-    if not vendor_sku_prefix.isascii() or not vendor_sku_prefix.isalpha() or not vendor_sku_prefix.isupper():
-        errors.append("商家编码前缀必须为大写英文字母")
-    try:
-        vendor_style_start = int(product.get("vendorStyleStart") or 10000)
-        if not 0 <= vendor_style_start <= 99999:
-            errors.append("商家编码款式起始号必须为0至99999的整数")
-    except (TypeError, ValueError):
-        errors.append("商家编码款式起始号必须为整数")
+    vendor_code_required = any(c.get("componentCode") == "SkuVendorSku" and c.get("required") is True for c in catalog)
 
     attributes = {item.get("componentCode"): item for item in manifest.get("categoryAttributes") or []}
     required_attributes = [
@@ -674,7 +683,8 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
     if len(skus) > sku_limit:
         errors.append(f"SKU数量超过类目上限：当前{len(skus)}，上限{sku_limit}")
     sku_keys: set[str] = set()
-    vendor_skus: set[str] = set()
+    generated_codes: set[str] = set()
+    supplied_codes = {str(row["vendorSku"]) for row in skus if row.get("vendorSku") is not None}
     combinations: set[tuple[str, ...]] = set()
     style_mapping_ids: dict[str, str] = {}
     size_mapping_ids: dict[str, str] = {}
@@ -703,17 +713,13 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
             errors.append(f"SKU内部编号重复：{sku_key}")
         sku_keys.add(sku_key)
         try:
-            expected_vendor_sku = (
-                f"{str(product.get('vendorSkuPrefix') or 'GZH')}"
-                f"{int(product.get('vendorStyleStart') or 10000) + int(sku.get('vendorStyleOrder') or sku.get('styleOrder') or 0) - 1:05d}"
-                f"{size_suffix(int(sku.get('vendorSizeOrder') or sku.get('sizeOrder') or 0))}"
-            )
             vendor_sku = resolved_vendor_sku(manifest, sku)
-            if not str(sku.get("vendorSku") or "").strip() and vendor_sku != expected_vendor_sku:
-                errors.append(f"SKU第{index}行商家编码不符合规则：应为{expected_vendor_sku}，当前{vendor_sku}")
-            if vendor_sku in vendor_skus:
-                errors.append(f"商家编码重复：{vendor_sku}")
-            vendor_skus.add(vendor_sku)
+            if vendor_code_required and not present(vendor_sku):
+                errors.append(f"SKU第{index}行缺少目标类目要求的商家编码")
+            if sku.get("vendorSku") is None and vendor_sku is not None:
+                if vendor_sku in generated_codes or vendor_sku in supplied_codes:
+                    errors.append(f"新生成的商家编码与现有编码重复：{vendor_sku}")
+                generated_codes.add(vendor_sku)
         except (TypeError, ValueError):
             errors.append(f"SKU第{index}行无法生成商家编码")
         style_alias = str(sku.get("styleAlias") or "")
@@ -751,9 +757,17 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
                 errors.append(f"SKU第{index}行库存必须为非负整数")
         except (TypeError, ValueError):
             errors.append(f"SKU第{index}行价格或库存不是有效数字")
-        if manifest.get("source"):
+        pricing = (manifest.get("source") or {}).get("pricing") or {}
+        if pricing.get("mode") == "source-price":
             try:
-                pricing = (manifest.get("source") or {}).get("pricing") or {}
+                source_price = Decimal(str(sku["sourcePrice"]))
+                if (not source_price.is_finite() or source_price <= 0 or source_price != source_price.quantize(Decimal("0.01"))
+                        or Decimal(str(sku["jdPrice"])) != source_price):
+                    errors.append(f"SKU第{index}行京东价与按原价沿用的来源价不一致")
+            except (KeyError, InvalidOperation, TypeError, ValueError):
+                errors.append(f"SKU第{index}行缺少按原价沿用的有效来源价格")
+        elif pricing:
+            try:
                 multiplier = Decimal(str(pricing.get("targetArrivalMultiplier") or "1"))
                 below = Decimal(str(pricing.get("belowCompetitor", "0.10")))
                 national_rate = Decimal(str(pricing.get("nationalSubsidyRate", "0.15")))
@@ -791,7 +805,7 @@ def validate_manifest(path: Path, manifest: dict[str, Any], reference: dict[str,
                     )
             except (KeyError, InvalidOperation, TypeError, ValueError):
                 errors.append(f"SKU第{index}行缺少有效同行售价，禁止自动上架")
-    if "saleDimensionCodes" not in product and (product.get("vendorSkuPrefix") or any(str(sku.get("vendorSku") or "").strip() for sku in skus)):
+    if "saleDimensionCodes" not in product and generated_codes:
         expected_style_orders = set(range(1, len(style_orders) + 1))
         if set(style_orders.values()) != expected_style_orders:
             errors.append("款式顺序必须从1开始连续递增，才能生成10000、10001……商家编码")
@@ -1064,7 +1078,8 @@ def build_publish_schema(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 ],
             })
         components.append({"componentCode": "WareEditor", "value": editor_entries})
-    components.append({"componentCode": "WareSevenDayReturn", "value": product["sevenDayReturnCode"]})
+    if present(product.get("sevenDayReturnCode")):
+        components.append({"componentCode": "WareSevenDayReturn", "value": product["sevenDayReturnCode"]})
 
     category_values = []
     for item in manifest.get("categoryAttributes") or []:
@@ -1085,8 +1100,10 @@ def build_publish_schema(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         sku_components = [
             {"componentCode": "SkuJdprice", "value": str(sku["jdPrice"])},
             {"componentCode": "SkuStockNum", "value": int(sku["stock"])},
-            {"componentCode": "SkuVendorSku", "value": resolved_vendor_sku(manifest, sku)},
         ]
+        vendor_sku = resolved_vendor_sku(manifest, sku)
+        if vendor_sku is not None:
+            sku_components.append({"componentCode": "SkuVendorSku", "value": vendor_sku})
         sku_attributes = sku.get("skuAttributes")
         if sku_attributes is None:
             sku_attributes = [
@@ -1206,6 +1223,11 @@ def upload(zone_id: str, category_id: int, path: Path) -> dict[str, Any]:
 
 
 def command_refresh(args: argparse.Namespace) -> int:
+    if args.output is None:
+        if args.category_id is None or args.category_id == CATEGORY_ID:
+            args.output = REFERENCE
+        else:
+            args.output = STATE_ROOT / 'config' / f'category-{args.category_id}.reference.json'
     result = refresh_reference(
         args.output, args.category_id, args.category_name, args.brand_category_id,
     )
@@ -1214,7 +1236,7 @@ def command_refresh(args: argparse.Namespace) -> int:
         "output": str(args.output),
         "brandCount": len(result["brands"]),
         "requiredComponentCount": sum(item["required"] for item in result["componentCatalog"]),
-        "defaultBrand": {"id": -1, "name": "无品牌"},
+        "brandlessAvailable": "-1" in available_brand_ids(result),
         "defaultMediaCategory": {
             "id": result["media"]["defaultCategoryId"],
             "name": result["media"]["defaultCategoryName"],
@@ -1340,9 +1362,8 @@ def submit_product_once(body: Path, output: Path) -> dict[str, Any]:
     matrix.publish_guard(load_json(state_path) if state_path.exists() else {})
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    matrix.save_json_atomic(state_path, {
-        "stage": "SUBMITTING", "payloadSha256": hashlib.sha256(Path(body).read_bytes()).hexdigest(),
-    })
+    payload_sha=hashlib.sha256(Path(body).read_bytes()).hexdigest()
+    matrix.save_json_atomic(state_path, {"stage":"SUBMITTING","payloadSha256":payload_sha})
     response = run_jdo_large(
         url="/rest/sp-product/v0/product-applies", method="POST", body_path=body,
         skill_id="jdo-product-publish", yes=True,
@@ -1351,7 +1372,7 @@ def submit_product_once(body: Path, output: Path) -> dict[str, Any]:
     data = response.get("data") or {}
     matrix.save_json_atomic(state_path, {
         "stage": "PUBLISHED" if data.get("productId") else "SUBMITTING",
-        "productId": data.get("productId"), "applyId": data.get("applyId"),
+        "productId": data.get("productId"), "applyId": data.get("applyId"), "payloadSha256":payload_sha,
     })
     return response
 
@@ -1410,13 +1431,9 @@ def sale_aliases(item: dict[str, Any]) -> dict[str, str]:
         value = attribute.get("attrValueAlias")
         if value is None:
             values = attribute.get("attrbuteValueAlias") or attribute.get("attributeValueAlias") or []
-            value = values[0] if values else ""
+            value = values[0] if isinstance(values, list) and len(values) == 1 else values
         aliases[str(attribute.get("attrId") or attribute.get("attributeId"))] = str(value)
     return aliases
-
-
-def normalized_sale_alias(value: str) -> str:
-    return value.replace("[", "").replace("]", "")
 
 
 def query_sku_stocks(sku_ids: list[int]) -> list[dict[str, Any]]:
@@ -1447,7 +1464,7 @@ def online_style_color_ids(detail: dict[str, Any], style_attribute_id: str = "10
         for attribute in sku.get("saleAttrs") or []:
             if str(attribute.get("attrId")) != style_attribute_id:
                 continue
-            alias = normalized_sale_alias(str(attribute.get("attrValueAlias") or ""))
+            alias = str(attribute.get("attrValueAlias") or "")
             color_id = str(attribute.get("attrValues") or attribute.get("mappingId") or "")
             if not alias or not color_id:
                 continue
@@ -1472,7 +1489,7 @@ def build_shared_image_update_payload(
 
     style_rows: dict[str, dict[str, Any]] = {}
     for sku in manifest.get("skus") or []:
-        alias = normalized_sale_alias(str(sku.get("styleAlias") or ""))
+        alias = str(sku.get("styleAlias") or "")
         current = style_rows.get(alias)
         if current is None or int(sku.get("styleOrder") or 0) < int(current.get("styleOrder") or 0):
             style_rows[alias] = sku
@@ -1583,7 +1600,7 @@ def shared_image_audit(manifest: dict[str, Any], detail: dict[str, Any]) -> dict
     compare_urls = all(str((item.get("upload") or {}).get("imgUrl") or "").strip() for item in shared_items)
     expected_urls = [uploaded_image_url(item) for item in shared_items] if compare_urls else []
     style_aliases = {
-        normalized_sale_alias(str(sku.get("styleAlias") or ""))
+        str(sku.get("styleAlias") or "")
         for sku in manifest.get("skus") or []
     }
     online_ids = online_style_color_ids(detail, style_sale_attribute_id(manifest))
@@ -1698,7 +1715,7 @@ def command_verify_product(args: argparse.Namespace) -> int:
     style_attr_id = str((sale_definitions.get("style") or {}).get("componentCode") or "").removeprefix("sale-prop-")
     size_attr_id = str((sale_definitions.get("size") or {}).get("componentCode") or "").removeprefix("sale-prop-")
     attr_ids = [code.removeprefix('sale-prop-') for code in manifest['product']['saleDimensionCodes']] if 'saleDimensionCodes' in manifest['product'] else [style_attr_id]+([size_attr_id] if include_size_sale_attribute else [])
-    expected = {tuple(normalized_sale_alias(alias) for alias in expected_sale_aliases(manifest['product'],sku)):sku
+    expected = {tuple(expected_sale_aliases(manifest['product'],sku)):sku
                 for sku in manifest.get('skus') or []}
     detail = get(
         "jdo-product-status",
@@ -1715,7 +1732,9 @@ def command_verify_product(args: argparse.Namespace) -> int:
     actual_by_combination: dict[tuple[str, ...], dict[str, Any]] = {}
     for item in actual_skus:
         aliases = sale_aliases(item)
-        combination = tuple(normalized_sale_alias(aliases.get(attr,'')) for attr in attr_ids)
+        combination = tuple(aliases.get(attr,'') for attr in attr_ids)
+        if combination in actual_by_combination:
+            errors.append(f"线上多个 SKU 对应同一规格：{combination}")
         if 'saleDimensionCodes' in manifest['product'] and set(aliases) != set(attr_ids):
             errors.append('线上 SKU 销售维度与计划不一致')
         actual_by_combination[combination] = item
@@ -1734,18 +1753,15 @@ def command_verify_product(args: argparse.Namespace) -> int:
     if price_mismatches:
         errors.append(f"{len(price_mismatches)}个SKU价格不一致")
     vendor_sku_mismatches = []
-    if any(str(sku.get("vendorSku") or "").strip() for sku in manifest.get("skus") or []):
-        for combination in sorted(set(expected) & set(actual_by_combination)):
-            expected_vendor_sku = resolved_vendor_sku(manifest, expected[combination])
-            actual_vendor_sku = str(actual_by_combination[combination].get("outerId") or "").strip()
-            if expected_vendor_sku != actual_vendor_sku:
-                vendor_sku_mismatches.append({
-                    "combination": combination,
-                    "expected": expected_vendor_sku,
-                    "actual": actual_vendor_sku,
-                })
-        if vendor_sku_mismatches:
-            errors.append(f"{len(vendor_sku_mismatches)}个SKU商家编码不一致")
+    for combination in sorted(set(expected) & set(actual_by_combination)):
+        expected_vendor_sku = resolved_vendor_sku(manifest, expected[combination])
+        actual_vendor_sku = actual_by_combination[combination].get("outerId")
+        if expected_vendor_sku is not None and (actual_vendor_sku is None or str(actual_vendor_sku) != expected_vendor_sku):
+            vendor_sku_mismatches.append({
+                "combination": combination, "expected": expected_vendor_sku, "actual": actual_vendor_sku
+            })
+    if vendor_sku_mismatches:
+        errors.append(f"{len(vendor_sku_mismatches)}个SKU商家编码不一致")
     status_counts = Counter(
         int((item.get("skuStats") or item.get("skuStatus") or {}).get("onOffShelfStatus") or 0)
         for item in actual_skus
@@ -1808,11 +1824,6 @@ def command_verify_product(args: argparse.Namespace) -> int:
         })
         if not formula_ok:
             errors.append("独立回读的逐SKU到手价未全部符合逐项取整定价策略")
-    if any(
-        str(sku.get("styleAlias") or "") != normalized_sale_alias(str(sku.get("styleAlias") or ""))
-        for sku in manifest.get("skus") or []
-    ):
-        warnings.append("源款式名中的ASCII方括号被京东销售属性语法归一化，不影响SKU规格匹配")
     result = {
         "ok": not errors,
         "productId": args.product_id,
@@ -1856,9 +1867,9 @@ def main() -> int:
     refresh = commands.add_parser("refresh-reference")
     refresh.add_argument("--profile", required=True)
     refresh.add_argument("--store-config", type=Path, default=STORE_CONFIG)
-    refresh.add_argument("--output", type=Path, default=REFERENCE)
-    refresh.add_argument("--category-id", type=int, default=CATEGORY_ID)
-    refresh.add_argument("--category-name", default=CATEGORY_NAME)
+    refresh.add_argument("--output", type=Path)
+    refresh.add_argument("--category-id", type=int,help='本商品的目标末级类目，已有参考可直接刷新')
+    refresh.add_argument("--category-name", default="")
     refresh.add_argument("--brand-category-id", type=int)
     refresh.set_defaults(handler=command_refresh, requires_jdo=True)
     preflight = commands.add_parser("preflight")

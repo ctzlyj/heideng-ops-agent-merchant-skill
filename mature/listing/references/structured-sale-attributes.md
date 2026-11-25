@@ -8,14 +8,14 @@
 
 1. 官方 `GET /rest/sp-product/v0/categories/{categoryId}/sale-attr-templates`。
 2. 无权限（如 `99904030008`）或无结果：只读读取**同店、同末级类目、列表状态在架（1/103）**的商品销售属性，取出同一属性的 `templateSkuProps` 结构。只借“填写框结构”（框 id、单位），**不借样本取值**；所有样本必须一致（较短的样本须是最长样本的前缀，多出的尾部框记为可选），否则不猜。
-3. 仍无法确定：发布前停止，`questions` 一次性提示用户提供该属性在京麦后台的填写框；不得凭空猜模板 ID，不得使用其他店或无关类目的结构。
+3. 仍无法确定时，宿主可核对目标商品当前编辑页和同店同类目原申请，保留具体未取到的填写框。这个缺项只影响依赖它的提交。商品草稿和其他商品可继续准备。
 
 结果写 `sale-attr-templates.json` 与 `manifest.saleAttributeTemplates`（来源商品 ID、类目、属性名、框 ID、依据，不含凭据）。
 
 ## 使用
 
-1. `discover-sale-templates` → 看 `missing`；`missing` 非空则按 `ask` 问用户。
-2. 用户给每个 SKU 的取值（`facts.skus[].templateValues`，每个框一个值），运行 `apply-sale-templates`：生成 `styleTemplateSkuProps`、规格别名。
+1. `discover-sale-templates` 返回的 `missing` 表示这个入口还缺哪些模板。宿主按现有证据选择下一步。
+2. 取本商品原销售属性、已核对的实物资料或商家提供的事实，按框填写 `facts.skus[].templateValues`。运行 `apply-sale-templates` 生成 `styleTemplateSkuProps` 及规格别名。
 3. `build_listing` 对结构化属性缺 `templateSkuProps` 的 SKU **直接报错并阻止发布**。图片/SKU 规格文字变化后摘要变化，需重新确认。
 
 ## 发布结果状态与防重复

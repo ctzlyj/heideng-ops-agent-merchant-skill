@@ -256,7 +256,7 @@ def product_apply_rejection(product_id: int) -> dict[str, Any] | None:
     return rejection
 
 
-def list_products(category_id: int | None = None, item_num: str | None = None) -> list[dict[str, Any]]:
+def list_products(category_id: int | None = None, item_num: str | None = None, *, require_success: bool = False) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     expected_total: int | None = None
@@ -274,18 +274,23 @@ def list_products(category_id: int | None = None, item_num: str | None = None) -
         if item_num:
             params["itemNum"] = item_num
         response = jingmai.get("jdo-product-status", "/rest/sp-product/v0/products", params)
+        if require_success and (response.get('success') is not True or not isinstance(response.get('data'),list)):
+            raise PipelineError('官方商品列表未返回成功的完整分页；不能证明原请求没有创建商品')
         batch = response.get("data") or []
         pagination = response.get("paginationData") or {}
         if "totalItems" not in pagination:
             raise PipelineError("商品列表缺少分页元数据，不能确认全量")
         total = int(pagination["totalItems"])
         if total == 0 and not batch:
+            if page!=1 or expected_total not in (None,0) or any(int(pagination[k])!=1 for k in ('currentPage','pageNum') if k in pagination):
+                raise PipelineError('分页过程中总数或页码发生变化，不能证明目标为空')
             return []
-        if "currentPage" not in pagination:
+        numbers=[pagination[key] for key in ('currentPage','pageNum') if key in pagination]
+        if not numbers:
             raise PipelineError("商品列表缺少页码元数据，不能确认全量")
         if expected_total is None:
             expected_total = total
-        if total < 0 or total != expected_total or int(pagination["currentPage"]) != page:
+        if total < 0 or total != expected_total or any(int(n)!=page for n in numbers):
             raise PipelineError("商品列表总量或页码发生变化，请重新只读扫描")
         for product in batch:
             product_id = str(product.get("productId") or "")

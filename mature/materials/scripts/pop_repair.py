@@ -12,8 +12,8 @@ def _save(path, value):
     atomic_json(path, value)
 
 
-def repair_references(rows, sources, overrides, granularity='spu'):
-    """Use one evidenced representative per SPU unless SKU scope was requested."""
+def repair_references(rows, sources, overrides, granularity='reference'):
+    """Share matching source images within a product, or use the task's explicit grouping."""
     def source(sku):
         return str(overrides.get(sku) or sources.get(sku, {}).get('logo') or '')
 
@@ -405,7 +405,7 @@ def run_rejected_repairs(args,agent=None):
                 for found in reader.map(client.skus,groups):sku_rows.extend(found)
             originals=agent._query_binding_materials(client,[r['skuId'] for r in rows])
             scope={'shopIdentity':identity,'rows':rows,'skuSources':{str(r['skuId']):{'logo':r.get('skuImage') or r.get('logo'),'skuName':r.get('skuName')} for r in sku_rows},'originals':originals}
-            scope['referenceGranularity'] = getattr(args, 'reference_granularity', None) or 'spu'
+            scope['referenceGranularity'] = getattr(args, 'reference_granularity', None) or 'reference'
             _save(freeze,scope)
         from heideng_merchant.merchant_tasks import register_repair_task
         register_repair_task(out, identity, args.profile)

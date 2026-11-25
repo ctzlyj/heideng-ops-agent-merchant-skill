@@ -24,7 +24,7 @@ Agent内部入口：`python scripts/merchant.py update status|check|apply|enable
 python scripts/merchant.py update usage begin --task-id <本任务唯一非敏感ID> --component <相关组件>
 ```
 
-返回 loadedVersion/packageRoot：本任务从该程序快照读取经验/源码/执行工具，商家状态仍指向原独立目录，不复制记忆/Key/浏览器/运行数据。run原共享安装锁继续生效；快照只包含已校验安装清单。使用期间/每步前 `usage heartbeat --task-id ...`，任务结束 `usage end --task-id ...`，空闲时可完成已下载升级。租约默认2小时，过期不让无关历史任务永久阻塞；老快照和原任务回执仍保留，不因过期删除。
+返回的 loadedVersion 和 packageRoot 指向本任务使用的程序快照。商家状态沿用原独立目录。run 的共享安装锁继续生效，快照只包含已校验的程序文件。需要保持租约的长任务在到期前用 `usage heartbeat --task-id ...` 续期，结束时用 `usage end --task-id ...` 释放。租约默认两小时；过期后旧快照和原任务回执仍保留。
 
 未知写入可用 heartbeat 的 `--receipt <原业务回执路径>` 记录恢复引用；它只是版本使用/恢复标记，不复制凭据或新增业务状态机。实际unknown由原业务读取/关联远端处理，不能因软件升级重提。旧快照不自动垃圾回收，避免破坏恢复。
 

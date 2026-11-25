@@ -147,13 +147,19 @@ def main():
             target=Path(sys.argv[1])
             sys.path[:0]=[str(target),str(ROOT)]
             from tests import test_shop_copy_entry as cases
-            from heideng_merchant import owned_product_copy
-            assert Path(owned_product_copy.__file__).resolve().is_relative_to(target)
+            from tests.test_shop_copy_batch import BatchCopyTests
+            from tests import test_shop_copy_repair
+            from heideng_merchant import owned_product_copy, shop_copy_batch, shop_copy_repair
+            for module in (owned_product_copy, shop_copy_batch, shop_copy_repair):
+                assert Path(module.__file__).resolve().is_relative_to(target)
             cases.ROOT=target
             def no_network(*args, **kwargs):
                 raise AssertionError('the two-store fixture attempted a network connection')
             with patch.object(socket.socket, 'connect', no_network):
-                result=unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromModule(cases))
+                loader=unittest.defaultTestLoader
+                suite=unittest.TestSuite([loader.loadTestsFromModule(cases),loader.loadTestsFromTestCase(BatchCopyTests),
+                                          loader.loadTestsFromModule(test_shop_copy_repair)])
+                result=unittest.TextTestRunner().run(suite)
             assert result.wasSuccessful()
             print(json.dumps({'installedTwoStoreScenarios':result.testsRun, 'realShopWrites':0}))
             return
@@ -168,7 +174,7 @@ def main():
         env.update(HEIDENG_MERCHANT_HOME=str(state), JINGMAI_LINKER_HOME=str(state/'linker'),
                    JDO_HOME=str(state/'cli-home/.jdo-cli'), PYTHONIOENCODING='utf-8')
         def run(argv):
-            proc = subprocess.run([sys.executable,'-I','-B',*map(str,argv)], cwd=home,env=env,
+            proc = subprocess.run([sys.executable,'-I','-X','utf8','-B',*map(str,argv)], cwd=home,env=env,
                                   capture_output=True,text=True,encoding='utf-8',timeout=120)
             if proc.returncode:
                 raise RuntimeError(f'Isolated merchant command failed ({proc.returncode}): {proc.stdout} {proc.stderr}')
@@ -192,7 +198,8 @@ def main():
         from run_gallery_journey import run_journey
         result['singleSkuPilot'] = run_journey(run,target,home,state)
         result['collectionExampleProducts'] = run_collection_example(run, target, home, state)
-        assert 'submit-one' in run([target/'scripts/merchant.py','--state',state,'run','shop-copy','--','--help'])
+        help_text = run([target/'scripts/merchant.py','--state',state,'run','shop-copy','--','--help'])
+        assert all(action in help_text for action in ('submit-one','repair-sku-codes','batch-run','batch-resume','batch-stop'))
         result['ownedShopCopy'] = json.loads(run([__file__,target,home,'shop-copy']))
         print(json.dumps(result))
 
