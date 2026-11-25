@@ -233,6 +233,16 @@ class BatchCopyTests(unittest.TestCase):
         self.assertEqual(self.writes,[])
         self.upload.assert_not_called()
 
+    def test_existing_on_sale_product_without_application_status_is_reported_as_unverified(self):
+        self.destinations[1701]=deepcopy(self.blueprints[701])
+        self.applies[1701]=deepcopy(self.destinations[1701])
+        mapping=self.root/'existing-map.json'
+        atomic_json(mapping,{'701':1701})
+        batch=self.plan((701,),'--existing-map',str(mapping))
+        row=self.run_phase(batch,'bulk')
+        self.assertEqual((row['onSaleCount'],row['unverifiedSaleCount']),(1,0))
+        self.assertEqual((row['pendingAuditCount'],row['rejectedAuditCount'],row['unverifiedAuditCount']),(0,0,1))
+
     def test_unrelated_category_errors_do_not_trigger_a_storewide_hold(self):
         self.reject.update({701:'1010300506',703:'99904030008'})
         batch=self.plan((701,703,704))

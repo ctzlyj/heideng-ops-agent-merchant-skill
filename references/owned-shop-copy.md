@@ -34,7 +34,7 @@
 用 `batch-plan --inventory <盘点返回的 inventoryFile>` 固定本次两店和源商品集合，可用重复的 `--product-id` 选取商家要的部分。已知样品可用 `--pilot-id` 指定；已有记录中的源→目标商品编号对照可用 `--existing-map` 读入，核对已搬商品。盘点、建批和运行时沿用两店的 config/profile。
 
 - 本地预览用 `batch-run --batch <批次ID> --phase draft`。明确只试发一件时用 `--phase pilot --confirm PUBLISH_COPY_PILOT`；商家交办其余整批时用 `--phase bulk --confirm PUBLISH_FROZEN_SCOPE`。两个写入阶段的 `--authorization-ref` 引用商家这次已给的交办，宿主直接带入。
-- `batch-status --batch <批次ID>` 从原回执汇总每件的源编号、目标编号、核对差异和平台状态。用 `batch-resume --batch <批次ID>` 继续原阶段。在途申请先查原编号；已成功的样品继续用原链接。
+- `batch-status --batch <批次ID>` 从原回执汇总每件的源编号、目标编号、核对差异和平台状态。在售与审核分别统计；`unverifiedAuditCount` 是已关联目标中还没有核实审核结论的件数。用 `batch-resume --batch <批次ID>` 继续原阶段。在途申请先查原编号；已成功的样品继续用原链接。
 - 商家叫停时，执行 `batch-stop --batch <批次ID>`，说明当时已发出的请求。后来明确要求恢复时，带原停止回执的 `--stop-id` 和恢复交办的 `--authorization-ref`，避免旧进程重新开跑。
 
 ## 修已有链接的商家编码

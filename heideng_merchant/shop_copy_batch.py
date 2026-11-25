@@ -252,6 +252,8 @@ def _report(root, batch, scope):
     conflicts={str(row['targetProductId']) for row in rows if row.get('targetProductId') and row['status']=='mapping-conflict'}
     unique={tid for tid,count in assignments.items() if count==1}-conflicts
     reports=[row['comparison'] for row in rows if row.get('comparison') and str(row.get('targetProductId')) in unique]
+    sale_counts=Counter(r.get('saleState') for r in reports)
+    audit_counts=Counter(r.get('auditState') for r in reports)
     evidence=[r['merchantCodeCoverage'] for r in reports if r.get('merchantCodeCoverage')]
     known=[r['sourceSkuCount'] for r in rows if type(r.get('sourceSkuCount')) is int]
     code_counts={k:sum(e.get(k,0) for e in evidence) for k in ('independentlyPaired','verified','different')}
@@ -261,9 +263,10 @@ def _report(root, batch, scope):
             'pilotId':scope['pilotId'],'scopeSize':len(rows),'countsByStatus':counts,'rows':rows,
             'uniqueMappedTargets':len(unique),
             'productsReadBack':sum(r.get('readbackView')=='product' for r in reports),
-            'onSaleCount':sum(r.get('saleState')=='on-sale' for r in reports),
-            'pendingAuditCount':sum(r.get('auditState')=='pending' for r in reports),
-            'rejectedAuditCount':sum(r.get('auditState')=='rejected' for r in reports),
+            'onSaleCount':sale_counts['on-sale'],'notOnSaleCount':sale_counts['not-on-sale'],
+            'unverifiedSaleCount':len(unique)-sale_counts['on-sale']-sale_counts['not-on-sale'],
+            'pendingAuditCount':audit_counts['pending'],'rejectedAuditCount':audit_counts['rejected'],
+            'unverifiedAuditCount':len(unique)-audit_counts['pending']-audit_counts['rejected'],
             'comparedProductsMatch':sum(r.get('status')=='compared-fields-match' for r in reports),
             'codeCoverage':code_counts,
             'phase':read_json(root/'phase.json',{}).get('phase'),'stop':read_json(root/'stop.json',{}),
