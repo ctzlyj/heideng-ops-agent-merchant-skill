@@ -44,6 +44,8 @@ jobs:
         run: python -B tests/pop_price_contract.py
       - name: Shared collection contract through the merchant command
         run: python -B tests/pop_collection_contract.py
+      - name: Shared batch pause and original receipts
+        run: python -B tests/pop_copy_batch_contract.py
       - name: Shared shop-copy contract through the merchant command
         run: python -B tests/pop_copy_contract.py
       - name: Local Chrome and driver on macOS ARM64

@@ -46,42 +46,9 @@ class SharedPopTests(unittest.TestCase):
             subprocess.run([sys.executable, '-B', str(ROOT / 'install.py'), '--home', str(root),
                             '--host', 'workbuddy', '--state', str(state), '--offline', '--no-auto-update'],
                            capture_output=True, check=True, timeout=60)
-            attrs = [{'attrId': 3, 'values': [{'attrValue': '5'}]}]
-            products, rows = {}, []
-            for index, (pid, price) in enumerate(((11, '15.25'), (22, '27.40')), start=1):
-                sku = pid * 10
-                rows.append({'n': index, 'pid': str(pid), 'skuId': str(sku),
-                             'price': price, 'spec': f'样品 {index}'})
-                products[str(pid)] = {
-                    'productInfo': {'productId': pid, 'brandInfo': {'brandId': 1},
-                                    'categoryDetail': {'lastCategoryId': 123}, 'goodsAttrInfos': attrs,
-                                    'productDetailDesc': {'desc': f'<p>规格 {index}</p>'},
-                                    'length': 2, 'width': 3, 'height': 4, 'weight': 1,
-                                    'logisticsInfo': {'transportId': 5, 'promiseId': 6}},
-                    'material': {'mainImages': [{'uuid': '0000000000', 'imageInfoList': [
-                        {'imgUrl': f'jfs/{pid}/image-{n}.jpg', 'orderSort': n} for n in range(1, 6)]}]},
-                    'skuList': [{'skuId': sku, 'priceInfo': {'jdPrice': price},
-                                 'goodsAttrInfos': attrs, 'saleAttrs': [{'attrId': 4, 'attrName': '颜色'}]}],
-                }
-            config = {'venderId': 10, 'shopName': '合成测试店', 'jdoProfile': 'pop-fixture',
-                      'categoryId': 123, 'title': '选品草稿', 'topN': len(rows), 'topSkus': rows}
-            config_file = root / 'config.json'
-            config_file.write_text(json.dumps(config), encoding='utf-8')
-            (root / 'source_applies.json').write_text(json.dumps(products), encoding='utf-8')
-            result = subprocess.run([sys.executable, '-B', str(skill / 'scripts/merchant.py'),
-                                     '--state', str(state), 'run', '--entry', 'scripts/top_sku_aggregation.py',
-                                     'listing', '--', 'build', '--config', str(config_file)],
-                                    capture_output=True, timeout=90)
-            self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
-            receipt = json.loads(result.stdout)
-            manifest = json.loads(Path(receipt['manifestPath']).read_bytes())
-            self.assertEqual((receipt['status'], receipt['skuCount']), ('BUILT', 2))
-            self.assertEqual(manifest['saveActionType'], 0)
-            self.assertIsNone(manifest['applyId'])
-            self.assertTrue(manifest['skuDetailManualPending'])
+            from tests.pop_top_sku_contract import run
+            run([sys.executable, '-B', str(skill/'scripts/merchant.py'), '--state', str(state),
+                 'run', '--entry', 'scripts/top_sku_aggregation.py', 'listing', '--'])
             usage = [json.loads(p.read_bytes()) for p in (state / 'updates/usage').glob('*.json')]
             locked = json.loads(sync_shared_pop.LOCK.read_bytes())['groups']
             self.assertIn(locked['top-sku']['commit'], [r['sharedPopCommits']['top-sku'] for r in usage])
-            csv = (root / '新链接对照表.csv').read_text(encoding='utf-8-sig')
-            for row in rows:
-                self.assertIn(f"{row['price']},{row['price']}", csv)

@@ -86,7 +86,7 @@
       "adapted": false
     },
     "scripts/sale_attr_templates.py": {
-      "upstreamCommit": "a8c3b49bf0e43458e996833525d4f6ffdba86cfe",
+      "upstreamCommit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
       "upstreamPath": "scripts/sale_attr_templates.py",
       "upstreamSha256": "027d84745aa5e811c7a1789306e5ed925ee4af4f5b3b3c5932b2475a75b50086",
       "sha256": "027d84745aa5e811c7a1789306e5ed925ee4af4f5b3b3c5932b2475a75b50086",
@@ -218,21 +218,21 @@
       "adapted": true
     },
     "scripts/top_sku_aggregation.py": {
-      "upstreamCommit": "a8c3b49bf0e43458e996833525d4f6ffdba86cfe",
+      "upstreamCommit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
       "upstreamPath": "scripts/top_sku_aggregation.py",
       "upstreamSha256": "a35462bcc28eabfd2051c1c65582cb93a59d8d100c6af42791a12cdf2c5e0524",
       "sha256": "a35462bcc28eabfd2051c1c65582cb93a59d8d100c6af42791a12cdf2c5e0524",
       "adapted": false
     },
     "references/top-sku-aggregation.md": {
-      "upstreamCommit": "a8c3b49bf0e43458e996833525d4f6ffdba86cfe",
+      "upstreamCommit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
       "upstreamPath": "references/top-sku-aggregation.md",
       "upstreamSha256": "83259fd5931f61c82f600ee722c0e867466b58b88babbcd267ac39320f95358d",
       "sha256": "83259fd5931f61c82f600ee722c0e867466b58b88babbcd267ac39320f95358d",
       "adapted": false
     },
     "scripts/photo_samples.py": {
-      "upstreamCommit": "d31ed174b068d28904e9279d35bcf7012087389d",
+      "upstreamCommit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
       "upstreamPath": "scripts/photo_samples.py",
       "upstreamSha256": "701770f31019413e586c0888cec34775e4a9cec506af0f51f1f410866d3e8ae1",
       "sha256": "701770f31019413e586c0888cec34775e4a9cec506af0f51f1f410866d3e8ae1",

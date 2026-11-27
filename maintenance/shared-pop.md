@@ -10,6 +10,7 @@
 | 同规格比价、价格计划、明确拒绝和回查 | jd-competitor-price-adjustment-skill | pricing |
 | 已审核视频交接和验证 | jd-main-video-batch-skill | video |
 | 本地图片制作无声候选 | jd-main-video-batch-skill | video |
+| 搬家批次冻结、暂停、恢复、状态和交付 | jingmai-hot-product-mover-skill | shop-copy-batch |
 | 一个类目的热卖 SKU 聚合草稿 | jingmai-hot-product-mover-skill | top-sku |
 | 限定商品的素材缺口、SKU 读数与覆盖 | jd-material-pop-skill | materials |
 | 图组、已认可样张、上传恢复、按图位回读 | jingmai-batch-image-refresh-skill | refresh |

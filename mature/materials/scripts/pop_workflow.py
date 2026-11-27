@@ -4,7 +4,9 @@ import hashlib
 import json
 
 
-from pop_title_workflow import repair_failed_title_rows
+# The two-shop title copier uses these workbook readers and import functions directly.
+from pop_title_dispatch import import_delivery as _import_delivery
+from pop_title_workflow import _workbook_titles, repair_failed_title_rows
 
 
 def complete_short_title_import(args, delivery, seller, client, agent=None):

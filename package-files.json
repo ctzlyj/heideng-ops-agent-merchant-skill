@@ -87,6 +87,7 @@
     "heideng_merchant/refresh_storage.py",
     "heideng_merchant/sale_attr_templates.py",
     "heideng_merchant/pop_gallery.py",
-    "maintenance/shared-pop.json"
+    "maintenance/shared-pop.json",
+    "heideng_merchant/shop_copy_router.py"
   ]
 }

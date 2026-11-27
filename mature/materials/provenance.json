@@ -61,7 +61,7 @@
     },
     "scripts/pop_workflow.py": {
       "upstreamSha256": "42d028b27a38c8e92da77ef67c3cb4992e7bb6cfd2e1e252e0ee90f094fe0099",
-      "sha256": "c4b502910714c565cac0bf55ce0fde4dad99ebf1fe1b41d7595863f2efb5a47e",
+      "sha256": "ca433ad46a1c13929cbd160b0d7bae5892361edd9ee30cab6315c63899b0dc6b",
       "adapted": true
     },
     "assets/商品导入短标题模板.xlsx": {

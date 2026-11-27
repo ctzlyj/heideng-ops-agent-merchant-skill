@@ -12,10 +12,10 @@ import time
 import jdo_listing_mvp as api
 import jd_product_pipeline as pipeline
 import matrix_listing as matrix
-from heideng_merchant import owned_product_copy as copy
-from heideng_merchant.safety import atomic_json, file_sha, read_json, safe_join
-from heideng_merchant.shop_copy_delivery import capture_freight
-from heideng_merchant.state import FileLock, merchant_home
+from . import owned_product_copy as copy
+from .safety import atomic_json, file_sha, read_json, safe_join
+from .shop_copy_delivery import capture_freight
+from .state import FileLock, merchant_home
 
 
 def digest(value):
@@ -281,8 +281,8 @@ def empty_media(frozen):
 
 def stage_media(folder, frozen, target, *, before_write=None):
     from PIL import Image
-    from heideng_merchant.sample_comparison import download_image
-    from heideng_merchant.sku_image_edit import media_space
+    from .sample_comparison import download_image
+    from .sku_image_edit import media_space
     urls = copy.plan_copy(frozen)['imageUrls']
     manifest = empty_media(frozen)
     task_root = folder.parent.parent
@@ -381,7 +381,7 @@ def delivery_evidence(folder, frozen, detail, target, components, extra, *, sour
 
 
 def prepare(folder, frozen, target, args):
-    from heideng_merchant.owned_product_copy import prepare_copy_schema
+    from .owned_product_copy import prepare_copy_schema
     if args.intent == 'local-draft':
         if args.delivery_evidence:
             supplied = read_json(args.delivery_evidence)
@@ -391,7 +391,7 @@ def prepare(folder, frozen, target, args):
         draft = copy.local_copy_draft(frozen)
         path = folder/'local-draft.json'
         atomic_json(path,draft)
-        from heideng_merchant.shop_copy_preview import preview
+        from .shop_copy_preview import preview
         preview_file = folder/'商品草稿.md'
         pending = preview_file.with_suffix('.tmp')
         pending.write_text(preview(draft),encoding='utf-8')
@@ -424,7 +424,7 @@ def prepare(folder, frozen, target, args):
 
 
 def publication_state(root, task):
-    from .shop_copy_batch import publication_directory
+    from .shop_copy_batch import confirmed_refusal, publication_directory
     body_dir = publication_directory(root)
     result = read_json(body_dir/'result.json', {}) or {}
     data = result.get('data') if isinstance(result.get('data'),dict) else {}
@@ -441,7 +441,8 @@ def publication_state(root, task):
     if refusal:
         if not marker.exists() or not refusal.get('payloadSha256') or refusal['payloadSha256']!=saved.get('payloadSha256') or target_id or apply_id:
             raise ValueError('平台拒绝回执与原申请记录不一致')
-        status='publication-rejected'
+        if confirmed_refusal(refusal, saved, body_dir/'publish-body.json'):
+            status='publication-rejected'
     pointer = read_json(root/'current.json',{})
     adopted=read_json(body_dir/'existing-after-rejection.json',{})
     if adopted:
@@ -617,7 +618,7 @@ def submit_one(root, folder, frozen, target, args, *, before_write=None):
     fresh_delivery = delivery_evidence(folder,frozen,{},target,ref['schema']['componentList'],None,
                                        source_capture=current_freight)
     check_freight_reads(delivery['target'], fresh_delivery['target'])
-    from heideng_merchant.owned_product_copy import prepare_copy_schema
+    from .owned_product_copy import prepare_copy_schema
     fresh = prepare_copy_schema(frozen,target,ref,media_evidence=read_json(folder/'media.json'),
                                 delivery_evidence=fresh_delivery)
     if fresh['status'] != 'ready' or fresh['schema'] != json.loads(body['schema']):
@@ -781,124 +782,5 @@ def compare(root, folder, frozen, target, args):
 
 
 def main(argv=None):
-    from heideng_merchant import shop_copy_batch as batches
-    from heideng_merchant import shop_copy_materials as materials
-    from heideng_merchant import shop_copy_short_titles as titles
-    from heideng_merchant import shop_copy_history as history
-    parser = argparse.ArgumentParser(description='自家两店商品复制与按原批次恢复')
-    subs = parser.add_subparsers(dest='action',required=True)
-    materials.register(subs)
-    titles.register(subs)
-    history.register(subs)
-    review = subs.add_parser('diagnose-application',help='读取指定目标商品的原申请、审核原因和商品库状态')
-    review.add_argument('--target-config',type=Path,required=True)
-    review.add_argument('--target-profile',required=True)
-    review.add_argument('--product-id',type=int,required=True)
-    review.add_argument('--apply-id',type=int)
-    batches.register(subs)
-    for name in ('inventory','freeze','stage-media','prepare','submit-one','compare','repair-sku-codes'):
-        p = subs.add_parser(name)
-        p.add_argument('--target-config', type=Path, required=name!='prepare')
-        p.add_argument('--target-profile', required=name!='prepare')
-        if name in ('inventory','freeze','submit-one'):
-            p.add_argument('--source-config', type=Path, required=True)
-            p.add_argument('--source-profile', required=True)
-        if name not in ('inventory','freeze'):
-            p.add_argument('--task', required=True)
-        if name == 'freeze':
-            p.add_argument('--product-id', type=int, required=True)
-            p.add_argument('--existing-target-id', type=int, help='原任务已有目标商品时绑定该商品，仅对账')
-        if name == 'inventory':
-            p.add_argument('--status', type=int, action='append', required=True, help='要盘点的官方商品状态码，可重复')
-        if name == 'stage-media':
-            p.add_argument('--confirm', choices=['UPLOAD_COPY_MEDIA'], required=True)
-        if name in ('prepare','compare'):
-            p.add_argument('--delivery-evidence', type=Path)
-        if name == 'prepare':
-            p.add_argument('--intent', choices=['local-draft','publish-one'], default='local-draft')
-        if name == 'submit-one':
-            p.add_argument('--approval', required=True)
-            p.add_argument('--confirm', choices=['PUBLISH_ONE_COPY'], required=True)
-        if name == 'compare':
-            p.add_argument('--product-id', type=int)
-            p.add_argument('--apply-id', type=int, help='用原申请单回读目标商品的编辑值')
-        if name == 'repair-sku-codes':
-            p.add_argument('--product-id',type=int)
-            mode=p.add_mutually_exclusive_group()
-            mode.add_argument('--check-only',action='store_true')
-            mode.add_argument('--reconcile',action='store_true')
-            mode.add_argument('--confirm',choices=['REPAIR_TARGET_SKU_CODES'])
-        if name=='submit-one':
-            p.add_argument('--correction-evidence',type=Path)
-    args = parser.parse_args(argv)
-    try:
-        if args.action=='copy-materials':
-            result=materials.handle(args,sys.modules[__name__])
-        elif args.action=='copy-short-titles':
-            result=titles.handle(args,sys.modules[__name__])
-        elif args.action=='history-census':
-            result=history.run(args,sys.modules[__name__])
-        elif args.action=='diagnose-application':
-            target=verify(args.target_config,args.target_profile)
-            review=application_observation(args.product_id,args.apply_id)
-            try:
-                live=read_owned_detail(args.product_id)
-                sku_count=len(copy.sku_rows(live,args.product_id))
-                listing='read-live-product'
-            except (api.JdoError,matrix.MatrixError,KeyError,ValueError):
-                sku_count=None
-                listing='live-product-unverified'
-            api.recheck_verified_jdo_store()
-            result={'ok':True,'status':'application-observed','targetShop':target,'targetProductId':str(args.product_id),
-                    'listingEvidence':listing,'liveSkuCount':sku_count,'platformWrites':0,**review}
-        elif args.action in batches.ACTIONS:
-            result=batches.dispatch(args,sys.modules[__name__])
-        elif args.action == 'inventory':
-            result = inventory(args)
-        elif args.action == 'freeze':
-            result = freeze(args)
-        else:
-            root = task_directory(args.task)
-            with FileLock(safe_join(root,'copy.lock')):
-                folder, frozen = load_copy(root)
-                local = args.action == 'prepare' and args.intent == 'local-draft'
-                target = local_target(frozen,args) if local else require_target(frozen,args)
-                if args.action == 'stage-media':
-                    prior = publication_state(root,args.task)
-                    result = prior if prior['status'] != 'not-submitted' else stage_media(folder, frozen, target)
-                elif args.action == 'prepare':
-                    prior = {} if local else publication_state(root,args.task)
-                    result = prepare(folder, frozen, target, args) if local or prior['status'] in ('not-submitted','publication-rejected') else prior
-                elif args.action == 'submit-one':
-                    result = submit_one(root, folder, frozen, target, args)
-                    result.update(sourceProductId=frozen['sourceProductId'],targetShop=target,
-                                  sourceSkuUrl='https://item.jd.com/'+str(frozen['sourceDetail']['skuList'][0]['skuId'])+'.html')
-                    if result.get('targetProductId'):
-                        try:
-                            result['comparison'] = compare(root,folder,frozen,target,argparse.Namespace(
-                                task=args.task, product_id=result['targetProductId'], apply_id=None, delivery_evidence=None))
-                        except (api.JdoError,ValueError,KeyError,OSError):
-                            result['comparison'] = {'status':'awaiting-readback','nextAction':'从原复制任务只读对账。'}
-                elif args.action=='repair-sku-codes':
-                    from heideng_merchant.shop_copy_repair import repair_codes
-                    result=repair_codes(root,folder,frozen,target,args,api=api,read_product=read_owned_detail)
-                else:
-                    result = compare(root, folder, frozen, target, args)
-        result.setdefault('ok',result['status'] in ('inventory-ready','local-plan','media-ready','local-draft-ready',
-                                             'pilot-prepared','submitted','existing-target-for-comparison',
-                                             'compared-fields-match'))
-        if result['status'] in ('submission-needs-reconciliation','upload-needs-reconciliation','publication-rejected'):
-            result['retryAllowed'] = False
-        print(json.dumps(result,ensure_ascii=False))
-        return 0 if result['ok'] else 2
-    except api.JdoError:
-        print(json.dumps({'ok':False,'status':'needs-platform-receipt','message':'官方店铺请求未完成，请保留本任务并核对原回执。'},ensure_ascii=False))
-        return 2
-    except (KeyError, TypeError, ValueError, OSError) as error:
-        from heideng_merchant.safety import redact
-        print(json.dumps({'ok':False,'status':'blocked','message':redact(str(error))},ensure_ascii=False))
-        return 2
-
-
-if __name__ == '__main__':
-    raise SystemExit(main())
+    from .shop_copy_router import main as route
+    return route(argv)

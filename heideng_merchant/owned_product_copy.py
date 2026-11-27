@@ -30,9 +30,9 @@ from .pop_copy_pairing import (
     _target_props,
     _validate_reference,
 )
-from .gallery_patch import PUBLIC_GROUP
+from .pop_copy_pairing import PUBLIC_GROUP
 from .safety import file_sha
-from .sku_image_edit import sku_rows
+from .pop_copy_pairing import sku_rows
 
 
 def plan_copy(frozen):

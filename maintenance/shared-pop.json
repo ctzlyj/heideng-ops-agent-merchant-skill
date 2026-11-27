@@ -2,7 +2,7 @@
   "groups": {
     "top-sku": {
       "repository": "ctzlyj/jingmai-hot-product-mover-skill",
-      "commit": "a8c3b49bf0e43458e996833525d4f6ffdba86cfe",
+      "commit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
       "entrypoints": [
         "mature/listing/scripts/top_sku_aggregation.py"
       ],
@@ -14,6 +14,10 @@
         "mature/listing/references/top-sku-aggregation.md": {
           "source": "references/top-sku-aggregation.md",
           "sha256": "83259fd5931f61c82f600ee722c0e867466b58b88babbcd267ac39320f95358d"
+        },
+        "tests/pop_top_sku_contract.py": {
+          "source": "tests/pop_top_sku_contract.py",
+          "sha256": "ede283870b334bd1eb8eb0479c8159da52855cf7df5c136d70506a31f67c79fb"
         }
       }
     },
@@ -91,7 +95,7 @@
     },
     "shop-copy": {
       "repository": "ctzlyj/jingmai-hot-product-mover-skill",
-      "commit": "a8c3b49bf0e43458e996833525d4f6ffdba86cfe",
+      "commit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
       "files": {
         "heideng_merchant/shop_copy_materials.py": {
           "source": "scripts/pop_copy/shop_copy_materials.py",
@@ -254,7 +258,7 @@
     },
     "listing-samples": {
       "repository": "ctzlyj/jingmai-hot-product-mover-skill",
-      "commit": "d31ed174b068d28904e9279d35bcf7012087389d",
+      "commit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
       "files": {
         "mature/listing/scripts/photo_samples.py": {
           "source": "scripts/photo_samples.py",
@@ -263,6 +267,40 @@
         "tests/pop_photo_sample_contract.py": {
           "source": "tests/pop_photo_sample_contract.py",
           "sha256": "342ce70f1b5d78c003d888685b2acbb8faeae456cbff3f90f4f2a829e0919247"
+        }
+      }
+    },
+    "shop-copy-batch": {
+      "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+      "commit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "files": {
+        "heideng_merchant/shop_copy_batch.py": {
+          "source": "scripts/pop_copy/shop_copy_batch.py",
+          "sha256": "25503f2b04919d2a0ef30015cd72fe267b3d1b25a2e8c7210cd2a39eabacfecf"
+        },
+        "heideng_merchant/shop_copy_command.py": {
+          "source": "scripts/pop_copy/shop_copy_command.py",
+          "sha256": "3024f353a19c88e836f09b7ff1e2f8542ce72eaaa1e6560302bb44980dd478eb"
+        },
+        "heideng_merchant/shop_copy_router.py": {
+          "source": "scripts/pop_copy/shop_copy_router.py",
+          "sha256": "0430756a037d3587575949674843742012ec9cebfe3f88cc2b6184e59eae42d8"
+        },
+        "heideng_merchant/shop_copy_delivery.py": {
+          "source": "scripts/pop_copy/shop_copy_delivery.py",
+          "sha256": "5030da2377bbf89970d67c90f47eaf909073440ff497d3e2e4a6cfd3509f601c"
+        },
+        "heideng_merchant/shop_copy_preview.py": {
+          "source": "scripts/pop_copy/shop_copy_preview.py",
+          "sha256": "115bb5078fdefd74de1d6717aebcd2d8b2265047cea30bfadbe868e45dd242da"
+        },
+        "heideng_merchant/owned_product_copy.py": {
+          "source": "scripts/pop_copy/owned_product_copy.py",
+          "sha256": "13fa60f97632fee71f8761e7f0cd81ef35258fc6489885e111daaee07f60253b"
+        },
+        "tests/pop_copy_batch_contract.py": {
+          "source": "tests/pop_copy_batch_contract.py",
+          "sha256": "c23ce4f334b75183c742ccbc9c213b255ae2e44afb51aba6ed6f5446c482f394"
         }
       }
     }
