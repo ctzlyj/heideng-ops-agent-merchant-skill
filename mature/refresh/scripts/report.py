@@ -63,7 +63,7 @@ def price_result(entry):
 
 def main_target(plan, product):
     return "main" in (plan.get("scopes") or ["main"]) and (
-        "positions" not in product or bool(product["positions"]) or bool(product.get("selectedSlots"))
+        product.get("positions") != [] or bool(product.get("selectedSlots"))
     )
 
 
@@ -93,8 +93,14 @@ def rectangle_result(entry):
     return "待核对"
 
 
-def product_verdict(entry, needs_main, has_slot_evidence):
-    if not entry or (needs_main and not has_slot_evidence):
+def product_verdict(plan, product, entry, needs_main, has_slot_evidence):
+    needs_detail = "detail" in (plan.get("scopes") or ["main"])
+    if not needs_main and (not needs_detail or product.get("detailImages") == []):
+        if entry.get("ok") is False or entry.get("problems"):
+            return "未通过"
+        return "无本次目标图位"
+    if (not entry or (needs_main and not has_slot_evidence)
+            or (needs_detail and not isinstance(product.get("detailImages"), list))):
         return "待核对"
     return "通过" if entry.get("ok") else "未通过"
 
@@ -110,6 +116,7 @@ def progress(plan, generation, uploads, patches, verification):
     succeeded = [generation[key] for key in keys if generation.get(key, {}).get("status") == "succeeded"]
     confirmed = {pid: patches[pid] for pid in pids if patches.get(pid, {}).get("status") == "verified-in-edit-detail"}
     independent = 0
+    no_targets = 0
     passed_slots = 0
     slots = {"requested":0, "verified":0, "retained":0, "unresolved":0, "productsPendingEvidence":0}
     rectangles = {"unchangedProducts":0, "unchangedSlots":0, "absentProducts":0, "changedProducts":0,
@@ -118,7 +125,10 @@ def progress(plan, generation, uploads, patches, verification):
         entry = verification.get(str(product["productId"])) or {}
         needs_main = main_target(plan, product)
         counts, known = slot_counts(product, entry)
-        if product_verdict(entry, needs_main, known) == "通过":
+        verdict = product_verdict(plan, product, entry, needs_main, known)
+        if verdict == "无本次目标图位":
+            no_targets += 1
+        if verdict == "通过":
             independent += 1
             passed_slots += counts["verified"] if needs_main else 0
         if not needs_main:
@@ -150,7 +160,7 @@ def progress(plan, generation, uploads, patches, verification):
             "patchVerifiedMainSlots": sum(record.get("changedSlots", 0) for record in confirmed.values()),
             "patchAwaitingReadback": sum(patches.get(pid, {}).get("status") in
                                          ("awaiting-readback", "prior-edit-pending") for pid in pids),
-            "finalVerifiedProducts": independent,
+            "finalVerifiedProducts": independent, "noTargetProducts": no_targets,
             "finalVerifiedMainSlots": passed_slots,
             "mainSlotReadback": slots, "rectangleReadback": rectangles,
             "consumerPageStatus": "unchecked"}
@@ -168,6 +178,16 @@ def main_delivery(counts):
     if slots["productsPendingEvidence"]:
         parts.append(f"{slots['productsPendingEvidence']} 个商品缺少逐位终验回执")
     return "，".join(parts) + "。"
+
+
+def verification_delivery(counts):
+    eligible = counts["targetProducts"] - counts["noTargetProducts"]
+    if not eligible:
+        return f"无本次目标图位（{counts['noTargetProducts']} 个商品）"
+    message = f"{counts['finalVerifiedProducts']}/{eligible} 通过"
+    if counts["noTargetProducts"]:
+        message += f"，另有 {counts['noTargetProducts']} 个商品无本次目标图位"
+    return message
 
 
 def rectangle_delivery(counts):
@@ -261,7 +281,7 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
                 kept_original,
                 price_result(entry),
                 entry.get("status", ""),
-                product_verdict(entry, needs_main, known),
+                product_verdict(plan, product, entry, needs_main, known),
                 readback_problems(entry),
                 main_compare if product.get("positions") else "",
                 detail_compare,
@@ -309,12 +329,12 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
     counts = counts or progress(plan, generation, {}, patches, verification)
     if "main" in (plan.get("scopes") or ["main"]):
         rows.extend([("本次主图交付", main_delivery(counts)),
-                     ("范围外3:4长图", rectangle_delivery(counts)),
-                     ("商品独立终验", f"{counts['finalVerifiedProducts']}/{counts['targetProducts']} 个商品通过")])
+                     ("范围外3:4长图", rectangle_delivery(counts))])
         if counts["mainSlotReadback"]["productsPendingEvidence"]:
             rows.append(("补回执", "使用原任务目录只读运行 verify.py，逐图位对照原计划和上传记录。"))
     if "detail" in (plan.get("scopes") or []):
         rows.append(("详情页写回", "desc 与 mobileDesc 只替换计划内图片 URL，其余 HTML 逐字节保留"))
+    rows.append(("商品独立终验", verification_delivery(counts)))
     rows.append((
         "保留原图",
         "本次未换新的图片数：含只改首图时未计划的位、模型审核拒绝、超位排除三类",
@@ -379,9 +399,7 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
         "- 上传：%d，主图 PATCH：%d/%d 商品成功" % (
             counts["uploadedAssets"], counts["patchVerifiedProducts"], counts["targetProducts"],
         ),
-        "- 独立终验：%d/%d 通过" % (
-            counts["finalVerifiedProducts"], counts["targetProducts"],
-        ),
+        "- 独立终验：" + verification_delivery(counts),
         "- 买家端尚未核验。",
         "- 审核拒绝：%d 张（对应图片保留原图，明细见 Excel「审核拒绝明细」）" % sum(
             1 for value in generation.values() if value.get("status") == "rejected"
@@ -407,7 +425,7 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
         if product.get("detailImages"):
             facts.append("详情换新 %s/%s" % (entry.get("detailNewImages", "待核"), entry.get("detailImages", "待核")))
         facts.extend(["SKU 价格" + price_result(entry), "状态 " + str(entry.get("status", "待核")),
-                      product_verdict(entry, needs_main, known)])
+                      product_verdict(plan, product, entry, needs_main, known)])
         if entry.get("problems"):
             facts.append(readback_problems(entry))
         lines.append("- %s %s：%s" % (product["productId"], product["title"][:22], "，".join(facts)))

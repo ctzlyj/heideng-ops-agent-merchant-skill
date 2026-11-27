@@ -144,6 +144,17 @@ def verify_scope(work, package, scripts, report_entry):
     assert legacy['mainSlotReadback']['verified'] in (0, None) and legacy['rectangleReadback']['unverifiedProducts'] == 10
     assert legacy['finalVerifiedProducts'] == 0 and '10 个商品缺少逐位终验回执' in report()
 
+    # This product only has a cover. A request for positions 2–5 performs no image work.
+    before = {111:product(111, 10, 1)}
+    after = deepcopy(before)
+    empty = common.build_plan(before, order=[111], scopes=['main'], positions=[2,3,4,5])
+    common.save_json(work/'job.json', {'profile':'fixture','venderId':1,'shopName':'fixture','productIds':[111]})
+    common.save_json(work/'products/111/before-apply.json', before[111])
+    common.save_json(work/'plan-batch.json', empty)
+    readback(True)
+    summary = report('--progress')
+    assert summary['finalVerifiedProducts'] == 0 and summary['noTargetProducts'] == 1, summary
+
 
 def run(root, job_entry=None, report_entry=None):
     with tempfile.TemporaryDirectory() as tmp:

@@ -23,7 +23,7 @@
     },
     "refresh": {
       "repository": "ctzlyj/jingmai-batch-image-refresh-skill",
-      "commit": "a8fa5d9a6ba7d14bcca0327d5ff0e9f32560da36",
+      "commit": "abfa5e71153bf9942d9e7dcbe00b748d0eae209c",
       "files": {
         "mature/refresh/scripts/upload.py": {
           "source": "scripts/upload.py",
@@ -39,7 +39,7 @@
         },
         "mature/refresh/scripts/report.py": {
           "source": "scripts/report.py",
-          "sha256": "2ea00f912ee34a00ddb8f06916b2cf456890298aa4d03b13afd9bd94cafa8d59"
+          "sha256": "2b90823808cd66aea2ef1a625d78c8041f39a38f393ae5de82e8914c467ddb11"
         },
         "heideng_merchant/media_upload.py": {
           "source": "scripts/pop_refresh/media_upload.py",
@@ -59,7 +59,7 @@
         },
         "tests/pop_refresh_cli_contract.py": {
           "source": "tests/pop_refresh_cli_contract.py",
-          "sha256": "31ec57c73e8f4f902c16104042d827acd9c7cd0f9fc8d3482e23e7c9cb69ef73"
+          "sha256": "ef5ec6ae61791443b10b600671263418cceba584a6f66872700f677d92d4b975"
         }
       }
     },
