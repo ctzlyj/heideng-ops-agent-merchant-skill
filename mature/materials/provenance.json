@@ -9,7 +9,7 @@
   "files": {
     "scripts/jd_material_agent.py": {
       "upstreamSha256": "80cb83c2865958934423eac3479b709c263f718171df45f3b4a7c242378ce4de",
-      "sha256": "2b950d47d675e047733d4b15f168b59f0c26bcc5fb6fc5bb55a9256538f3981d",
+      "sha256": "13aca092c909f180e0b24b96a65536c9f1b711011a3fb74676f787d119f2ff30",
       "adapted": true
     },
     "scripts/jdo_bridge_probe.py": {
@@ -118,6 +118,13 @@
       "sha256": "49df02b5df99db2df528050d58372ef5bb861baf950b7f0275783b9cd0c1dec6",
       "adapted": true,
       "derivedFrom": "requirements.txt; optional original pinned CPU neural cutout dependency"
+    },
+    "scripts/pop_audit_scope.py": {
+      "upstreamCommit": "12b610de93f0c67ed248fb6b2b9d2baea3308d48",
+      "upstreamPath": "jd-material-pop/scripts/pop_audit_scope.py",
+      "upstreamSha256": "0d6ed84fd7ec6281aeaa69c5ced104d80b7f7afa517280a2ad912364f2117b57",
+      "sha256": "0d6ed84fd7ec6281aeaa69c5ced104d80b7f7afa517280a2ad912364f2117b57",
+      "adapted": false
     }
   },
   "entrypoints": [

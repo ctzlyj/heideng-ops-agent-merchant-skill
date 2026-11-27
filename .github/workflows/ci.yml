@@ -38,6 +38,8 @@ jobs:
           --only-binary=:all: --no-cache-dir -r tests/mature-requirements.txt -r requirements-updates.txt
       - name: Installed merchant journey
         run: python -B tests/run_merchant_journey.py
+      - name: Shared shop-copy contract through the merchant command
+        run: python -B tests/pop_copy_contract.py
       - name: Local Chrome and driver on macOS ARM64
         if: runner.os == 'macOS' && matrix.python == '3.12'
         run: python -B -m tests.smoke_connection_browser --channel chrome

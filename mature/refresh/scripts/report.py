@@ -176,7 +176,7 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
             "改图口径",
             "按本批次选中的图位与图片设计执行，原图及成图标识见任务回执。",
         ),
-        ("提示词", "逐图设计与来源见 image-quote.json；执行情况见 internal-generation.json"),
+        ("提示词", "逐图设计与执行结果见 internal-generation.json；生成报价（如有）见 image-quote.json"),
         (
             "核验范围",
             "主图按组、位次及 SKU 核对编辑详情。买家端另行检查。"
@@ -253,7 +253,7 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
         "",
         "## 本次图片设计",
         "",
-        "> " + "逐图设计与来源见 image-quote.json；执行情况见 internal-generation.json",
+        "> " + "逐图设计与执行结果见 internal-generation.json；生成报价（如有）见 image-quote.json",
         "",
         "## 明细",
         "",

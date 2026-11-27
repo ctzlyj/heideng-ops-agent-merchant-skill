@@ -28,7 +28,7 @@
     },
     "app/shoplib.py": {
       "upstreamSha256": "3302e5f77efe076313b2d18f5bc8c41eedda3164e9835c6d1a466b704c48e1b2",
-      "sha256": "e8173e5659814c25f3caa871f865b36a9cdc1f0dd3ab95a9f03c328eb7cacd6a",
+      "sha256": "134df1a0527903b46602cbf8e2833f9dff0f96b733dde1dd20746eda81bce314",
       "adapted": true
     },
     "app/static/index.html": {
@@ -60,6 +60,13 @@
       "upstreamSha256": null,
       "sha256": "5ebc8abae00da3a5248c80d771f0c9aac523e73be92aa5d9dd4b0d487d23ca45",
       "adapted": true
+    },
+    "app/profile_registry.py": {
+      "upstreamCommit": "67cdccf1a091c9680e55a1c760d826e8f40d3708",
+      "upstreamPath": "app/profile_registry.py",
+      "upstreamSha256": "dc19ad77ff78c7c5824164b022c10bd3f5ba0246b7e13cdd58ac1683c6354945",
+      "sha256": "dc19ad77ff78c7c5824164b022c10bd3f5ba0246b7e13cdd58ac1683c6354945",
+      "adapted": false
     }
   },
   "entrypoints": [

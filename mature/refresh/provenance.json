@@ -8,12 +8,12 @@
   "files": {
     "scripts/_common.py": {
       "upstreamSha256": "5e56a6d8a8ad628785a406f72da7968c91bf70e8a082598163b7707d32e3b8fc",
-      "sha256": "89cd9ea7aa65ee330ac375204d82a152507e946acffde4aaa4986b7f7e7ec732",
+      "sha256": "35df4e88fed995d22c7dbaefcf25cffb9b647cded059b30823afd5a5d53edcde",
       "adapted": true
     },
     "scripts/build_plan.py": {
       "upstreamSha256": "873a04b51a9c9d01fb59504cac2b3c6052b2440d6b03d5c7769c158cc70ef16b",
-      "sha256": "fe21faed4509d093d0a342585b24dd4bc611ae3009fc50656d4ddc97ebee9e8c",
+      "sha256": "29cd9fa9e170089a5135d28f7a16317961e8066c8b7943e29aaecc41f12695b6",
       "adapted": true
     },
     "scripts/cleanup.py": {
@@ -62,9 +62,11 @@
       "adapted": true
     },
     "scripts/patch.py": {
-      "upstreamSha256": "24bc66dfd8421f70e3a29e7cdcddcd44506a32d0cfaa317b6d15b4fbaadc30fb",
-      "sha256": "7471e59e4af10a4585ec4a51ec1f90eab8e944a18db8b2781136599d32512ec9",
-      "adapted": true
+      "upstreamCommit": "c7f3db5ca73a325081753d8d20fd539bd555f7b6",
+      "upstreamPath": "scripts/patch.py",
+      "upstreamSha256": "e4ab22e6d093bd8cd1a2bd10b03d445dec454f90d2fe7edbdeca6e20e965c59c",
+      "sha256": "e4ab22e6d093bd8cd1a2bd10b03d445dec454f90d2fe7edbdeca6e20e965c59c",
+      "adapted": false
     },
     "scripts/patch_detail.py": {
       "upstreamSha256": "ef9f6d73e0e145880248de6a5f7d6cb567b69c3ca2e4d1523bfad6c9e2406784",
@@ -82,9 +84,11 @@
       "adapted": true
     },
     "scripts/report.py": {
-      "upstreamSha256": "35078739084619338c1e03153c04a9e8dd694db60adc658740241556c1b16cd8",
-      "sha256": "9ecd7bac9ea29373089a6e28cbcc87d710d51fb8b003f6f662a27cc80f1e5f7a",
-      "adapted": true
+      "upstreamCommit": "c7f3db5ca73a325081753d8d20fd539bd555f7b6",
+      "upstreamPath": "scripts/report.py",
+      "upstreamSha256": "895ce47a420474c575b2d2dc81e2bae884ab2356dde77f4ac0363e192f59104c",
+      "sha256": "895ce47a420474c575b2d2dc81e2bae884ab2356dde77f4ac0363e192f59104c",
+      "adapted": false
     },
     "scripts/run_all.py": {
       "upstreamSha256": "78664d10697e9319f7da5f8b1309065186146e73a2003d2fd77a01bfcbb13561",
@@ -97,14 +101,18 @@
       "adapted": true
     },
     "scripts/upload.py": {
-      "upstreamSha256": "632d1246e074065158a9af315abfedb771217a75dd6147bb6a92814db0d3e40c",
-      "sha256": "19a511e6d3b479e313c676568a54451d2cba3929454c8a388f5ca59b618cdbb0",
-      "adapted": true
+      "upstreamCommit": "c7f3db5ca73a325081753d8d20fd539bd555f7b6",
+      "upstreamPath": "scripts/upload.py",
+      "upstreamSha256": "c8a1a57df3cdf4568be9f941b373e88c6e921d3f5516709a948276a4caa7f49d",
+      "sha256": "c8a1a57df3cdf4568be9f941b373e88c6e921d3f5516709a948276a4caa7f49d",
+      "adapted": false
     },
     "scripts/verify.py": {
-      "upstreamSha256": "6d97969ba1439af919bcb09c6b646b638102551f52f599eaa20390546a2fb92f",
-      "sha256": "f14d92e1154d3eed667c6f7fafd32f68eba50185667170236c78520195453c00",
-      "adapted": true
+      "upstreamCommit": "c7f3db5ca73a325081753d8d20fd539bd555f7b6",
+      "upstreamPath": "scripts/verify.py",
+      "upstreamSha256": "08bcca6080a851b6815ff8f34f1d66ab666b37f7f626dfbab57f4eae11dac7b1",
+      "sha256": "08bcca6080a851b6815ff8f34f1d66ab666b37f7f626dfbab57f4eae11dac7b1",
+      "adapted": false
     },
     "requirements.txt": {
       "upstreamSha256": "7ba92b47110edad0c9f5d7f533ce3b1d01c563bf76b2d1201c797c5cf0f4a77b",
@@ -114,6 +122,11 @@
     "DISTRIBUTION-PERMISSION.md": {
       "upstreamSha256": null,
       "sha256": "74ec12f1d011a5130797c9d405a672f87d8b24c4391e97d95035ff682f4448db",
+      "adapted": true
+    },
+    "scripts/refresh_runtime.py": {
+      "upstreamSha256": null,
+      "sha256": "202cefce5595b60fee81786468e5fbc02047edf28f45a02d4077502f93da56fe",
       "adapted": true
     }
   },

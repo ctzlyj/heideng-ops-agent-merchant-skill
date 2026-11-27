@@ -17,11 +17,8 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401  (hide jdo-cli console windows)
 import _common as common
-from heideng_merchant.safety import atomic_json
-from heideng_merchant.media_upload import UploadImage, platform_image_name, reconcile_image
-from heideng_merchant.refresh_selection import same_shop, verify_frozen
-from heideng_merchant.sku_image_edit import media_space
-from heideng_merchant.state import FileLock
+from refresh_runtime import (atomic_json, FileLock, UploadImage, platform_image_name, reconcile_image, media_space, refresh_selection)
+same_shop, verify_frozen = refresh_selection.same_shop, refresh_selection.verify_frozen
 
 LIMIT = 3 * 1024 * 1024
 
@@ -145,7 +142,7 @@ def main(argv):
     # Images refused by content moderation never reach upload; they keep the
     # original picture, so they must not make this step look unfinished.
     expected = [key for key in keys
-                if (generated.get(key) or {}).get("status") == "succeeded"]
+                if (generated.get(key) or {}).get("status") != "rejected"]
     ok = sum(1 for key in expected if (ledger.get(key) or {}).get("status") == "succeeded")
     failed = [key for key in expected if (ledger.get(key) or {}).get("status") == "failed"]
     missing = [key for key in expected if (ledger.get(key) or {}).get("status") != "succeeded"]

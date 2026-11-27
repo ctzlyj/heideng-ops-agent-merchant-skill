@@ -67,6 +67,9 @@ def candidate(project, candidates, config, reader, new_commit):
             provenance["files"][rel] = {"upstreamSha256": sha, "sha256": sha, "adapted": False, "upstreamPath": upstream_path}
             if rel in config.get("newEntrypoints", []): provenance["entrypoints"].append(rel)
             continue
+        if record.get("upstreamCommit"):
+            review.add("separately-pinned-file-see-maintenance-shared-pop")
+            continue
         if not record.get("upstreamSha256"): continue
         try: base = reader.blob(old, upstream_path)
         except SafetyError: conflicts.append({"file": rel, "reason": "explicit-source-mapping-unavailable"}); continue

@@ -10,8 +10,12 @@ from pathlib import Path
 import shutil
 from uuid import uuid4
 
+from .pop_copy_pairing import (
+    sku_rows,
+)
 from .safety import atomic_json, file_sha, read_json
 from .state import FileLock, merchant_home
+from .media_upload import media_space
 
 
 def unique(pairs):
@@ -25,20 +29,6 @@ def unique(pairs):
 
 def digest(value):
     return sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
-
-
-def sku_rows(detail, pid):
-    if str(detail.get('productInfo', {}).get('productId')) != str(pid):
-        raise ValueError('官方商品身份不一致')
-    rows = {}
-    for row in detail.get('skuList') or []:
-        sid = str(row.get('skuId') or '')
-        if not sid.isdecimal() or sid in rows or str(row.get('productId', pid)) != str(pid):
-            raise ValueError('商品规格身份重复、缺失或跨商品')
-        rows[sid] = row
-    if not rows:
-        raise ValueError('未读到完整规格')
-    return rows
 
 
 def pictures(detail, pid):
@@ -257,19 +247,6 @@ def readback(api, pid, receipt):
     return {'status':'verified' if verified else 'awaiting-readback', 'productId':pid,
             'skuMatches':evidence, 'otherFieldsMatch':preserved, 'consumerPageStatus':'unchecked',
             'checkedAt':datetime.now(timezone.utc).isoformat(timespec='seconds')}
-
-
-def media_space(api):
-    zones = api.get('jdo-product-material', '/rest/sp-product/v0/media-zones').get('data') or []
-    zone = next((z['zoneId'] for z in zones if z.get('zoneType') == 1), None)
-    if zone is None:
-        raise ValueError('未找到本店图片空间')
-    cats = api.get('jdo-product-material', '/rest/sp-product/v0/media-zones/{zoneId}/categories',
-                   {'zoneId':zone, 'page':1, 'pageSize':100}).get('data') or []
-    cat = next((c['categoryId'] for c in cats if c.get('categoryName') == '我的本地文件' or c.get('status') == 1), None)
-    if cat is None:
-        raise ValueError('本店图片空间无可用目录')
-    return zone, cat
 
 
 def sku_edit_directory(identity, pid):

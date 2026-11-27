@@ -7,6 +7,8 @@
     "heideng_merchant/owned_product_copy.py",
     "heideng_merchant/shop_copy_command.py",
     "heideng_merchant/shop_copy_materials.py",
+    "heideng_merchant/pop_copy_titles.py",
+    "heideng_merchant/pop_copy_pairing.py",
     "heideng_merchant/shop_copy_short_titles.py",
     "heideng_merchant/shop_copy_history.py",
     "heideng_merchant/refresh_selection.py",
@@ -81,6 +83,10 @@
     "heideng_merchant/shop_workspace.py",
     "heideng_merchant/windows_shortcut.py",
     "scripts/host_connection_controller.py",
-    "heideng_merchant/merchant_experience.py"
+    "heideng_merchant/merchant_experience.py",
+    "heideng_merchant/refresh_storage.py",
+    "heideng_merchant/sale_attr_templates.py",
+    "heideng_merchant/pop_gallery.py",
+    "maintenance/shared-pop.json"
   ]
 }

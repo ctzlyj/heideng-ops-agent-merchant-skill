@@ -62,3 +62,7 @@
 整套上新先填写当前商品的真实类目和媒体分类、各 SKU 的价格库存、属性和销售维度。宿主以 `facts.saleDimensions` 指定实际维度名称或 `sale-prop-…` 组件，`skus[].attributes` 按名称或组件编码记录逐项取值。结构化维度可逐项写 `templateValuesByAttr` 并用原 `apply-sale-templates` 组装，或使用已经核验的 `saleTemplateProps`。无销售维度商品可用一个 SKU 和空维度数组。主图同一销售属性组应复用同一组首图。
 
 全套 `make-plan` 与发布沿用相同的商品构造和本地预检；资料或本地能力不足时先补齐，再报新增生图费用。独立打样、已有商品详情改图仍可单独交付。详情数量依本商品要说明的事实决定，可通过 `facts.requiredDetailTopics` 和逐图 `covers` 核查。平台有明确张数限制时保留相应依据。
+
+## 本店销量靠前的 SKU 合成一条草稿
+
+商家要从同一类目选热卖规格时，可用本店近 30 天订单数量按商品汇总，每个入选商品再取销量最高的 SKU。宿主从本店任务目录执行 `run --entry scripts/top_sku_aggregation.py listing -- collect --config <配置绝对路径>`，用商家自己的店铺 Profile 取数。已核对来源、价格和规格后，同入口的 `build` 生成本地对照表和确认清单；获准保存草稿后，`submit --config … --confirm <清单哈希>` 只存草稿，`verify` 回读草稿和 SKU。提交回执中断时先用 `reconcile`。本工具适用于支持颜色销售属性的类目；逐 SKU 详情需要在京麦客户端完成。配置、交付文件和适用条件见[聚合草稿](../mature/listing/references/top-sku-aggregation.md)。

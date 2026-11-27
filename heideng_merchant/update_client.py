@@ -151,6 +151,11 @@ def active_usage(state, now=None):
     now = time.time() if now is None else now
     return [v for p in (area(state) / "usage").glob("*.json") if (v := read_json(p, {})).get("active") and v.get("expiresAt", 0) > now]
 
+def shared_pop_commits(snapshot):
+    lock = read_json(snapshot / 'maintenance/shared-pop.json', {})
+    return {name: group['commit'] for name, group in lock.get('groups', {}).items()}
+
+
 def usage(state, action, task_id, *, components=None, receipt=None, loaded_version=None):
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", task_id): raise SafetyError("update-task-id-invalid")
     root = area(state); directory = root / "usage"; directory.mkdir(exist_ok=True); path = directory / (task_id + ".json")
@@ -170,6 +175,7 @@ def usage(state, action, task_id, *, components=None, receipt=None, loaded_versi
             found = next((p for p in (root / 'versions').glob(loaded_version + '-*/' + SKILL_NAME) if verify_install(p)['valid']), None)
             if found is not None:
                 value = {'taskId':task_id,'loadedVersion':loaded_version,'packageRoot':str(found),'active':True,'expiresAt':time.time()+LEASE_SECONDS,'components':components or ['all'],'recoveryReceipt':str(Path(receipt).resolve()) if receipt else None}
+                value['sharedPopCommits'] = shared_pop_commits(found)
                 atomic_json(path,value); return value
         with FileLock(Path(state) / "install.lock", shared=True):
             installed = verify_install(target)
@@ -180,8 +186,8 @@ def usage(state, action, task_id, *, components=None, receipt=None, loaded_versi
             snapshot = root / "versions" / (version + "-" + install_digest(installed["receipt"])[:16]) / SKILL_NAME
             write_program_snapshot(state, target, installed["receipt"], snapshot)
 
-        reg = read_json(snapshot / "registry.json", {})
         value = {"taskId": task_id, "loadedVersion": version, "packageRoot": str(snapshot), "active": True, "expiresAt": time.time() + LEASE_SECONDS, "components": components or ["all"], "componentCommits": {p.parent.name:read_json(p)["upstreamCommit"] for p in (snapshot/"mature").glob("*/provenance.json")}, "recoveryReceipt": str(Path(receipt).resolve()) if receipt else None}
+        value['sharedPopCommits'] = shared_pop_commits(snapshot)
         atomic_json(path, value); return value
 
 def apply(state, *, source=None):
