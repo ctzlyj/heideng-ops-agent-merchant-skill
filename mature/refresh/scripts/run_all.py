@@ -26,10 +26,13 @@ QUOTA_BLOCKED = 3
 def parse_args(argv):
     steps, start_from = list(DEFAULT_STEPS), ""
     retries, wait_minutes, pids = 3, 0.0, []
+    operation = None
+    explicit_steps = False
     index = 2
     while index < len(argv):
         item = argv[index]
         if item == "--steps":
+            explicit_steps = True
             steps = [part.strip() for part in argv[index + 1].split(",") if part.strip()]
             index += 2
             continue
@@ -45,8 +48,25 @@ def parse_args(argv):
             wait_minutes = float(argv[index + 1])
             index += 2
             continue
+        if item in ("--progress", "--sample", "--reconcile-uploads", "--publish-existing"):
+            if operation:
+                raise ValueError("请为本次续办选择一个动作")
+            operation = item
+            if item != "--publish-existing":
+                pids.append(item)
+            if item == "--sample":
+                pids.append(argv[index + 1])
+                index += 1
+            index += 1
+            continue
         pids.append(item)
         index += 1
+    if operation:
+        allowed = {"--progress": ["report"], "--sample": ["compare"], "--reconcile-uploads": ["upload"],
+                   "--publish-existing": ["upload", "patch", "verify", "report"]}[operation]
+        if start_from or (explicit_steps and steps != allowed):
+            raise ValueError("所选续办动作与步骤不一致")
+        steps = allowed
     if start_from:
         steps = steps[steps.index(start_from):]
     return steps, retries, wait_minutes, pids

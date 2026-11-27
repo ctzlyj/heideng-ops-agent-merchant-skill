@@ -100,11 +100,78 @@ def patch_body(pid, state, changes):
     return body, expected
 
 
+def gallery_readback(expected, actual):
+    """Compare the persisted slot/SKU contract and explain exactly what differed."""
+    differences = {}
+
+    def note(field, identity):
+        entry = differences.setdefault(field, {'count': 0, 'examples': []})
+        entry['count'] += 1
+        if len(entry['examples']) < 5:
+            entry['examples'].append(identity)
+
+    if expected['categoryId'] != actual['categoryId']:
+        note('categoryId', 'product')
+    for gid in sorted(expected['groups'].keys() | actual['groups'].keys()):
+        if gid not in expected['groups'] or gid not in actual['groups']:
+            note('galleryGroup', gid)
+            continue
+        old, new = expected['groups'][gid], actual['groups'][gid]
+        for pos in range(max(len(old), len(new))):
+            if pos >= len(old) or pos >= len(new) or old[pos] != new[pos]:
+                note('gallerySlot', f'{gid}/{pos + 1}')
+
+    omitted = set()
+    for sid in sorted(expected['skus'].keys() | actual['skus'].keys()):
+        if sid not in expected['skus'] or sid not in actual['skus']:
+            note('skuId', sid)
+            continue
+        old, new = expected['skus'][sid], actual['skus'][sid]
+        for field in ('price', 'uuid'):
+            if old[field] != new[field]:
+                note(field, sid)
+        if old['attributes'] == new['attributes']:
+            continue
+        if len(old['attributes']) != len(new['attributes']):
+            note('saleAttrs', sid)
+            continue
+        for original, current in zip(old['attributes'], new['attributes']):
+            for field in original.keys() | current.keys():
+                if field == 'mappingId':
+                    if original.get(field) == current.get(field):
+                        continue
+                    if current.get(field) in (None, ''):
+                        omitted.add(sid)
+                        continue
+                elif field in original and field in current and original[field] == current[field]:
+                    continue
+                note('saleAttrs.' + field, sid)
+
+    # In an edit-detail read the platform can omit the former edit-schema mappingId.
+    # Accept that omission only when the actual gallery owner is independently proven.
+    if omitted:
+        try:
+            before_owners = gallery_owners(expected)
+            after_owners = gallery_owners(actual)
+        except ValueError:
+            before_owners, after_owners = {}, {}
+        for sid in sorted(omitted):
+            if not before_owners.get(sid) or before_owners[sid] != after_owners.get(sid):
+                note('saleAttrs.mappingId/owner-unverified', sid)
+    return {
+        'fieldDifferences': differences,
+        'mappingIdOmittedSkuCount': len(omitted),
+        'problems': [f"{field} 差异 {entry['count']} 处（{', '.join(entry['examples'])}）"
+                     for field, entry in differences.items()],
+    }
+
+
 def checked_result(record, state, *, recovered=False):
-    matches = record['expected'] == state
+    evidence = gallery_readback(record['expected'], state)
+    matches = not evidence['problems']
     return {**record['summary'], 'ok': matches,
             'status': 'verified-in-edit-detail' if matches else 'awaiting-readback',
-            'problems': [] if matches else ['原提交尚未与完整图组、SKU 及价格逐项对上'],
+            **evidence,
             'consumerPageStatus': 'unchecked', 'reconciled': recovered,
             'checkedAt': datetime.now(timezone.utc).isoformat(timespec='seconds'),
             'receipt': record['directory']}
@@ -154,7 +221,7 @@ def prior_result(root, current, state, request, reconcile):
             return {**current['summary'], 'status': 'rejected', 'ok': False, 'replayed': False,
                     'platformCode': current['platformCode'], 'receipt': current['directory']}
         return None
-    if not reconcile and current['status'] == 'verified' and (not same or current['expected'] != state):
+    if not reconcile and current['status'] == 'verified' and not same:
         return None
     result = checked_result(current, state, recovered=True)
     if result['ok']:
@@ -310,7 +377,8 @@ def mapped_patch(cli, read_detail, identity, pid, mapping, *, allow_shared=False
         return submit(cli, read_detail, root, pid, state, changes, summary, request, identity, directory)
 
 
-def frozen_patch(cli, read_detail, identity, pid, frozen_detail, mapping, positions, max_position, body_dir, clean_url):
+def frozen_patch(cli, read_detail, identity, pid, frozen_detail, mapping, positions, max_position, body_dir,
+                 clean_url, selected_slots=None):
     """Reuse a refresh plan's deduplicated assets only in the originally selected positions."""
     root = location(cli, identity, pid)
     with product_image_lock(root, identity, pid):
@@ -319,30 +387,47 @@ def frozen_patch(cli, read_detail, identity, pid, frozen_detail, mapping, positi
         live = snapshot(detail, pid)
         changes = {}
         used = set()
+        exact = None
+        if selected_slots is not None:
+            exact = {}
+            for slot in selected_slots:
+                address = (str(slot['group']), int(slot['position']))
+                url = clean_url(slot['url'])
+                if address in exact or url not in mapping:
+                    raise ValueError('批准图位重复或缺少对应的原图上传回执')
+                exact[address] = url
         for gid, urls in original['groups'].items():
             for pos, old in enumerate(urls, 1):
                 key = clean_url(old)
+                if exact is not None and exact.get((gid, pos)) != key:
+                    continue
                 if pos <= min(max_position, 9) and (not positions or pos in positions) and key in mapping:
                     changes.setdefault(gid, {})[pos] = (old, mapping[key])
                     used.add(key)
-        if used != set(mapping):
+        count = sum(len(slots) for slots in changes.values())
+        if used != set(mapping) or (exact is not None and count != len(exact)):
             raise ValueError('上传回执与冻结图位、原图地址无法一一对应')
         _, expected = patch_body(pid, original, changes)
         request = {'mode': 'refresh', 'mapping': mapping, 'run': str(Path(body_dir).resolve()),
                    'positions': sorted(positions), 'maxPosition': max_position}
+        if exact is not None:
+            request['selectedSlots'] = [[gid, pos, url] for (gid, pos), url in sorted(exact.items())]
         current = read_json(root / 'current.json')
         verify_receipt_store(current, identity)
         previous = prior_result(root, current, live, request, False)
-        if previous is not None:
+        if previous is not None and previous.get('status') != 'prior-edit-recovered':
             return previous
-        if expected == live:
+        evidence = gallery_readback(expected, live)
+        if not evidence['problems']:
             return {'productId': pid, 'ok': True, 'status': 'verified-in-edit-detail', 'reconciled': True,
-                    'consumerPageStatus': 'unchecked', 'replaced': len(used), 'problems': []}
+                    'consumerPageStatus': 'unchecked', 'replaced': len(used), 'changedSlots': count, **evidence}
         legacy = Path(body_dir) / f'patch_{pid}.json'
         if legacy.exists() and (not current or current['request'] != request):
             raise ValueError('原刷新任务留有提交体，当前图组与原计划尚未完全对上，请先对账：' + str(legacy))
         require_no_pending_sku_edit(identity, pid)
         require_available_draft(detail)
-        if original != live:
-            raise ValueError('当前图组或规格与冻结计划已不同，已保留上传回执，请先核对原任务')
+        baseline = gallery_readback(original, live)
+        if baseline['problems']:
+            return {'productId': pid, 'status': 'frozen-state-changed', 'ok': False, 'writes': 0,
+                    'consumerPageStatus': 'unchecked', **baseline}
         return submit(cli, read_detail, root, pid, live, changes, {'replaced': len(used)}, request, identity, body_dir)

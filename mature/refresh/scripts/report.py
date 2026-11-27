@@ -6,6 +6,7 @@ Both deliverables always carry 店铺名, 店铺ID and the optimisation scope
 (主图 / 详情页), plus the prompt that was actually used.
 """
 
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -48,6 +49,31 @@ def scope_text(plan):
     scopes = plan.get("scopes") or ["main"]
     names = {"main": "主图", "detail": "详情页"}
     return " + ".join(names.get(item, item) for item in scopes)
+
+
+def price_result(entry):
+    return {True: "未变更", False: "有变更"}.get(entry.get("pricesUnchanged"), "待核对")
+
+
+def progress(plan, generation, uploads, patches, verification):
+    """Summarize the frozen task's existing receipts, including partially finished runs."""
+    keys = set(plan.get("tasks") or {})
+    pids = {str(task["productId"]) for task in plan["tasks"].values()}
+    succeeded = [generation[key] for key in keys if generation.get(key, {}).get("status") == "succeeded"]
+    confirmed = {pid: patches[pid] for pid in pids if patches.get(pid, {}).get("status") == "verified-in-edit-detail"}
+    independent = {pid: verification[pid] for pid in pids if verification.get(pid, {}).get("ok")}
+    reused = sum(bool(record.get("reusedSample")) for record in succeeded)
+    return {"targetProducts": len(pids), "plannedAssets": len(keys), "newImagesSucceeded": len(succeeded) - reused,
+            "approvedSamplesReused": reused,
+            "uploadedAssets": sum(uploads.get(key, {}).get("status") == "succeeded" for key in keys),
+            "unresolvedUploads": sum(uploads.get(key, {}).get("status") in ("uploading", "unknown") for key in keys),
+            "patchVerifiedProducts": len(confirmed),
+            "patchVerifiedMainSlots": sum(record.get("changedSlots", 0) for record in confirmed.values()),
+            "patchAwaitingReadback": sum(patches.get(pid, {}).get("status") in
+                                         ("awaiting-readback", "prior-edit-pending") for pid in pids),
+            "finalVerifiedProducts": len(independent),
+            "finalVerifiedMainSlots": sum(record.get("newImages", 0) for record in independent.values()),
+            "consumerPageStatus": "unchecked"}
 
 
 def rejected_rows(plan, generation):
@@ -116,9 +142,9 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
                 patch.get("cappedPositions", capped_count(plan, pid)),
                 rejected,
                 kept_original,
-                "未变更" if entry.get("pricesUnchanged", True) else "有变更",
+                price_result(entry),
                 entry.get("status", ""),
-                "通过" if entry.get("ok") else "未通过",
+                "待核对" if not entry else ("通过" if entry.get("ok") else "未通过"),
                 "; ".join(entry.get("problems") or []),
                 main_compare if product.get("positions") else "",
                 detail_compare,
@@ -148,14 +174,13 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
         ("优化范围", scope_text(plan)),
         (
             "改图口径",
-            "逐张按原图重制；同一商品内相同图片只生成一次、多组复用；"
-            "双 gpt 生图模型（Flare/Sunburst）并发生成",
+            "按本批次选中的图位与图片设计执行，原图及成图标识见任务回执。",
         ),
         ("提示词", "逐图设计与来源见 image-quote.json；执行情况见 internal-generation.json"),
         (
-            "未变更项",
-            "标题、价格、品牌、库存、商品状态、SKU 规格图（ggtImages）；"
-            "主图位号超过%d的不参与" % int(job.get("maxPosition") or common.DEFAULT_MAX_POSITION),
+            "核验范围",
+            "主图按组、位次及 SKU 核对编辑详情。买家端另行检查。"
+            "本次主图操作的位置上限为 %d。" % int(job.get("maxPosition") or common.DEFAULT_MAX_POSITION),
         ),
     ]
     if "detail" in (plan.get("scopes") or []):
@@ -198,6 +223,7 @@ def add_rejected_sheet(workbook, plan, generation):
 
 
 def build_markdown(run, job, identity, plan, verification, generation, uploads, patches, label):
+    counts = progress(plan, generation, uploads, patches, verification)
     total_main = sum(entry.get("images", 0) for entry in verification.values())
     new_main = sum(entry.get("newImages", 0) for entry in verification.values())
     total_detail = sum(entry.get("detailImages", 0) for entry in verification.values())
@@ -209,22 +235,18 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
         "- 店铺ID：%s" % identity["venderId"],
         "- jdo Profile：%s" % job["profile"],
         "- 优化范围：%s" % scope_text(plan),
-        "- 目标商品：%d 条" % len(verification),
+        "- 目标商品：%d 条" % counts["targetProducts"],
         "- 主图：槽位 %d 个，换新 %d 个" % (total_main, new_main),
         "- 详情页：图片 %d 张，换新 %d 张" % (total_detail, new_detail),
-        "- 生图：%d/%d 成功" % (
-            sum(1 for value in generation.values() if value.get("status") == "succeeded"),
-            len(generation),
-        ),
+        "- 图片计划 %d 张，新增生成 %d 张，复用已批准样张 %d 张。" %
+        (counts["plannedAssets"], counts["newImagesSucceeded"], counts["approvedSamplesReused"]),
         "- 上传：%d，主图 PATCH：%d/%d 商品成功" % (
-            sum(1 for value in uploads.values() if value.get("status") == "succeeded"),
-            sum(1 for value in patches.values() if value.get("ok")),
-            len(patches),
+            counts["uploadedAssets"], counts["patchVerifiedProducts"], counts["targetProducts"],
         ),
         "- 独立终验：%d/%d 通过" % (
-            sum(1 for value in verification.values() if value.get("ok")),
-            len(verification),
+            counts["finalVerifiedProducts"], counts["targetProducts"],
         ),
+        "- 终验通过商品的实际主图换新位置共 %d 个。买家端尚未核验。" % counts["finalVerifiedMainSlots"],
         "- 审核拒绝：%d 张（对应图片保留原图，明细见 Excel「审核拒绝明细」）" % sum(
             1 for value in generation.values() if value.get("status") == "rejected"
         ),
@@ -246,7 +268,7 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
                 entry.get("images", 0),
                 entry.get("detailNewImages", 0),
                 entry.get("detailImages", 0),
-                "未变更" if entry.get("pricesUnchanged", True) else "有变更",
+                price_result(entry),
                 entry.get("status", ""),
                 "通过" if entry.get("ok") else "未通过：" + "; ".join(entry.get("problems") or []),
             )
@@ -272,8 +294,8 @@ def main(argv):
     job = common.load_job(run)
     plan = common.load_json(run / "plan-batch.json")
     verification = common.load_json(run / "final-verification.json")
-    if not plan or not verification:
-        raise SystemExit("missing plan-batch.json or final-verification.json")
+    if not plan:
+        raise SystemExit("missing plan-batch.json")
     identity = common.load_json(run / "identity.json") or {
         "shopName": job["shopName"],
         "venderId": job["venderId"],
@@ -281,6 +303,11 @@ def main(argv):
     generation = common.load_json(run / "internal-generation.json") or {}
     uploads = common.load_json(run / "uploads.json") or {}
     patches = common.load_json(run / "patch-results.json") or {}
+    if "--progress" in argv[2:]:
+        print(json.dumps(progress(plan, generation, uploads, patches, verification or {}), ensure_ascii=False))
+        return
+    if not verification:
+        raise SystemExit("missing final-verification.json; use --progress to read current receipts")
     label = str(job.get("label") or datetime.now().strftime("%Y%m%d"))
 
     xlsx = build_xlsx(run, job, identity, plan, verification, patches, generation, label)

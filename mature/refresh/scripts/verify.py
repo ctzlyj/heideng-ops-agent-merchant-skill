@@ -17,32 +17,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401  (hide jdo-cli console windows)
 import _common as common
 import detail_patch_update as detail_patch
+from heideng_merchant.gallery_patch import gallery_readback, snapshot
 
 
 def evaluate_product(
-    before, after, plan_product, plan, patches, uploads, before_status, list_status
+    before, after, plan_product, plan, patches, uploads, before_status, list_status, generation=None
 ):
     """Per-product main-image decision function."""
     problems = []
     pid = int(plan_product["productId"])
     before_groups = common.main_groups(before)
     after_groups = common.main_groups(after)
-    if len(before_groups) != len(after_groups):
-        problems.append("group count %d -> %d" % (len(before_groups), len(after_groups)))
-    before_slots = sum(len(urls) for urls in before_groups.values())
     after_urls = [url for urls in after_groups.values() for url in urls]
-    if before_slots != len(after_urls):
-        problems.append("slot count %d -> %d" % (before_slots, len(after_urls)))
-    if len(before_groups) != len(after_groups) or before_slots != len(after_urls):
-        problems.append(
-            "外部改动：改前快照与线上不一致，先确认是否有同事在改这条商品；"
-            "确认后运行 python scripts\\repair_one.py <run> %d 重建该商品再单独 patch/verify" % pid
-        )
-
     retained_keys = set((patches.get(str(pid)) or {}).get("missingKeys") or [])
     mapping = {}
     for item in plan_product["positions"]:
         if item["key"] in retained_keys:
+            if ((generation or {}).get(item["key"]) or {}).get("status") != "rejected":
+                problems.append("待核对的图片缺少成功上传回执：" + item["key"])
             continue
         receipt = uploads.get(item["key"]) or {}
         if receipt.get("status") != "succeeded" or not receipt.get("imgUrl"):
@@ -52,29 +44,33 @@ def evaluate_product(
     capped = {(str(item["group"]), int(item["position"])) for item in plan.get("capped") or []
               if int(item["productId"]) == pid}
     position_filter = set(plan.get("positionFilter") or [])
+    selected = None
+    if "selectedSlots" in plan_product:
+        selected = {}
+        for slot in plan_product["selectedSlots"]:
+            gid, pos = str(slot["group"]), int(slot["position"])
+            urls = before_groups.get(gid, [])
+            if ((gid, pos) in selected or not 1 <= pos <= min(9, len(urls))
+                    or urls[pos - 1] != common.clean_url(slot["url"])):
+                problems.append(f"冻结图位与批准的原图不符：{gid}/{pos}")
+            selected[gid, pos] = common.clean_url(slot["url"])
     new_count = 0
-    if set(after_groups) != set(before_groups):
-        problems.append("gallery group identities changed")
+    expected_groups = {}
     for gid, urls in before_groups.items():
         actual = after_groups.get(gid) or []
+        expected_groups[gid] = []
         for index, old in enumerate(urls, 1):
             allowed = index <= 9 and (not position_filter or index in position_filter) and (gid, index) not in capped
+            if selected is not None:
+                allowed = allowed and selected.get((gid, index)) == old
             expected = mapping.get(old, old) if allowed else old
-            if index > len(actual) or actual[index - 1] != expected:
-                problems.append("group %s slot %d does not match its planned image" % (gid, index))
-            elif expected != old:
+            expected_groups[gid].append(expected)
+            if index <= len(actual) and actual[index - 1] == expected and expected != old:
                 new_count += 1
-
-    before_prices = {
-        str(sku["skuId"]): (sku.get("priceInfo") or {}).get("jdPrice")
-        for sku in before.get("skuList") or []
-    }
-    after_prices = {
-        str(sku["skuId"]): (sku.get("priceInfo") or {}).get("jdPrice")
-        for sku in after.get("skuList") or []
-    }
-    if before_prices != after_prices:
-        problems.append("sku prices changed")
+    before_state, after_state = snapshot(before, pid), snapshot(after, pid)
+    before_state["groups"], after_state["groups"] = expected_groups, after_groups
+    evidence = gallery_readback(before_state, after_state)
+    problems.extend(evidence["problems"])
 
     if (after.get("material") or {}).get("rectangleImages") != (before.get("material") or {}).get("rectangleImages"):
         problems.append("rectangle images changed")
@@ -82,10 +78,11 @@ def evaluate_product(
     after_status = common.status_int((after.get("productInfo") or {}).get("productStatus"))
     raw_status = list_status if list_status is not None else after_status
     planned_status = plan_product.get("listStatus")
-    if planned_status is not None and list_status is not None and int(planned_status) != int(list_status):
+    if planned_status is not None and (list_status is None or int(planned_status) != int(list_status)):
         problems.append("list status changed %s -> %s" % (planned_status, list_status))
 
     return {
+        **evidence,
         "ok": not problems,
         "problems": problems,
         "groupCount": len(after_groups),
@@ -93,7 +90,13 @@ def evaluate_product(
         "newImages": new_count,
         "oldKept": len(after_urls) - new_count,
         "retainedKeys": sorted(retained_keys),
-        "pricesUnchanged": before_prices == after_prices,
+        "pricesUnchanged": not ({"skuId", "price"} & evidence["fieldDifferences"].keys()),
+        "consumerPageStatus": "unchecked",
+        "verifiedAssets": {
+            item["key"]: {"imgUrl": common.clean_url(uploads[item["key"]]["imgUrl"]),
+                          "sha256": uploads[item["key"]].get("sha256")}
+            for item in plan_product["positions"] if not problems and item["key"] not in retained_keys
+        },
         "status": int(raw_status or 0),
         "applyStatus": int(after_status or 0),
         "applyStatusBefore": int(before_status or 0),
@@ -165,6 +168,7 @@ def main(argv):
     scopes = plan.get("scopes") or ["main"]
     uploads = common.load_json(run / "uploads.json") or {}
     patches = common.load_json(run / "patch-results.json") or {}
+    generation = common.load_json(run / "internal-generation.json") or {}
     selected = common.plan_products(plan, argv[2:])
 
     cli = common.connect(job)
@@ -176,14 +180,18 @@ def main(argv):
         return pid, common.apply_detail(cli, pid)
 
     after_details = {}
+    read_errors = {}
     workers = int(job.get("fetchConcurrency") or 6)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(fetch, int(product["productId"])): product for product in selected
         }
         for index, future in enumerate(as_completed(futures), 1):
-            pid, detail = future.result()
-            after_details[pid] = detail
+            try:
+                pid, detail = future.result()
+                after_details[pid] = detail
+            except Exception as exc:
+                read_errors[int(futures[future]["productId"])] = str(exc)[:300]
             if index % 25 == 0 or index == len(selected):
                 print("readback %d/%d" % (index, len(selected)), flush=True)
 
@@ -191,17 +199,22 @@ def main(argv):
     for product in selected:
         pid = int(product["productId"])
         before = common.load_json(run / "products" / str(pid) / "before-apply.json")
-        if not before:
-            raise SystemExit("missing before-apply.json for %s" % pid)
+        if not before or pid in read_errors:
+            report[str(pid)] = {"title": product["title"], "ok": False, "consumerPageStatus": "unchecked",
+                                "problems": [read_errors.get(pid) or "missing before-apply.json"]}
+            continue
         after = after_details[pid]
         before_status = common.status_int((before.get("productInfo") or {}).get("productStatus"))
         entry = {"title": product["title"]}
         problems = []
 
         if product.get("positions"):
-            main_entry = evaluate_product(
-                before, after, product, plan, patches, uploads, before_status, statuses.get(pid)
-            )
+            try:
+                main_entry = evaluate_product(
+                    before, after, product, plan, patches, uploads, before_status, statuses.get(pid), generation
+                )
+            except (ValueError, KeyError, TypeError) as exc:
+                main_entry = {"ok": False, "consumerPageStatus": "unchecked", "problems": [str(exc)[:300]]}
             entry.update(main_entry)
             problems.extend(main_entry["problems"])
         else:
@@ -254,7 +267,9 @@ def main(argv):
             flush=True,
         )
 
-    common.save_json(run / "final-verification.json", report)
+    output = run / "final-verification.json"
+    previous = common.load_json(output) or {}
+    common.save_json(output, {**previous, **report})
     ok = sum(1 for entry in report.values() if entry["ok"])
     print("final: ok=%d of %d" % (ok, len(report)), flush=True)
     if ok < len(report):

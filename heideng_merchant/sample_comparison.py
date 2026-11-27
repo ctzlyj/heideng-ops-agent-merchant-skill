@@ -87,6 +87,15 @@ def download_image(url):
     return raw.getvalue()
 
 
+def original_image_url(value):
+    """Use the uploaded JD image when a gallery supplies a display rendition."""
+    url = jd_image_url(value)
+    parsed = urlsplit(url)
+    if re.match(r'^/n\d+/',parsed.path):
+        return f'https://{parsed.hostname}/imgzone/jfs/'+parsed.path.split('/jfs/',1)[1]
+    return url
+
+
 def before_for_sku(sample_dir, detail, target, *, existing=None, readback_source, fetch=None):
     """Capture exact live pixels, or match an old CDN rendition byte-for-byte."""
     from .sku_image_edit import pictures
@@ -94,7 +103,7 @@ def before_for_sku(sample_dir, detail, target, *, existing=None, readback_source
     sid, pid = str(target['skuId']), str(target['productId'])
     if not sid.isdecimal() or not pid.isdecimal():
         raise ValueError('缺少已核实的目标 SKU 或 SPU')
-    url = jd_image_url(pictures(detail,pid).get(sid))
+    url = original_image_url(pictures(detail,pid).get(sid))
     urls = [url]
     if existing:
         # Older WorkBuddy jobs saved the n1 thumbnail rather than the full uploaded JPEG.

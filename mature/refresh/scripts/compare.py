@@ -6,6 +6,7 @@ Each comparison keeps the full image (no crop) with the original on the left
 and the regenerated image on the right, one row per main-image slot.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401
 import _common as common
+from heideng_merchant.safety import file_sha
 
 FONT = "C:/Windows/Fonts/msyh.ttc"
 ROW_LABEL_H = 42
@@ -25,11 +27,12 @@ DETAIL_W = 620
 
 
 def fonts():
-    return (
-        ImageFont.truetype(FONT, 26),
-        ImageFont.truetype(FONT, 20),
-        ImageFont.truetype(FONT, 18),
-    )
+    for font in (FONT, "/System/Library/Fonts/PingFang.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "DejaVuSans.ttf"):
+        try:
+            return tuple(ImageFont.truetype(font, size) for size in (26, 20, 18))
+        except OSError:
+            continue
+    return (ImageFont.load_default(),) * 3
 
 
 def slot_label(group_id, position):
@@ -97,9 +100,14 @@ def build_detail_compare(run, product, comparisons, font, font_note):
 
 
 def main(argv):
-    if len(argv) < 2:
-        raise SystemExit("usage: compare.py <run_dir> [productId ...]")
-    run = Path(argv[1]).resolve()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("run_dir", type=Path)
+    parser.add_argument("product_ids", nargs="*")
+    parser.add_argument("--sample", type=int, help="抽取不同商品，每件展示一个已就绪的主图对照")
+    args = parser.parse_intermixed_args(argv[1:])
+    if args.sample is not None and not 1 <= args.sample <= 60:
+        parser.error("--sample 需要 1–60 个商品")
+    run = args.run_dir.resolve()
     job = common.load_job(run)
     plan = common.load_json(run / "plan-batch.json")
     if not plan:
@@ -113,9 +121,13 @@ def main(argv):
     comparisons = run / "comparisons"
     comparisons.mkdir(exist_ok=True)
     font, font_note, font_small = fonts()
+    verification = common.load_json(run / "final-verification.json") or {}
+    uploads = common.load_json(run / "uploads.json") or {}
 
     overview_rows = []
-    for product in common.plan_products(plan, argv[2:]):
+    for product in common.plan_products(plan, args.product_ids):
+        if args.sample and len(overview_rows) >= args.sample:
+            break
         pid = int(product["productId"])
         rows = []
         for position in product["positions"]:
@@ -125,18 +137,29 @@ def main(argv):
             after_path = generated / (key + ".png")
             if not before_path.exists() or not after_path.exists():
                 continue
+            check = verification.get(str(pid)) or {}
+            receipt = uploads.get(key) or {}
+            stage = "本地样张"
+            if receipt.get("status") == "succeeded" and receipt.get("sha256") == file_sha(after_path):
+                stage = "有上传回执"
+                proof = (check.get("verifiedAssets") or {}).get(key) or {}
+                if (check.get("ok") and proof.get("sha256") == receipt["sha256"]
+                        and proof.get("imgUrl") == common.clean_url(receipt["imgUrl"])):
+                    stage = "编辑详情已核对"
             with Image.open(before_path) as before_img:
                 before_image = before_img.convert("RGB")
             with Image.open(after_path) as after_img:
                 after_image = after_img.convert("RGB")
             rows.append(
                 (
-                    slot_label(position["group"], position["position"]),
+                    slot_label(position["group"], position["position"]) + " · " + stage,
                     before_image,
                     after_image,
                 )
             )
-        if product.get("detailImages"):
+            if args.sample:
+                break
+        if product.get("detailImages") and not args.sample:
             build_detail_compare(run, product, comparisons, font, font_note)
         if not rows:
             if not product.get("detailImages"):
@@ -144,7 +167,7 @@ def main(argv):
             continue
 
         row_height = max(max(before.height, after.height) for _, before, after in rows)
-        cell_width = rows[0][1].width
+        cell_width = max(max(before.width, after.width) for _, before, after in rows)
         canvas_w = MARGIN * 2 + cell_width * 2 + GAP
         canvas_h = TITLE_H + len(rows) * (ROW_LABEL_H + row_height + GAP) + MARGIN
         canvas = Image.new("RGB", (canvas_w, canvas_h), "white")
@@ -181,9 +204,10 @@ def main(argv):
                 (MARGIN + before_image.width + GAP + 6, y + 6), "后", fill="#e0533d", font=font_note
             )
             y += row_height + GAP
-        out = comparisons / ("%d-compare.png" % pid)
-        canvas.save(out, "PNG")
-        print("built", out, canvas.size, flush=True)
+        if not args.sample:
+            out = comparisons / ("%d-compare.png" % pid)
+            canvas.save(out, "PNG")
+            print("built", out, canvas.size, flush=True)
 
         thumbs = []
         for _, before_image, after_image in rows[:3]:
@@ -192,35 +216,38 @@ def main(argv):
             after_thumb = after_image.copy()
             after_thumb.thumbnail((THUMB, THUMB))
             thumbs.append((before_thumb, after_thumb))
-        overview_rows.append((pid, product["title"], thumbs))
+        overview_rows.append((pid, product["title"], thumbs, rows[0][0]))
 
-    if 1 < len(overview_rows) <= 60:
+    if (args.sample and overview_rows) or 1 < len(overview_rows) <= 60:
         label_w = 430
         row_h = (
             max(
                 max(before.height, after.height)
-                for _, _, thumbs in overview_rows
+                for _, _, thumbs, _ in overview_rows
                 for before, after in thumbs
             )
             + 8
         )
+        row_h = max(row_h, 60)
         pair_w = THUMB * 2 + 6
-        canvas_w = MARGIN * 2 + label_w + 3 * pair_w
+        canvas_w = MARGIN * 2 + label_w + max(len(row[2]) for row in overview_rows) * pair_w
         canvas_h = 46 + len(overview_rows) * row_h
         canvas = Image.new("RGB", (canvas_w, canvas_h), "white")
         draw = ImageDraw.Draw(canvas)
         draw.text(
             (MARGIN, 10),
-            "%s %d 条商品主图换新总览（每条前3位 左前右后）"
+            "%s %d 条商品主图对照（左原图 右本地成图；买家端未核验）"
             % (identity["shopName"], len(overview_rows)),
             fill="black",
             font=font,
         )
         y = 46
-        for pid, title, thumbs in overview_rows:
+        for pid, title, thumbs, first_slot in overview_rows:
             draw.text(
                 (MARGIN, y + 6), "%d %s" % (pid, title[:22]), fill="#333333", font=font_small
             )
+            if args.sample:
+                draw.text((MARGIN, y + 30), first_slot, fill="#333333", font=font_small)
             x = MARGIN + label_w
             for before, after in thumbs:
                 canvas.paste(before, (x, y))
@@ -238,7 +265,7 @@ def main(argv):
                 x += pair_w
             y += row_h
             draw.line([(MARGIN, y), (canvas_w - MARGIN, y)], fill="#dddddd")
-        out = run / "all-links-overview.png"
+        out = run / (f"sample-{args.sample}-products.png" if args.sample else "all-links-overview.png")
         canvas.save(out, "PNG")
         print("overview saved:", out, canvas.size)
     elif len(overview_rows) > 60:

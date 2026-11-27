@@ -10,7 +10,7 @@ from .safety import atomic_json, file_sha, read_json, safe_join, redact
 from .state import FileLock, merchant_home
 
 
-ACTIONS = ('batch-plan','batch-run','batch-resume','batch-stop','batch-status')
+ACTIONS = ('batch-plan','batch-run','batch-resume','batch-stop','batch-status','batch-skip','batch-census','batch-materials')
 WRITE_CONFIRM = {'pilot':'PUBLISH_COPY_PILOT','bulk':'PUBLISH_FROZEN_SCOPE'}
 
 
@@ -19,7 +19,7 @@ def register(subs):
         p = subs.add_parser(name)
         if name != 'batch-plan':
             p.add_argument('--batch',required=True)
-        if name in ('batch-plan','batch-run','batch-resume'):
+        if name in ('batch-plan','batch-run','batch-resume','batch-materials'):
             for side in ('source','target'):
                 p.add_argument('--'+side+'-config',type=Path,required=True)
                 p.add_argument('--'+side+'-profile',required=True)
@@ -39,6 +39,18 @@ def register(subs):
             p.add_argument('--stop-id',help='商家已要求继续时，指明要解除的原停止回执')
         if name == 'batch-stop':
             p.add_argument('--reason',default='商家要求停止')
+        if name=='batch-skip':
+            p.add_argument('--source-product-id',action='append',required=True,help='商家放弃的源商品，可重复')
+            p.add_argument('--reason',default='商家要求跳过')
+        if name=='batch-census':
+            p.add_argument('--target-config',type=Path,required=True)
+            p.add_argument('--target-profile',required=True)
+        if name=='batch-materials':
+            p.add_argument('--health',action='store_true')
+            p.add_argument('--confirm',choices=['FILL_MISSING_COPY_MATERIALS'])
+            p.add_argument('--source-product-id',action='append',default=[])
+        if name=='batch-status':
+            p.add_argument('--output',type=Path,help='保存当前批次原始报告，供后续主图任务读取')
 
 
 def _base():
@@ -136,10 +148,16 @@ class BatchStopped(Exception):
     pass
 
 
-def _check_stop(root):
+class MemberSkipped(Exception):
+    pass
+
+
+def _check_stop(root, source_id=None):
     record = read_json(root/'stop.json',{})
     if record.get('active'):
         raise BatchStopped(record['stopId'])
+    if source_id and source_id in read_json(root/'excluded-sources.json',{}):
+        raise MemberSkipped(source_id)
 
 
 def _set_stop(root, args):
@@ -232,6 +250,9 @@ def publication_directory(root):
 def _report(root, batch, scope):
     from .owned_product_copy import _digest
     rows=[read_json(_record_path(root,pid),{'sourceProductId':pid,'status':'not-started'}) for pid in scope['sourceProductIds']]
+    excluded=read_json(root/'excluded-sources.json',{})
+    for row in rows:
+        row['skippedByMerchant']=row['sourceProductId'] in excluded
     # A pilot can predate this batch. Use the original frozen plan's count where
     # available, even when this batch has not yet touched that member.
     for row in rows:
@@ -261,6 +282,7 @@ def _report(root, batch, scope):
                        unverified=sum(known)-code_counts['verified']-code_counts['different'])
     return {'status':'batch-status','batchId':batch,'ok':True,'sourceShop':scope['sourceShop'],'targetShop':scope['targetShop'],
             'pilotId':scope['pilotId'],'scopeSize':len(rows),'countsByStatus':counts,'rows':rows,
+            'excludedSourceProductIds':list(excluded),
             'uniqueMappedTargets':len(unique),
             'productsReadBack':sum(r.get('readbackView')=='product' for r in reports),
             'onSaleCount':sale_counts['on-sale'],'notOnSaleCount':sale_counts['not-on-sale'],
@@ -291,6 +313,10 @@ def _observe(api, single, folder, frozen, target, args, prior):
         application=api.matrix.read_apply(prior['applyId'])
         pid=(application.get('productInfo') or {}).get('productId')
         if pid:
+            review=api.application_observation(pid,prior['applyId'],application)
+            if review['auditState']=='rejected':
+                return {**prior,'targetProductId':str(pid),'comparison':{'status':'application-rejected','readbackView':'application',
+                        'saleState':'unknown',**review}}
             api.read_owned_detail(int(pid))
             pub=publication_directory(single)
             marker=read_json(pub/'publish-body.submit-state.json',{})
@@ -327,11 +353,7 @@ def _observe(api, single, folder, frozen, target, args, prior):
         try:
             lookup=prior.get('applyId') or pid
             apply=api.matrix.read_apply(lookup)
-            if str((apply.get('productInfo') or {}).get('productId'))==str(pid):
-                info=apply.get('applyInfo') or {}
-                code=info.get('draftComputeStatus')
-                compared.update(applicationStatus={'applyId':prior.get('applyId') or info.get('applyId'),'lookupId':str(lookup),'draftComputeStatus':code},
-                                auditState='pending' if str(code)=='1' else 'rejected' if str(code)=='3' else 'unknown')
+            compared.update(api.application_observation(pid, prior.get('applyId'), apply))
         except (api.api.JdoError,api.matrix.MatrixError,ValueError,KeyError,OSError):
             pass
     return {**prior,'targetProductId':str(pid),'comparison':compared}
@@ -387,7 +409,7 @@ def _single(api, batch_root, scope, pid, args, phase, previous, category_holds):
             missing=prepared.get('missing') or []
             if retry or not missing or any(not str(item).startswith('目标店铺素材地址未唯一核验：') for item in missing):
                 return {**base,**prepared}
-            media=api.stage_media(folder,frozen,target,before_write=lambda:_check_stop(batch_root))
+            media=api.stage_media(folder,frozen,target,before_write=lambda:_check_stop(batch_root,pid))
             if media['status']!='media-ready':
                 return {**base,**media}
             prepared=api.prepare(folder,frozen,target,publish_args)
@@ -397,7 +419,7 @@ def _single(api, batch_root, scope, pid, args, phase, previous, category_holds):
         if previous.get('blockedPayload')==payload:
             return {**previous,**base,'status':'validation-needs-review'}
         common.approval=prepared['approvalFingerprint']
-        prior=api.submit_one(single,folder,frozen,target,common,before_write=lambda:_check_stop(batch_root))
+        prior=api.submit_one(single,folder,frozen,target,common,before_write=lambda:_check_stop(batch_root,pid))
         if prior['status'] not in ('submitted','existing-target-for-comparison','submission-needs-reconciliation'):
             row={**base,**prior}
             if prior['status']=='validation-needs-review':
@@ -448,15 +470,154 @@ def _claims(target,api):
     return owners
 
 
+def _permission_recovery_member(root, scope, ids, held, categories, evidence, api):
+    """A store-wide hold permits only a bound corrective attempt (or its accepted receipt)."""
+    excluded = read_json(root/'excluded-sources.json',{})
+    requested = read_json(evidence,{}) if evidence else {}
+    for category in categories.values():
+        pid = category.get('sourceProductId')
+        if (pid not in ids or pid in excluded or category.get('systemicSignature') != held.get('platformCodes')):
+            continue
+        task = api.pair_key({**scope,'sourceProductId':pid})
+        if evidence and requested.get('taskId') == task and category.get('active'):
+            return pid
+        prior = api.publication_state(api.task_directory(task),task)
+        if (prior.get('status')=='submitted' and prior.get('receiptDirectory')
+                and Path(prior['receiptDirectory']).name!='publication'):
+            return pid
+    return None
+
+
+def _member_targets(scope, rows, api):
+    claims=_claims(scope['targetShop'],api)
+    mapped={}
+    conflicts=set()
+    for row in rows:
+        sid=row['sourceProductId']
+        existing=scope['existingTargets'].get(sid)
+        tid=str(row.get('targetProductId') or existing or '')
+        mapped[sid]=tid
+        if not tid:
+            continue
+        task=api.pair_key({**scope,'sourceProductId':sid})
+        if existing and str(existing)!=tid:
+            conflicts.add(str(existing))
+            conflicts.add(tid)
+        if row['status']=='mapping-conflict' or claims.get(tid,set())-{task}:
+            conflicts.add(tid)
+    return mapped,conflicts|{tid for tid,count in Counter(mapped.values()).items() if tid and count>1}
+
+
+def _batch_materials(root,scope,args,api):
+    from .shop_copy_materials import handle
+    if _stores(args,api)!=(scope['sourceShop'],scope['targetShop']):
+        raise ValueError('源店或目标店与原批次不一致')
+    if api.verify(args.target_config,args.target_profile)!=scope['targetShop']:
+        raise ValueError('目标店的身份已变化')
+    active_catalog=api.pipeline.list_products(require_success=True)
+    api.api.recheck_verified_jdo_store()
+    on_sale={str(r['productId']) for r in active_catalog if str(r.get('productStatus')) in ('1','103')}
+    batch=_report(root,args.batch,scope)
+    mapped,conflicts=_member_targets(scope,batch['rows'],api)
+    chosen=set(args.source_product_id or scope['sourceProductIds'])
+    if not chosen<=set(mapped):raise ValueError('素材范围含未在原批次出现的源商品')
+    outcome={'batchId':args.batch,'sourceShop':scope['sourceShop'],'targetShop':scope['targetShop'],'rows':[],
+             'requestedCount':len(chosen),'onSaleOutsideBatch':sorted(on_sale-set(mapped.values())-set(scope['existingTargets'].values())),
+             'status':'running','checkedAt':int(time.time())}
+    path=root/'material-audits'/f'{uuid.uuid4().hex}.json'
+    atomic_json(path,outcome)
+    health={}
+    for row in batch['rows']:
+        sid=row['sourceProductId']
+        if sid not in chosen:continue
+        tid=mapped[sid]
+        item={'sourceProductId':sid,'targetProductId':tid or None}
+        try:
+            _check_stop(root,sid)
+            accepted=row['status'] in ('submitted','existing-target-for-comparison')
+            existing=(scope['existingTargets'].get(sid)==tid and row['status'] in ('not-started','local-draft-ready'))
+            if not tid or tid in conflicts or not (accepted or existing):
+                item['migrationStatus']='unverified-product-pair'
+            elif tid not in on_sale or (row.get('comparison') or {}).get('auditState')=='rejected':
+                item['migrationStatus']='target-not-on-sale-or-application-rejected'
+            else:
+                options=argparse.Namespace(**{**vars(args),'source_product_id':int(sid),'target_product_id':int(tid),
+                                               '_batch_health':health,'_before_write':lambda:_check_stop(root,sid)})
+                item.update(handle(options,api))
+        except MemberSkipped:item['migrationStatus']='skipped-by-merchant'
+        except BatchStopped:
+            outcome['status']='stopped'
+            break
+        except (api.api.JdoError,api.matrix.MatrixError,api.pipeline.PipelineError,OSError,TypeError,KeyError,ValueError) as exc:
+            item.update(migrationStatus='unverified',reason=redact(str(exc))[:240])
+        outcome['rows'].append(item)
+        atomic_json(path,outcome)
+    counts=Counter(r.get('migrationStatus','unverified') for r in outcome['rows'])
+    health_counts=Counter(r.get('targetHealthStatus','not-queried') for r in outcome['rows'])
+    active=[r for r in outcome['rows'] if r.get('migrationStatus')!='skipped-by-merchant']
+    unresolved=sum(not r.get('ok') or (bool(args.confirm) and r.get('migrationStatus')!='verified') for r in active)
+    if outcome['status']=='running':
+        if args.confirm:
+            outcome['status']='material-copy-incomplete' if unresolved else 'material-copy-checked'
+        else:
+            outcome['status']='material-audit-partial' if unresolved else 'material-audit-finished'
+    outcome.update(migrationCounts=dict(counts),healthCounts=dict(health_counts),observedCount=len(outcome['rows']))
+    atomic_json(path,outcome)
+    return {k:v for k,v in outcome.items() if k!='rows'} | {
+        'ok':outcome['status'] in ('material-audit-finished','material-copy-checked'),
+        'unresolvedProducts':unresolved,'reportFile':str(path)}
+
+
 def dispatch(args, api):
     if args.action=='batch-plan':
         return _plan(args,api)
     root=directory(args.batch)
     scope=_scope(root,args.batch,api)
+    if args.action=='batch-materials':
+        return _batch_materials(root,scope,args,api)
+    if args.action=='batch-skip':
+        ids=set(args.source_product_id)
+        if not ids <= set(scope['sourceProductIds']):
+            raise ValueError('指定源商品不在此批次，请按原任务核对来源')
+        with FileLock(safe_join(root,'control.lock')):
+            excluded=read_json(root/'excluded-sources.json',{})
+            for pid in sorted(ids):
+                excluded.setdefault(pid,{'at':int(time.time()),'reason':redact(args.reason)})
+            atomic_json(root/'excluded-sources.json',excluded)
+        return _report(root,args.batch,scope)
+    if args.action=='batch-census':
+        target=api.verify(args.target_config,args.target_profile)
+        if target!=scope['targetShop']:raise ValueError('当前核验店铺与批次目标不同')
+        live=api.pipeline.list_products(require_success=True)
+        api.api.recheck_verified_jdo_store()
+        report=_report(root,args.batch,scope)
+        by_source,conflicts=_member_targets(scope,report['rows'],api)
+        skipped={by_source[row['sourceProductId']] for row in report['rows'] if row['skippedByMerchant']}-{''}
+        all_targets=(set(by_source.values())|set(scope['existingTargets'].values()))-{''}
+        mapped=all_targets-conflicts-skipped
+        on_sale={str(row['productId']) for row in live if str(row.get('productStatus')) in ('1','103')}
+        records={'targetShop':target,'batchId':args.batch,'checkedAt':int(time.time()),'onSaleCount':len(on_sale),
+                 'mappedOnSaleIds':sorted(mapped & on_sale),'onSaleOutsideBatch':sorted(on_sale-all_targets),
+                 'mappedOutsideOnSale':sorted(mapped-on_sale),'sourceProductIds':scope['sourceProductIds'],
+                 'skippedTargetIds':sorted(skipped),'conflictingTargetIds':sorted(conflicts)}
+        path=root/'target-census.json'
+        atomic_json(path,records)
+        return {**records,'ok':True,'status':'catalogue-compared','platformWrites':0,'reportFile':str(path)}
     if args.action=='batch-stop':
         return _set_stop(root,args)
     if args.action=='batch-status':
-        return _report(root,args.batch,scope)
+        report=_report(root,args.batch,scope)
+        if args.output:
+            dest=args.output.resolve()
+            if ((dest.is_relative_to(_base()) or dest.is_relative_to(merchant_home()/'work/shop-copies'))
+                    and not dest.is_relative_to(root/'exports')):
+                raise ValueError('报告请保存到交付目录或原批次 exports 中；原执行与对账记录保留')
+            if dest.exists():
+                prior=read_json(dest,{})
+                if not isinstance(prior,dict) or any(prior.get(k)!=report[k] for k in ('status','batchId','scopeFile')):
+                    raise ValueError('目标已有其他文件，请保存到新的报告文件名')
+            atomic_json(dest,report)
+        return report
     # Serialize batches in this target shop; each product still owns its original copy lock.
     shop_lock=safe_join(_base(),'locks/'+scope['targetShop']['shopId']+'.lock')
     try:
@@ -496,27 +657,37 @@ def dispatch(args, api):
                 if held.get('active') and held.get('sourceProductId') in ids:
                     ids.remove(held['sourceProductId'])
                     ids.insert(0,held['sourceProductId'])
-                if held.get('active') and held.get('reason')=='repeated-official-permission-refusal' and args.correction_evidence:
-                    requested=read_json(args.correction_evidence,{})
-                    for h in category_holds.values():
-                        pid=h['sourceProductId']
-                        if (h.get('active') and pid in ids and h.get('systemicSignature')==held.get('platformCodes')
-                                and api.pair_key({**scope,'sourceProductId':pid})==requested.get('taskId')):
-                            ids.remove(pid)
-                            ids.insert(0,pid)
-                            break
+                if held.get('active') and held.get('reason')=='repeated-official-permission-refusal':
+                    candidate=_permission_recovery_member(root,scope,ids,held,category_holds,args.correction_evidence,api)
+                    if candidate is None:
+                        return {**_report(root,args.batch,scope),'status':'batch-held','ok':False}
+                    ids.remove(candidate)
+                    ids.insert(0,candidate)
+                elif held.get('active') and held.get('sourceProductId') not in ids:
+                    return {**_report(root,args.batch,scope),'status':'batch-held','ok':False}
             for pid in ids:
                 _check_stop(root)
                 path=_record_path(root,pid)
                 old=read_json(path,{})
                 try:
                     task=api.pair_key({**scope,'sourceProductId':pid})
+                    _check_stop(root,pid)
                     expected=scope['existingTargets'].get(pid) or old.get('targetProductId')
                     already=claims.get(str(expected),set())
                     if already-{task}:
                         row={**old,'status':'mapping-conflict','targetProductId':str(expected),'taskId':task}
                     else:
                         row=_single(api,root,scope,pid,args,phase,old,category_holds)
+                except MemberSkipped:
+                    if phase!='draft' and held.get('active'):
+                        if held.get('reason')=='repeated-official-permission-refusal':
+                            break
+                        if held.get('sourceProductId')==pid:
+                            if held.get('reason') not in ('application-rejected','readback-different'):
+                                break
+                            atomic_json(root/'hold.json',{**held,'active':False,'resolvedBy':'merchant-skip'})
+                            held={}
+                    continue
                 except (api.api.JdoError,api.pipeline.PipelineError,api.matrix.MatrixError,ValueError,KeyError,OSError) as error:
                     state=read_json(path,{})
                     original=api.publication_state(api.task_directory(task),task)
@@ -535,6 +706,13 @@ def dispatch(args, api):
                         row.update(status='mapping-conflict',conflictingTasks=sorted(owners))
                 atomic_json(path,row)
                 category=row.get('categoryId')
+                recovering_permission=(held.get('reason')=='repeated-official-permission-refusal'
+                                       and row.get('status')=='submitted' and row.get('receiptDirectory') and
+                                       Path(row['receiptDirectory']).name!='publication' and category and
+                                       category_holds.get(category,{}).get('systemicSignature')==held.get('platformCodes'))
+                if (phase!='draft' and held.get('active') and held.get('reason')=='repeated-official-permission-refusal'
+                        and (not recovering_permission or _block_reason(row))):
+                    break
                 refusal=_category_refusal(row) if phase!='draft' else None
                 if refusal and category:
                     category_holds[category]={**refusal,'active':True,'sourceProductId':pid,'checkedAt':row['checkedAt']}
@@ -553,10 +731,6 @@ def dispatch(args, api):
                 if phase!='draft' and reason:
                     atomic_json(root/'hold.json',{'active':True,'sourceProductId':pid,'reason':reason,'checkedAt':row['checkedAt']})
                     break
-                recovering_permission=(held.get('reason')=='repeated-official-permission-refusal'
-                                       and row.get('status')=='submitted' and row.get('receiptDirectory') and
-                                       Path(row['receiptDirectory']).name!='publication' and category and
-                                       category_holds.get(category,{}).get('systemicSignature')==held.get('platformCodes'))
                 if phase!='draft' and held.get('active') and (held.get('sourceProductId')==pid or recovering_permission):
                     if row['status'] not in ('submitted','existing-target-for-comparison'):
                         break
@@ -569,7 +743,7 @@ def dispatch(args, api):
     except BatchStopped as stopped:
         return {**_report(root,args.batch,scope),'status':'batch-stopped','ok':False,'stopId':str(stopped)}
     report=_report(root,args.batch,scope)
-    selected=[r for r in report['rows'] if r['sourceProductId'] in ids]
+    selected=[r for r in report['rows'] if r['sourceProductId'] in ids and not r['skippedByMerchant']]
     remaining=any(r['status'] not in ('submitted','existing-target-for-comparison','local-draft-ready') for r in selected)
     status='batch-held' if report['hold'].get('active') else 'batch-needs-evidence' if remaining else 'batch-reviewed'
     return {**report,'status':status,'ok':status=='batch-reviewed'}

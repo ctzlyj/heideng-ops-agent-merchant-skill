@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401  (hide jdo-cli console windows)
 import _common as common
 from heideng_merchant.gallery_patch import frozen_patch
+from heideng_merchant.refresh_selection import verify_frozen
 from heideng_merchant.safety import file_sha
 
 LOCK = threading.RLock()
@@ -36,6 +37,7 @@ def main(argv):
     uploads = common.load_json(run / "uploads.json") or {}
     if not plan:
         raise SystemExit("missing plan-batch.json; run build_plan.py first")
+    verify_frozen(job, plan, run)
 
     cli = common.connect(job)
     identity = common.verify_identity(cli, job, run)
@@ -89,9 +91,12 @@ def main(argv):
         baseline = common.load_json(run / "products" / str(pid) / "before-apply.json")
         if not baseline:
             raise ValueError("缺少原任务冻结的图组快照，无法定位上传素材对应的图位")
+        slots = None
+        if "selectedSlots" in product:
+            slots = [slot for slot in product["selectedSlots"] if slot["key"] not in missing]
         record = frozen_patch(cli, lambda product_id: common.apply_detail(cli, product_id),
                               identity, pid, baseline, url_map, plan.get("positionFilter") or [],
-                              max_position, bodies, common.clean_url)
+                              max_position, bodies, common.clean_url, selected_slots=slots)
         return pid, {**record, "missingKeys": missing, "cappedPositions": capped}
 
     workers = int(job.get("patchConcurrency") or 3)

@@ -506,7 +506,13 @@ class JdoClient:
         if errors:
             _, message = _jdo_error(payload)
             raise JdoError(message)
-        return payload.get('data') or []
+        rows=payload.get('data')
+        if not isinstance(rows,list) or any(not isinstance(row,dict) for row in rows):
+            raise JdoError('SKU 素材查询未返回有效列表')
+        # An omitted collection is useful empty evidence only for a successful identity-only row.
+        return [dict(row,materials=None) if 'materials' not in row and (
+                    payload.get('success') is not True or not set(row)<={'skuId','productId'})
+                else row for row in rows]
 
     def bind_sku_materials(self, body: dict[str, Any]) -> dict[str, Any]:
         sku_materials = list(body.get('skuMaterials') or [])
@@ -722,24 +728,34 @@ def build_material_binding_requests(job: SpuJob, state_item: dict[str, Any]) -> 
 
 READ_CONCURRENCY = 8
 
-def _query_binding_materials(client: Any, sku_ids: Iterable[str]) -> dict[str, list[dict[str, Any]]]:
+def _query_binding_materials(client: Any, sku_ids: Iterable[str], *, read_gaps=None) -> dict[str, list[dict[str, Any]]]:
     identifiers = [cell_text(value) for value in sku_ids]
     materials_by_sku = {sku_id: [] for sku_id in identifiers}
     jobs = [(group, material_types, scope_set) for group in _chunks(identifiers, 50) for material_types, scope_set in (((31, 32, 33, 36), 1), ((1002,), 2))]
 
     def read(job):
         group, material_types, scope_set = job
-        rows = client.sku_materials(group, material_types, scope_set)
-        returned = [cell_text(item.get('skuId')) for item in rows]
-        if len(returned) != len(group) or set(returned) != set(group):
-            raise ValueError('SKU material verification returned an incomplete SKU set')
-        if any(not isinstance(item.get('materials'), list) for item in rows):
-            raise ValueError('SKU 素材回查字段缺失；结果待核对')
-        return rows
+        try:
+            rows = client.sku_materials(group, material_types, scope_set)
+            returned = [cell_text(item.get('skuId')) for item in rows]
+            if len(returned)!=len(set(returned)) or not set(returned)<=set(group):
+                raise ValueError('SKU material verification returned unexpected or duplicate SKUs')
+            by_id=dict(zip(returned,rows))
+            missing=[sid for sid in group if sid not in by_id or
+                     ('materials' in by_id[sid] and not isinstance(by_id[sid]['materials'],list))]
+            if missing and read_gaps is None:
+                raise ValueError('SKU material verification returned an incomplete SKU set')
+            # A successful query can echo a SKU with no materials member when it has no bindings.
+            return [r for sid,r in by_id.items() if sid not in missing],missing,material_types
+        except (JdoError,OSError,ValueError,TypeError,KeyError):
+            if read_gaps is None:raise
+            return [],group,material_types
     # Read-only and independent per 50-SKU chunk: bounded parallel reads (8,191-SKU shop took ~26 min serially).
     workers = 1 if len(jobs) <= 2 else READ_CONCURRENCY
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for rows in pool.map(read, jobs):
+        for rows,missing,kinds in pool.map(read, jobs):
+            if read_gaps is not None:
+                for sid in missing:read_gaps.setdefault(sid,[]).extend(kinds)
             for item in rows:
                 materials_by_sku[cell_text(item.get('skuId'))].extend(item.get('materials') or [])
     return materials_by_sku
@@ -995,20 +1011,23 @@ def export_pop_image_appeals(report, output_dir):
 def audit_generation_summary(path):
     """Estimate from the same approved sibling sources, not from SKU deficits or local alpha work."""
     rows=json.loads(Path(path).read_text(encoding='utf-8')).get('rows') or []
-    missing={};sources={};approved=set();pending=set()
+    missing={};sources={};approved=set();pending=set();unknown=set()
     for row in rows:
         spu=str(row.get('productId') or row.get('spuId'))
         for kind,slot in (row.get('slots') or {}).items():
             state=slot.get('state') or slot.get('status') if isinstance(slot,dict) else slot
             if state=='missing':missing.setdefault(spu,set()).add(kind)
             if state=='pending':pending.add((spu,kind))
+            if state=='unknown' and kind in IMAGE_SUFFIXES:unknown.add((spu,kind))
             if state=='approved':
                 approved.add((spu,kind))
                 for value in slot.get('approvedValues') or [] if isinstance(slot,dict) else []:
                     if kind in IMAGE_SUFFIXES and _trusted_jd_image_url(value):sources.setdefault((spu,kind),set()).add(value)
-    reuse=0;derived=0;new=0;generation_spus=set();uncertain=[]
+    reuse=0;derived=0;new=0;generation_spus=set()
+    uncertain=[{'spuId':spu,'kind':kind,'reason':'部分 SKU 素材查询尚未核实'} for spu,kind in sorted(unknown)]
     for spu,kinds in missing.items():
         for kind in sorted(kinds & set(IMAGE_SUFFIXES)):
+            if (spu,kind) in unknown:continue
             values=sources.get((spu,kind),set())
             if (spu,kind) in pending or len(values)>1 or ((spu,kind) in approved and not values):
                 uncertain.append({'spuId':spu,'kind':kind,'reason':'来源缺失、歧义或审核中；先核对，不报精确付费量'})
@@ -1052,7 +1071,8 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
         allowed = set(map(str, authorized_sku_ids))
         online = [item for item in online if cell_text(item.get('skuId')) in allowed]
     online_ids = [cell_text(item.get('skuId')) for item in online]
-    materials = _query_binding_materials(client, online_ids) if online_ids else {}
+    read_gaps = {}
+    materials = _query_binding_materials(client, online_ids, read_gaps=read_gaps) if online_ids else {}
     rows = []
     issues = {}
     deficits = []
@@ -1074,6 +1094,7 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
             found = [entry for entry in materials[sku_id] if int(entry.get('materialType') or 0) == kind and int(entry.get('order') or 0) == order]
             statuses = [int(entry.get('status') or 0) for entry in found]
             state, approved = material_slot_state(found)
+            if kind in read_gaps.get(sku_id,[]):state='unknown'
             slots[slot] = {'state': state, 'statuses': statuses, 'approvedValues':approved, 'auditReasons': list(dict.fromkeys(cell_text(entry.get('auditDesc')) for entry in found if entry.get('auditDesc')))}
         states = {value['state'] for value in slots.values()}
         if states & {'missing', 'rejected'}:
@@ -1101,7 +1122,8 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
     if _shop_identity(client.seller_info()) != identity:
         raise ValueError('shop identity changed during coverage audit')
     appeals = collect_pop_image_appeals(online, materials)
-    return {'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'appealRows': appeals, 'manualAppealSkuIds': list(dict.fromkeys(item['skuId'] for item in appeals)), 'shopIdentity': identity, 'onlineProductCount': len(product_ids), 'onlineSkuCount': len(online), 'allSiblingSkuCount': len(siblings), 'healthSkuCount': len(health), 'unscoredSkuIds': [sku for sku in online_ids if sku not in scores], 'materialDeficitSkuCount': len(deficits), 'materialDeficitSkuIds': deficits, 'rejectedSkuCount': len(rejected), 'rejectedSkuIds': rejected, 'pendingSkuCount': len(pending), 'pendingSkuIds': pending, 'shortTitleIssueSkuIds': list(dict.fromkeys(short_titles)), 'issueCounts': issues, 'historicalTitleSkuCount': len(historical_ids), 'historicalTitleFiles': historical_files, 'notInHistoricalTitleSkuIds': [sku for sku in online_ids if sku not in historical_ids], 'historicalTitleNoLongerOnlineSkuIds': sorted(historical_ids - set(online_ids)), 'rows': rows, 'writesPerformed': False, 'platformTitleImportVerified': False, 'scopeNote': 'Complete paginated on-sale inventory, not a transaction snapshot; scores and workbook delivery do not prove material acceptance. Rejected white/scene/transparent images default to manual appeal delivery, not automatic repair; other rejected slots require a reviewed strategy.'}
+    unknown_slots = sum(slot['state']=='unknown' for row in rows for slot in row['slots'].values())
+    return {'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'unverifiedMaterialSlotCount':unknown_slots,'materialCoverageComplete':not unknown_slots,'materialReadGaps':read_gaps, 'appealRows': appeals, 'manualAppealSkuIds': list(dict.fromkeys(item['skuId'] for item in appeals)), 'shopIdentity': identity, 'onlineProductCount': len(product_ids), 'onlineSkuCount': len(online), 'allSiblingSkuCount': len(siblings), 'healthSkuCount': len(health), 'unscoredSkuIds': [sku for sku in online_ids if sku not in scores], 'materialDeficitSkuCount': len(deficits), 'materialDeficitSkuIds': deficits, 'rejectedSkuCount': len(rejected), 'rejectedSkuIds': rejected, 'pendingSkuCount': len(pending), 'pendingSkuIds': pending, 'shortTitleIssueSkuIds': list(dict.fromkeys(short_titles)), 'issueCounts': issues, 'historicalTitleSkuCount': len(historical_ids), 'historicalTitleFiles': historical_files, 'notInHistoricalTitleSkuIds': [sku for sku in online_ids if sku not in historical_ids], 'historicalTitleNoLongerOnlineSkuIds': sorted(historical_ids - set(online_ids)), 'rows': rows, 'writesPerformed': False, 'platformTitleImportVerified': False, 'scopeNote': 'Complete paginated on-sale inventory, not a transaction snapshot; scores and workbook delivery do not prove material acceptance. Rejected white/scene/transparent images default to manual appeal delivery, not automatic repair; other rejected slots require a reviewed strategy.'}
 
 def _short_title_issue(score_item: dict[str, Any]) -> bool:
     for entry in score_item.get('improvementList') or []:

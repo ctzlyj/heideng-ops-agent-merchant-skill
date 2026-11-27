@@ -7,6 +7,9 @@ import unittest
 from PIL import Image
 from heideng_merchant.sample_comparison import before_for_sku, read_comparison, write_comparison
 from heideng_merchant.safety import file_sha
+from heideng_merchant.sample_comparison import original_image_url
+
+
 from tests.test_mature_listing import module
 
 
@@ -17,6 +20,11 @@ def pixels(color):
 
 
 class ComparisonOriginTests(unittest.TestCase):
+    def test_gallery_display_variant_is_retrieved_from_the_original_path(self):
+        for path in ('/n0/jfs/synthetic/bag.jpg','/n12/jfs/synthetic/bag.jpg'):
+            self.assertEqual(original_image_url('https://img10.360buyimg.com'+path),
+                             'https://img10.360buyimg.com/imgzone/jfs/synthetic/bag.jpg')
+
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.sample = self.root/'sample.jpg'

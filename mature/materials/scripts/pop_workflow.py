@@ -87,6 +87,10 @@ def complete_short_title_import(args, delivery, seller, client, agent=None):
     except (ValueError,OSError) as error:
         return {**result,'status':'blocked-import','failureClass':type(error).__name__,'reason':str(error)[:400]}
     result.update(submitted)
+    result['preparedRows']=sum(b['rowCount'] for b in submitted.get('plannedBatches',[]))
+    result['platformAcceptedRows']=sum(r['rowCount'] for r in result['imports'] if r.get('creationAccepted') is True)
+    if result['imports'] and result['imports'][-1].get('nextAction'):
+        result['nextAction']=result['imports'][-1]['nextAction']
     from pop_browser import completed_batch
     if (submitted['status'] not in ('import-completed','import-failed') or
             len(result['imports'])!=len(submitted['plannedBatches']) or

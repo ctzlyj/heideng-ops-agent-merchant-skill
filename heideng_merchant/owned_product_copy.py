@@ -504,7 +504,51 @@ def _copy_pairing(frozen,source_skus,target_skus,target_schema):
                     continue
                 if props is not None:
                     axis['templateSkuProps']=props
-    return pair_source,pair_copy_skus(pair_source,target_skus),spec_gaps
+    pairing=pair_copy_skus(pair_source,target_skus)
+    if pairing['reasons']:
+        _resolve_display_aliases(pairing,pair_source,target_skus,spec_gaps,target_schema)
+    return pair_source,pairing,spec_gaps
+
+
+def _resolve_display_aliases(pairing,source,target,gaps,reference):
+    """A display alias can be truncated. Only a complete, independently verified option tuple can authorize a join."""
+    templates=(reference or {}).get('structuredSaleTemplates') or {}
+    def key(row):
+        specs=deepcopy(row['specifications'])
+        if not specs or not any(str(a['attrId']) in templates and a.get('templateSkuProps') for a in specs):
+            return None
+        for axis in specs:
+            if str(axis['attrId']) in templates and axis.get('templateSkuProps'):
+                axis.pop('value',None)  # retain every structured value, option ID, unit and other axis
+        return _spec_signature(specs)
+    left={sid:key(row) for sid,row in source.items()}
+    sizes=Counter(left.values())
+    right={}
+    for tid,row in target.items():
+        right.setdefault(key(row),[]).append(tid)
+    used=set(pairing['pairs'].values())
+    candidates={}
+    for sid in list(pairing['reasons']):
+        options=right.get(left[sid],[])
+        if (sid not in gaps and left[sid] is not None and sizes[left[sid]]==1 and len(options)==1
+                and options[0] not in used):
+            tid=options[0]
+            pairing['pairs'][sid]=tid
+            used.add(tid)
+            pairing['matchedBy'][sid]='unique-target-template-values'
+            del pairing['reasons'][sid]
+            continue
+        a=source[sid]['specifications']
+        if not a:continue
+        possible=[]
+        for tid,row in target.items():
+            b=row['specifications']
+            if tid in used or not b or len(a)!=len(b):continue
+            if all((x['dimension'],x['attrId'])==(y['dimension'],y['attrId']) and
+                   (x['value'].startswith(y['value']) or y['value'].startswith(x['value'])) for x,y in zip(a,b)):
+                possible.append(tid)
+        if possible:candidates[sid]=possible
+    pairing['displayOnlyCandidates']=candidates
 
 
 def pair_frozen_target_skus(frozen,target_detail,target_schema=None):
@@ -560,7 +604,8 @@ def compare_copy(frozen,target_shop,target_detail,*,stock_rows=None,video_rows=N
             _check(checks,f'sku.{sid}.{field}',a[field],b[field])
             if field=='merchantSku':code_checks[checks[-1]['status']]+=1
         wanted=pair_source[sid]['specifications']
-        status='needs-evidence' if sid in spec_gaps else 'verified'  # matched by the complete signature
+        status=('needs-evidence' if sid in spec_gaps else
+                'different' if pairing['matchedBy'][sid]=='unique-target-template-values' else 'verified')
         _check(checks,f'sku.{sid}.specifications',wanted,b['specifications'],status=status)
         _images(checks,f'sku.{sid}.specImages',a['specImages'],b['specImages'],media)
         _images(checks,f'sku.{sid}.logo',a['logo'],b['logo'],media)

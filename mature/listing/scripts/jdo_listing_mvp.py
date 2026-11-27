@@ -11,7 +11,6 @@ import os
 import re
 import subprocess
 import sys
-import uuid
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime
@@ -176,6 +175,11 @@ def parse_response(text: str, *, method=None, url=None) -> dict[str, Any]:
         result_data=payload.get('data')
         error.no_issued_ids=(result_data is None or result_data=={})
         error.no_issued_ids=error.no_issued_ids and not any(payload.get(k) for k in ('applyId','productId','jobId','taskId'))
+        # A negative envelope with row results or an unfamiliar response shape cannot prove an all-or-none refusal.
+        refusal_envelope={'success','errorList','data','requestId','traceId','code','message','msg','timestamp'}
+        refusal_fields={'code','message','msg','description'}
+        error.no_partial_results=bool(error.no_issued_ids and error.platform_codes and set(payload)<=refusal_envelope
+                                      and all(set(row)<=refusal_fields for row in errors))
         request_id=str(payload.get('requestId') or '')
         error.request_id=request_id if re.fullmatch('[a-fA-F0-9-]{6,64}',request_id) else None
         raise error
@@ -244,7 +248,7 @@ def _invoke_with_official_cli(
 
 
 def run_jdo_large(
-    *, url: str, method: str, body_path: Path, skill_id: str,
+    *, url: str, method: str, body_path: Path | None = None, body_text: str | None = None, skill_id: str,
     params: dict[str, Any] | None = None, yes: bool = False,
 ) -> dict[str, Any]:
     profile = active_jdo_profile()
@@ -252,7 +256,10 @@ def run_jdo_large(
         recheck_verified_jdo_store()
     import jdo_bridge_probe as probe
 
-    body_text = Path(body_path).read_text(encoding="utf-8") if body_path else None
+    if body_path is not None:
+        if body_text is not None:
+            raise ValueError("请提供单一请求体来源")
+        body_text = Path(body_path).read_text(encoding="utf-8")
     if not probe.needs_bridge(body_text):
         # Small request: the official CLI takes it on the command line. No system Python, no runtime extraction.
         return _invoke_with_official_cli(
@@ -264,34 +271,24 @@ def run_jdo_large(
     verdict = probe.probe_runtime(runtime, runtime.read_bytes(), python=python312, cache=runtime.parent / "bridge-probe.json")
     if not verdict.get("ok"):
         raise JdoError(verdict.get("userMessage") or probe.interface_changed_message())
-    JDO_RUNTIME.parent.mkdir(parents=True, exist_ok=True)
-    request_path = JDO_RUNTIME.parent / f"request-{uuid.uuid4().hex}.json"
-    request_path.write_text(json.dumps({
+    request = {
         "url": url,
         "method": method,
-        "bodyFile": str(body_path.resolve()),
+        **({"bodyFile": str(body_path.resolve())} if body_path is not None else {"body": body_text}),
         "params": params,
         "skillId": skill_id,
         "requestIdentity": "vender",
         "profile": profile,
         "timeout": 180,
         "yes": yes,
-    }, ensure_ascii=False), encoding="utf-8")
+    }
     environment = os.environ.copy()
     environment["JDO_ENV"] = "prod"
-    try:
-        completed = subprocess.run(
-            [str(python312), str(JDO_BRIDGE), "--runtime", str(runtime), "--request", str(request_path)],
-            cwd=ROOT,
-            env=environment,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-    finally:
-        request_path.unlink(missing_ok=True)
+    completed = subprocess.run(
+        [str(python312), str(JDO_BRIDGE), "--runtime", str(runtime), "--request-stdin"],
+        input=json.dumps(request, ensure_ascii=False), cwd=ROOT, env=environment, capture_output=True,
+        text=True, encoding="utf-8", errors="replace", check=False,
+    )
     output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
     return parse_response(output,method=method.upper(),url=url)
 
@@ -1195,10 +1192,8 @@ def write_publish_payloads(input_path: Path, output_dir: Path) -> dict[str, Any]
 
 
 def safe_upload_image_name(name: str) -> str:
-    if weighted_text_length(name) <= 64:
-        return name
-    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:32]
-    return f"image-{digest}{Path(name).suffix.lower()}"
+    from heideng_merchant.media_upload import platform_image_name
+    return platform_image_name(name)
 
 
 def upload(zone_id: str, category_id: int, path: Path) -> dict[str, Any]:
@@ -1206,20 +1201,11 @@ def upload(zone_id: str, category_id: int, path: Path) -> dict[str, Any]:
         "imgBase64": base64.b64encode(path.read_bytes()).decode("ascii"),
         "zoneImageDTO": {"imgName": safe_upload_image_name(path.name), "categoryId": category_id},
     }
-    body_path = JDO_RUNTIME.parent / f"upload-{uuid.uuid4().hex}.json"
-    body_path.parent.mkdir(parents=True, exist_ok=True)
-    body_path.write_text(json.dumps(body, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    try:
-        return run_jdo_large(
-            url="/rest/sp-product/v0/media-zones/{zoneId}/images",
-            method="POST",
-            body_path=body_path,
-            params={"zoneId": zone_id},
-            skill_id="jdo-product-material",
-            yes=True,
-        ).get("data") or {}
-    finally:
-        body_path.unlink(missing_ok=True)
+    return run_jdo_large(
+        url="/rest/sp-product/v0/media-zones/{zoneId}/images",
+        method="POST", body_text=json.dumps(body, ensure_ascii=False, separators=(",", ":")),
+        params={"zoneId": zone_id}, skill_id="jdo-product-material", yes=True,
+    ).get("data") or {}
 
 
 def command_refresh(args: argparse.Namespace) -> int:

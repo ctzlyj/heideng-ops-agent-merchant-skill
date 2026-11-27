@@ -11,6 +11,8 @@ def build_parser():
     parser = argparse.ArgumentParser(description='黑灯商家版：复用成熟业务 Skill')
     parser.add_argument('--state', type=Path, default=None)
     sub = parser.add_subparsers(dest='command', required=True)
+    from .image_design import register as register_image_design
+    register_image_design(sub)
     st=sub.add_parser('status');st.add_argument('--detail',action='store_true',help='维护者查看完整来源与能力清单')
     sub.add_parser('doctor-cli', help='在临时目录用已校验的京麦 CLI 检查本机启动和官方公开 HTTPS')
     locations = sub.add_parser('shop-locations', help='查看店铺登记位置与所属安装')
@@ -70,6 +72,14 @@ def main(argv=None):
     try:
         state = args.state or installed_state(Path(__file__).resolve().parents[1])
         require_local(state,parents=True)
+        if args.command == 'image-design':
+            from .image_design import handle
+            try:
+                result = handle(state, args)
+            except (ValueError, OSError) as exc:
+                raise SafetyError(str(exc)) from None
+            print(json.dumps(result, ensure_ascii=False))
+            return 0
         read_modules = {'status':('update_client','update_catalog','merchant_experience'),
                         'update':('update_client','update_catalog'),
                         'task-context':('merchant_tasks','merchant_experience','commercial_tasks')}

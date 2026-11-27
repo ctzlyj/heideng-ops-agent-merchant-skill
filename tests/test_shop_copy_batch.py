@@ -18,6 +18,7 @@ class BatchCopyTests(unittest.TestCase):
         self.sources={}
         self.destinations={}
         self.applies={}
+        self.apply_rows=[]
         self.writes=[]
         self.reject={}
         self.lost=set()
@@ -47,6 +48,8 @@ class BatchCopyTests(unittest.TestCase):
                 return {'data':deepcopy(current)}
             if url.endswith('/product-apply/{applyId}'):
                 return {'data':deepcopy(self.applies[int(params['applyId'])])}
+            if url.endswith('/product-applies'):
+                return {'success':True,'data':deepcopy(self.apply_rows)}
             if url.endswith('/products'):
                 rows=[{'productId':p,'productName':r['productInfo']['productName'],'productStatus':103,
                        'itemNum':r['productInfo']['itemNum']} for p,r in records.items()]
