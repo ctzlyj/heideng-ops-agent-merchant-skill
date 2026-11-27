@@ -122,6 +122,10 @@ def contract(scripts):
 
 
 class SharedRefreshEntry(unittest.TestCase):
+    def test_cli_scope_and_unfinished_receipt(self):
+        subprocess.run([sys.executable, "-X", "utf8", str(Path(__file__).with_name("pop_refresh_cli_contract.py"))],
+                       check=True)
+
     def test_normal_refresh_entry(self):
         root = Path(__file__).resolve().parents[1]
         scripts = root / "mature/refresh/scripts" if (root / "mature/refresh").is_dir() else root / "scripts"

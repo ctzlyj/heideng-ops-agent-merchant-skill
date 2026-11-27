@@ -23,7 +23,7 @@
     },
     "refresh": {
       "repository": "ctzlyj/jingmai-batch-image-refresh-skill",
-      "commit": "c7f3db5ca73a325081753d8d20fd539bd555f7b6",
+      "commit": "f01f7431848a537b2b005d62e281707150d7c2aa",
       "files": {
         "mature/refresh/scripts/upload.py": {
           "source": "scripts/upload.py",
@@ -55,7 +55,11 @@
         },
         "tests/test_shared_refresh_entry.py": {
           "source": "tests/test_shared_refresh_entry.py",
-          "sha256": "5c2c061fb574bc0f24bf7c5a799b666e50b75592f2e8868c60be39dacf5844b9"
+          "sha256": "602748b9b85bae1926d67dd4ec2bb8411bd10f91936f454597ddc0b41be38be2"
+        },
+        "tests/pop_refresh_cli_contract.py": {
+          "source": "tests/pop_refresh_cli_contract.py",
+          "sha256": "891ef2647a7d5475563fbbedbf5437406587aecd0f01fbb429350b35fc4e6245"
         }
       }
     },
@@ -173,7 +177,7 @@
     },
     "video": {
       "repository": "ctzlyj/jd-main-video-batch-skill",
-      "commit": "c1e8c2c9684b255038fafc0d5ee89944ac409630",
+      "commit": "9942a371c748e305912589006e258f38f70fa2a0",
       "files": {
         "mature/video/scripts/local_handoff.py": {
           "source": "scripts/local_handoff.py",
