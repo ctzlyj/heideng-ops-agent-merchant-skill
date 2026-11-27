@@ -336,11 +336,35 @@ class CopyMaterialTests(unittest.TestCase):
                 atomic_json(state_path,{**state,**change})
                 data,_=self.call(history=history,write=True)
                 self.assertFalse(data['productPair']['verified'])
+                self.assertEqual(data['productPair']['readOnlySpecificationMatches'],2)
         atomic_json(state_path,state)
         (archive/'verification.json').unlink()
         self.assertFalse(self.call(history=history,write=True)[0]['productPair']['verified'])
         atomic_json(archive/'publish-response.json',{'success':False,'data':{'productId':803,'applyId':900}})
         self.assertFalse(self.call(history=history,pid=803,write=True)[0]['productPair']['verified'])
+        self.assertFalse(self.posts)
+
+    def test_legacy_path_readback_hash_and_current_target_are_checked_at_their_own_boundaries(self):
+        from heideng_merchant.safety import atomic_json
+        history,archive,state_path,state=self.legacy_history()
+        atomic_json(state_path,{**state,'verification':str(archive/'verification.json'),'payloadSha256':'f'*64})
+        published,_=self.call(history=history,pid=803,write=True)
+        self.assertFalse(published['productPair']['verified'])
+        self.assertEqual(self.call(history=history)[0]['productPair']['basis'],'legacy-product-readback')
+        target_reads=0
+        def changed(pid):
+            nonlocal target_reads
+            if pid==802:
+                target_reads+=1
+                if target_reads==2:
+                    self.details['802']['productInfo']['height']=990
+            return self.read_detail(pid)
+        with patch.object(self.entry,'read_owned_detail',side_effect=changed):
+            data,report=self.call(history=history,write=True)
+        self.assertFalse(data['productPair']['verified'])
+        self.assertEqual(data['productPair']['conflicts'],['height','itemNumber'])
+        self.assertEqual(data['productPair']['directHistoryReceipts'][0]['basis'],'legacy-product-readback')
+        self.assertEqual(report['changedBeforeWrite'],['301/32/1','301/32/2'])
         self.assertFalse(self.posts)
 
     def test_legacy_receipt_rechecks_live_facts_and_only_independent_sku_matches_can_write(self):
