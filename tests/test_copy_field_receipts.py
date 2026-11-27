@@ -139,6 +139,17 @@ class BatchFieldTests(unittest.TestCase):
         self.assertEqual(f.writes,[701,703])
         self.assertEqual(f.validations,[701,703])
 
+    def test_skipping_uncertain_creation_preserves_global_hold_and_original_receipt(self):
+        f=self.f
+        f.lost.add(701)
+        batch=f.plan((701,703))
+        held=f.run_phase(batch,'bulk')
+        self.assertEqual(held['hold']['reason'],'submission-needs-reconciliation')
+        f.command('batch-skip','--batch',batch,'--source-product-id','701')
+        self.assertEqual(f.resume(batch)['status'],'batch-held')
+        self.assertEqual(f.writes,[701])
+        self.assertEqual(f.validations,[701])
+
     def test_only_successful_permission_correction_can_unlock_store_hold(self):
         f=self.f
         f.reject.update({701:'99904030007',703:'99904030007'})
@@ -191,7 +202,8 @@ class BatchFieldTests(unittest.TestCase):
                 requests.append(params['scopeSet'])
                 if 'applyId' in params['scopeSet']:
                     return f.entry.api.parse_response(json.dumps({'success':False,'errorList':[{'code':'1010300506'}]}))
-                return {'success':True,'data':[{'productId':1701,'auditReason':'最新记录'}]}
+                return {'success':True,'data':[{k:v for k,v in {'productId':1701,'auditReason':'最新记录'}.items()
+                                                if k in params['scopeSet']}]}
             return original(skill,url,params)
         with patch.object(f.entry.api,'get',side_effect=narrow):
             result=f.command('diagnose-application',*f.dst,'--product-id','1701','--apply-id','9701')
@@ -199,6 +211,41 @@ class BatchFieldTests(unittest.TestCase):
         self.assertNotIn('auditReason',result['rejection'])
         self.assertEqual(result['latestProductReview']['auditReason'],'最新记录')
         self.assertEqual(f.writes,[])
+
+    def test_older_cli_refusing_both_optional_fields_returns_only_product_level_reason(self):
+        f=self.f
+        f.applies[1701]={**deepcopy(f.blueprints[701]),'applyInfo':{'draftComputeStatus':3}}
+        original=f.entry.api.get.side_effect
+        scopes=[]
+        def legacy(skill,url,params=None):
+            if url.endswith('/product-applies'):
+                scopes.append(params['scopeSet'])
+                if {'applyId','auditReason'}.intersection(params['scopeSet']):
+                    raise f.entry.api.JdoError('合成 CLI 字段不受支持')
+                return {'success':True,'data':[{'productId':1701,'keeperReason':'最新商品资料需修改'}]}
+            return original(skill,url,params)
+        with patch.object(f.entry.api,'get',side_effect=legacy):
+            result=f.command('diagnose-application',*f.dst,'--product-id','1701')
+        self.assertEqual(len(scopes),3)
+        self.assertNotIn('applyId',result['rejection'])
+        self.assertNotIn('keeperReason',result['rejection'])
+        self.assertEqual(result['latestProductReview']['keeperReason'],'最新商品资料需修改')
+        self.assertEqual(f.writes,[])
+
+    def test_batch_uses_original_application_when_live_detail_has_a_different_pending_draft(self):
+        f=self.f
+        batch=f.plan((701,703))
+        f.run_phase(batch,'pilot')
+        f.destinations[1701]['applyInfo']={'applyId':9711,'draftComputeStatus':1}
+        f.applies[9701]['applyInfo']['draftComputeStatus']=3
+        f.apply_rows=[{'productId':1701,'applyId':9711,'auditReason':'另一份申请'},
+                      {'productId':1701,'applyId':9701,'keeperReason':'原包装信息需核对'}]
+        result=f.run_phase(batch,'bulk')
+        review=result['rows'][0]['comparison']
+        self.assertEqual(result['hold']['reason'],'application-rejected')
+        self.assertEqual(review['rejection']['keeperReason'],'原包装信息需核对')
+        self.assertEqual(review['latestProductReview']['auditReason'],'另一份申请')
+        self.assertEqual(f.writes,[701])
 
     def existing_batch(self):
         f=self.f
@@ -281,4 +328,37 @@ class BatchFieldTests(unittest.TestCase):
         self.assertTrue(a['foundInProductCatalogue'])
         self.assertFalse(b['foundInProductCatalogue'])
         self.assertEqual(result['unusableReceipts'][0]['reason'],'other-or-unverified-shop')
+        self.assertEqual(f.writes,[])
+
+    def test_history_census_reads_legacy_verification_file_and_keeps_title_siblings_as_hints(self):
+        f=self.f
+        history=f.root/'历史任务'
+        shared=history/'batch'
+        check=shared/'201_合成样品'/'.pipeline'/'publish'/'verification.json'
+        atomic_json(check,{'productId':1801,'ok':True})
+        state={'store':TARGET,'sourceSku':201,'sourceSpu':701,'productId':1701,
+               'applyId':9701,'verification':str(check)}
+        atomic_json(shared/'state'/'201.json',state)
+        outside=f.root/'other'/'verification.json'
+        atomic_json(outside,{'productId':7777})
+        atomic_json(history/'batch2'/'702'/'state'/'202.json',{**state,'sourceSku':202,'sourceSpu':702,
+                    'productId':1702,'verification':str(outside)})
+        for tid in (1701,1801,1901):
+            f.destinations[tid]=deepcopy(f.blueprints[701])
+            f.destinations[tid]['productInfo']['productId']=tid
+        result=f.command('history-census','--history-dir',str(history),*f.dst)
+        rows={r['targetProductId']:r for r in result['rows']}
+        self.assertEqual(set(rows),{'1701','1702','1801','1901'})
+        self.assertEqual(rows['1701']['sourceCandidates']['701'][0]['field'],'publication')
+        verified=rows['1801']['sourceCandidates']['701'][0]
+        self.assertEqual(verified['field'],'verification')
+        self.assertEqual(verified['file'],check.relative_to(history).as_posix())
+        self.assertIsNone(verified['applyId'])
+        self.assertEqual(rows['1801']['otherTargetsForSameSource'],{'701':['1701']})
+        self.assertEqual(rows['1901']['sourceCandidates'],{})
+        hints=rows['1901']['unverifiedSiblingHints']
+        self.assertEqual({r['targetProductId'] for r in hints},{'1701','1801'})
+        self.assertTrue(all(r['requiresIndependentProductAndSkuCheck'] for r in hints))
+        self.assertEqual(result['unusableReceipts'][0]['reason'],'unreadable-verification')
+        self.assertEqual(result['platformWrites'],0)
         self.assertEqual(f.writes,[])

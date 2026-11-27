@@ -9,7 +9,7 @@
   "files": {
     "scripts/jd_material_agent.py": {
       "upstreamSha256": "80cb83c2865958934423eac3479b709c263f718171df45f3b4a7c242378ce4de",
-      "sha256": "5d2219d27137488c4d1555b48e9b8c78e43aee0ec5eb90c70957f28608f64a38",
+      "sha256": "2b950d47d675e047733d4b15f168b59f0c26bcc5fb6fc5bb55a9256538f3981d",
       "adapted": true
     },
     "scripts/jdo_bridge_probe.py": {

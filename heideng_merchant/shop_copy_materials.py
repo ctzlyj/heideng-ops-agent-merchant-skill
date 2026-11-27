@@ -7,6 +7,7 @@ import re
 from urllib.parse import urlsplit
 
 from . import owned_product_copy as copy
+from .shop_copy_history import material_origins
 from .safety import atomic_json, file_sha, read_json, redact, safe_join
 from .state import FileLock, merchant_home
 
@@ -24,6 +25,7 @@ def register(subs):
         p.add_argument('--'+side+'-product-id',type=int,required=True)
     p.add_argument('--confirm',choices=['FILL_MISSING_COPY_MATERIALS'])
     p.add_argument('--health',action='store_true',help='另外读取目标店当前信息分诊断和平台提出的改进项')
+    p.add_argument('--history-dir',type=Path,help='对照原搬家目录中的发布回执或商品回读，分别核实同源的每个目标商品')
     p.add_argument('--source-image-name',action='append',default=[],help='按商家已有索引名称查询源店图片空间候选')
 
 
@@ -378,7 +380,7 @@ def _numbers(entry, info):
     return [str(row['productId']) for row in rows if row['itemNum']==number]
 
 
-def product_pair(entry, frozen, detail, source_numbers):
+def product_pair(entry, frozen, detail, source_numbers, origins=()):
     src=frozen['sourceDetail']['productInfo']
     dst=detail['productInfo']
     product_id=str(dst['productId'])
@@ -388,19 +390,47 @@ def product_pair(entry, frozen, detail, source_numbers):
                 'category':(row.get('categoryDetail') or {}).get('lastCategoryId'),
                 'brand':(row.get('brandInfo') or {}).get('brandId',row.get('brandId')),
                 'packSpecification':row.get('packSpecification')}
-        for key in ('length','wide','height','weight'):
-            values[key]=copy._number(row.get(key))
+        invalid=[]
+        for key in ('length','width','height','weight'):
+            aliases=('width','wide') if key=='width' else (key,)
+            numbers={copy._number(row[k]) for k in aliases if row.get(k) not in (None,'')}
+            if len(numbers)>1 or None in numbers:
+                invalid.append(key)
+            values[key]=numbers.pop() if len(numbers)==1 else None
         for attr in row.get('goodsAttrInfos') or []:
             if isinstance(attr,dict) and attr.get('attrId'):
                 for key in ('values','attrValues','attrValue'):
                     if attr.get(key):
                         values['attribute.'+str(attr['attrId'])]=entry.digest(attr[key])
                         break
-        return values
-    left,right=facts(src),facts(dst)
+        return values,invalid
+    left,bad_left=facts(src)
+    right,bad_right=facts(dst)
     conflicts=[k for k in left if left[k] not in (None,'') and right.get(k) not in (None,'') and
                str(left[k])!=str(right[k])]
+    conflicts=sorted(set(conflicts+bad_left+bad_right))
     proof={'verified':False,'sourceProductId':source_id,'targetProductId':product_id,'conflicts':conflicts}
+    if origins:
+        proof['directHistoryReceipts']=[{'basis':o['basis'],'file':o['receiptFile']} for o in origins]
+    if any(k!='itemNumber' for k in conflicts):
+        return {**proof,'reason':'live-product-facts-conflict'}
+    for origin in origins:
+        if (not left['title'] or left['title']!=right['title'] or left['title']!=origin['title']
+                or not left['category'] or str(left['category'])!=str(right['category'])
+                or str(left['category'])!=origin['category']
+                or ('targetSkuCount' in origin and origin['targetSkuCount']!=len(detail['skuList']))):
+            continue
+        # The original publisher could explicitly replace the merchant item number with the source SPU.
+        if conflicts and not (str(right['itemNumber'])==origin['itemNumber']==source_id):
+            continue
+        physical=[k for k in ('length','width','height','weight') if left[k] not in (None,'0') and left[k]==right.get(k)]
+        descriptive=[k for k in left if (k.startswith('attribute.') or k=='packSpecification')
+                     and left[k] and left[k]==right.get(k)]
+        if str(left['brand']).isdigit() and int(left['brand'])>0 and str(left['brand'])==str(right['brand']):
+            descriptive.append('brand')
+        if len(physical+descriptive)>=2:
+            return {**proof,'verified':True,'basis':origin['basis'],'history':origin,'conflicts':[],
+                    'recordedItemNumberChange':bool(conflicts),'matchingProductFacts':['title','category',*physical,*descriptive]}
     if conflicts:
         return {**proof,'reason':'live-product-facts-conflict'}
     task=entry.pair_key(frozen)
@@ -460,7 +490,9 @@ def handle(args, entry):
         dst_detail=entry.read_owned_detail(dst_id)
         dst_ids=list(copy.sku_rows(dst_detail,dst_id))
         frozen=copy.freeze_copy(source,target,source_detail)
-        product_evidence=product_pair(entry,frozen,dst_detail,source_numbers)
+        history=getattr(args,'history_dir',None)
+        origins=material_origins(history,frozen,str(dst_id)) if history else ()
+        product_evidence=product_pair(entry,frozen,dst_detail,source_numbers,origins)
         mapping=_pair(entry,frozen,target,dst_detail) if product_evidence['verified'] else {
             'pairs':{},'reasons':{sid:'product-pair-unverified' for sid in src[0]}}
         dst=snapshot(api,dst_id,dst_ids,target)
@@ -483,7 +515,7 @@ def handle(args, entry):
             for entries in _request_rows(changes,dst_id):
                 candidate_ids=[str(row['skuId']) for row in entries]
                 fresh=entry.read_owned_detail(dst_id)
-                product_evidence=product_pair(entry,frozen,fresh,source_numbers)
+                product_evidence=product_pair(entry,frozen,fresh,source_numbers,origins)
                 fresh_mapping=_pair(entry,frozen,target,fresh) if product_evidence['verified'] else {'pairs':{}}
                 same_targets={tid for sid,tid in mapping['pairs'].items() if fresh_mapping['pairs'].get(sid)==tid}
                 current_ids=[sid for sid in candidate_ids if sid in same_targets]
@@ -539,11 +571,11 @@ def handle(args, entry):
                                                           'requestFingerprint':fingerprint,'noPartialResults':True})
                 atomic_json(root/'requests.json',receipts)
             if changes:
-                fresh=entry.read_owned_detail(dst_id)
-                dst_ids=list(copy.sku_rows(fresh,dst_id))
+                dst_detail=entry.read_owned_detail(dst_id)
+                dst_ids=list(copy.sku_rows(dst_detail,dst_id))
                 dst=snapshot(api,dst_id,dst_ids,target)
-                product_evidence=product_pair(entry,frozen,fresh,source_numbers)
-                latest=_pair(entry,frozen,target,fresh) if product_evidence['verified'] else {
+                product_evidence=product_pair(entry,frozen,dst_detail,source_numbers,origins)
+                latest=_pair(entry,frozen,target,dst_detail) if product_evidence['verified'] else {
                     'pairs':{},'reasons':{sid:'product-pair-unverified' for sid in src[0]}}
                 report,_=compare_slots(src,dst,latest)
         original_receipts=receipt_readbacks(entry,root,receipts,dst)
@@ -561,6 +593,9 @@ def handle(args, entry):
         if preserved:
             report['migrationStatus']='incomplete'
         if not product_evidence['verified']:report['migrationStatus']='unverified-product-pair'
+        if history and not product_evidence['verified']:
+            sku_candidates=copy.pair_frozen_target_skus(frozen,dst_detail)
+            product_evidence['readOnlySpecificationMatches']=len(sku_candidates['pairs'])
         report.update(sourceShop=source,targetShop=target,sourceProductId=src_id,targetProductId=dst_id,
                       productPair=product_evidence,
                       checkedAt=stamp,platformRequestsIssued=posted,originalRequests=original_receipts,

@@ -106,10 +106,12 @@ class CopyMaterialTests(unittest.TestCase):
             raise TimeoutError('回执丢失，远端已写')
         return {'success':True,'data':{}}
 
-    def call(self,write=False,health=False):
+    def call(self,write=False,health=False,history=None,pid=802):
         argv=['copy-materials','--source-profile',SOURCE['profile'],'--source-config','source.json',
               '--source-product-id','701','--target-profile',TARGET['profile'],'--target-config','target.json',
-              '--target-product-id','802']
+              '--target-product-id',str(pid)]
+        if history:
+            argv+=['--history-dir',str(history)]
         if write:
             argv+=['--confirm','FILL_MISSING_COPY_MATERIALS']
         if health:
@@ -278,6 +280,92 @@ class CopyMaterialTests(unittest.TestCase):
         data,report=self.call(write=True)
         self.assertFalse(data['ok'])
         self.assertEqual(report['productPair']['targetMatches'],['802','9001'])
+        self.assertFalse(self.posts)
+
+    def legacy_history(self):
+        from heideng_merchant.safety import atomic_json,file_sha
+        history=self.root/'old-run'
+        member=history/'batch5/701'
+        folder=member/'201_lamp'
+        archive=folder/'.pipeline/publish'
+        variants=[{'sourceSku':'201'},{'sourceSku':'202'}]
+        title=self.details['701']['productInfo']['productName']
+        atomic_json(folder/'manifest.json',{'sourceSpu':'701','sourceSku':'201','sourceVenderId':SOURCE['venderId'],
+                                           'variants':variants})
+        atomic_json(folder/'listing.json',{'source':{'spu':'701','sku':'201'},'product':{'title':title,'itemNumber':'701'},
+                                          'category':{'id':800},'skus':variants})
+        schema=[{'componentCode':'WareTitle','value':title},{'componentCode':'WareItemnum','value':'701'}]
+        atomic_json(archive/'publish-body.json',{'schema':json.dumps(schema),'productApplyDTO':{'categoryDTO':{'lastCategoryId':800}}})
+        atomic_json(archive/'publish-response.json',{'success':True,'data':{'applyId':'900','productId':803}})
+        report={'ok':False,'productId':802,'productName':title,'expectedSkuCount':2,'actualSkuCount':2,
+                'productStatus':103,'verifiedAt':'2026-01-10T08:00:00+08:00','errors':['图片不足']}
+        atomic_json(archive/'verification.json',report)
+        state={'sourceSpu':701,'sourceSku':201,'store':TARGET,'productId':803,'applyId':900,'verification':report,
+               'folder':str(folder),'payloadSha256':file_sha(archive/'publish-body.json')}
+        state_path=member/'state/201.json'
+        atomic_json(state_path,state)
+        self.details['802']['productInfo']['itemNum']='701'
+        self.details['803']=deepcopy(self.details['802'])
+        self.details['803']['productInfo']['productId']=803
+        for row in self.details['803']['skuList']:
+            row.update(productId=803,skuId=row['skuId']+100)
+            self.target[str(row['skuId'])]=[]
+        return history,archive,state_path,state
+
+    def test_legacy_original_receipt_and_separate_failed_readback_prove_their_own_live_product(self):
+        history,archive,state_path,state=self.legacy_history()
+        published,_=self.call(history=history,pid=803)
+        self.assertEqual(published['productPair']['basis'],'legacy-accepted-publication')
+        self.assertTrue(published['productPair']['recordedItemNumberChange'])
+        self.assertEqual(published['pairedSkuCount'],2)
+        data,report=self.call(history=history,write=True)
+        self.assertEqual(data['migrationStatus'],'verified')
+        self.assertEqual(report['productPair']['basis'],'legacy-product-readback')
+        self.assertFalse(report['productPair']['history']['readbackPassed'])
+        self.assertEqual({r['skuId'] for body in self.posts for r in body['skuMaterials']},{301})
+        self.assertTrue(all(not self.target[tid] for tid in ('401','402')))
+
+    def test_legacy_state_candidate_or_unrelated_product_file_cannot_authorize(self):
+        from heideng_merchant.safety import atomic_json
+        history,archive,state_path,state=self.legacy_history()
+        other=history/'batch5/999/other/.pipeline/publish/verification.json'
+        atomic_json(other,state['verification'])
+        for change in ({'verification':str(other)}, {'folder':str(other.parents[2])}, {'store':SOURCE},
+                       {'sourceSpu':999}, {'verification':{**state['verification'],'actualSkuCount':1}}):
+            with self.subTest(change=list(change)):
+                atomic_json(state_path,{**state,**change})
+                data,_=self.call(history=history,write=True)
+                self.assertFalse(data['productPair']['verified'])
+        atomic_json(state_path,state)
+        (archive/'verification.json').unlink()
+        self.assertFalse(self.call(history=history,write=True)[0]['productPair']['verified'])
+        atomic_json(archive/'publish-response.json',{'success':False,'data':{'productId':803,'applyId':900}})
+        self.assertFalse(self.call(history=history,pid=803,write=True)[0]['productPair']['verified'])
+        self.assertFalse(self.posts)
+
+    def test_legacy_receipt_rechecks_live_facts_and_only_independent_sku_matches_can_write(self):
+        history,archive,state_path,state=self.legacy_history()
+        product=self.details['802']['productInfo']
+        for changes in ({'brandInfo':{'brandId':99}},{'categoryDetail':{'lastCategoryId':11}},
+                        {'width':999},{'weight':12},{'itemNum':'UNRECORDED'}):
+            with self.subTest(changes=changes),patch.dict(product,changes):
+                data,_=self.call(history=history,write=True)
+                self.assertFalse(data['productPair']['verified'])
+        self.assertFalse(self.posts)
+        self.details['802']['skuList'][0]['saleAttrs']=deepcopy(self.details['802']['skuList'][1]['saleAttrs'])
+        with patch.object(self.entry,'reference',return_value=None):
+            data,_=self.call(history=history,write=True)
+        self.assertTrue(data['productPair']['verified'])
+        self.assertEqual(data['pairedSkuCount'],0)
+        self.assertFalse(self.posts)
+
+    def test_legacy_proven_origin_with_no_approved_source_slots_never_claims_migration(self):
+        history,archive,state_path,state=self.legacy_history()
+        self.source['201']=[]
+        data,report=self.call(history=history,write=True)
+        self.assertEqual(data['migrationStatus'],'no-source-materials')
+        self.assertEqual(data['sourceApprovedSlots'],0)
+        self.assertTrue(report['productPair']['verified'])
         self.assertFalse(self.posts)
 
     def test_timeout_code_and_partial_results_keep_slots_reserved_after_source_changes(self):

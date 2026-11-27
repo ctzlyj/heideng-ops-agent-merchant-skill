@@ -51,8 +51,14 @@
 
 用 `diagnose-application --target-profile … --target-config … --product-id …` 查授权店当前商品库及原申请；有不同申请编号时带 `--apply-id`。申请被驳回时读取平台审核原文，并说明原因对应原申请还是该商品最新的审核记录。商品库、SKU 索引和申请单分别核实，申请里的状态无法单独证明商品已在售。
 
-商家明确放弃某几款时，用 `batch-skip --batch … --source-product-id …` 记下原商品，可重复传入。后续同批续办和从 `batch-status --output …` 接手的主图任务会沿用这些排除。用 `batch-census` 带批次 ID、目标店配置及 Profile，比对当前真实在售目录和批次映射。一件以前试过又重新申请的商品可能留下多个编号。旧工作目录可用 `history-census --history-dir … --target-config … --target-profile …`，可重复传 `--target-product-id` 缩小范围。一个源对应两个实际商品时，两件分别报告，先核定目标再写入。
+商家明确放弃某几款时，用 `batch-skip --batch … --source-product-id …` 记下原商品，可重复传入。后续同批续办和从 `batch-status --output …` 接手的主图任务会沿用这些排除。遇到全店权限拒绝或创建结果待对账时，仍沿原回执处理全批暂停。
+
+用 `batch-census` 带批次 ID、目标店配置及 Profile，比对当前真实在售目录和批次映射。旧工作目录可用 `history-census --history-dir … --target-config … --target-profile …`，可重复传 `--target-product-id` 缩小范围。发布回执与验证文件各自记录目标，可能出现一个源商品关联两个编号。目录中的同标题商品会列作候选，需核实两店商品与逐 SKU 规格后才能用于素材处理。
 
 单件 `copy-materials` 以 `--source-product-id`、`--target-product-id` 及两店各自的 `--source-config/--source-profile`、`--target-config/--target-profile` 运行。默认只读。逐 SKU 对照白底图、场景图、卖点图、透明图及卖点文案的用途、内容、顺序和审核；`--health` 另取目标店信息分及具体改进项。源绑定为空时转查源店图片空间及原已通过的记录，候选图片仍需归属和用途证据。现有任务已交办原样转存绑定时，可用 `--confirm FILL_MISSING_COPY_MATERIALS` 补上已核对且目标确实没有的槽位；已有内容冲突、待审、驳回与原请求不明的槽位分别报告。新增制作和费用需要相应交办。
 
 原批次用 `batch-materials --batch …` 带两店配置、Profile 运行，可按源商品筛选，支持相同的 `--health` 和补缺参数。先对目标商品库盘点，批次之外的在售链接单列；核验过程中按商品落回执。交付说明源有多少项可复制、目标按内容及顺序通过多少项、源端无素材的商品数，以及目标信息分仍要求什么。短标题走原导入任务，分别报告生成行数、平台受理行数、平台成功/失败及最终诊断是否消项。
+
+商家交办沿用源店短标题时，`copy-short-titles` 使用与 `copy-materials` 相同的两店配置、Profile 和商品编号。默认从已核对的 SKU 准备目标店官方导入表。源值缺失、目标已有内容或规格对应待核的行单列。已获本次导入授权时用 `--confirm IMPORT_COPY_SHORT_TITLES` 进入原批次；遇到响应中断，用 `--reconcile` 只查原导入任务及目标现值；`--health` 另查目标店信息分。制表、受理、成功/失败和最终消项分别报告。
+
+同一源商品在目标店出现多份链接时，可在单件素材或短标题任务带上 `--history-dir <原搬家目录>`。工具分别查验原店、原文件、真实目标编号及当期商品与规格。仅在同标题列表中出现的候选仍需核实具体商品，不能据此替换其他链接。

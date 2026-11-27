@@ -23,6 +23,12 @@ class MatureMaterialsTests(unittest.TestCase):
             self.assertEqual(gaps,{'12':[31,32,33,36],'13':[31,32,33,36]})
             with self.assertRaisesRegex(ValueError,'incomplete'):
                 agent._query_binding_materials(client,['11','12','13'])
+        with tempfile.TemporaryDirectory() as directory:
+            audit=Path(directory)/'partial.json'
+            audit.write_text(json.dumps({'rows':[{'productId':'fixture','slots':{'white':{'state':'unknown'}}}]}))
+            estimate=agent.audit_generation_summary(audit)
+            self.assertFalse(estimate['estimateComplete'])
+            self.assertIsNone(estimate['estimatedCredits'])
     def setUp(self):
         self.path=list(sys.path);sys.path.insert(0,str(SOURCE/'scripts'))
         self.names=('jd_material_agent','pop_attrs','pop_browser','pop_cutout','pop_repair','pop_safety','pop_text','pop_workflow','jdo_bridge_probe')

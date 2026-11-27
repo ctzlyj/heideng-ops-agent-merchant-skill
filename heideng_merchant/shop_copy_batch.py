@@ -315,7 +315,7 @@ def _observe(api, single, folder, frozen, target, args, prior):
         if pid:
             review=api.application_observation(pid,prior['applyId'],application)
             if review['auditState']=='rejected':
-                return {**prior,'comparison':{'status':'application-rejected','readbackView':'application',
+                return {**prior,'targetProductId':str(pid),'comparison':{'status':'application-rejected','readbackView':'application',
                         'saleState':'unknown',**review}}
             api.read_owned_detail(int(pid))
             pub=publication_directory(single)
@@ -663,6 +663,8 @@ def dispatch(args, api):
                         return {**_report(root,args.batch,scope),'status':'batch-held','ok':False}
                     ids.remove(candidate)
                     ids.insert(0,candidate)
+                elif held.get('active') and held.get('sourceProductId') not in ids:
+                    return {**_report(root,args.batch,scope),'status':'batch-held','ok':False}
             for pid in ids:
                 _check_stop(root)
                 path=_record_path(root,pid)
@@ -677,12 +679,14 @@ def dispatch(args, api):
                     else:
                         row=_single(api,root,scope,pid,args,phase,old,category_holds)
                 except MemberSkipped:
-                    if phase!='draft' and held.get('active') and held.get('reason')=='repeated-official-permission-refusal':
-                        break
-                    if (held.get('active') and held.get('sourceProductId')==pid and
-                            held.get('reason') in ('application-rejected','readback-different')):
-                        atomic_json(root/'hold.json',{**held,'active':False,'resolvedBy':'merchant-skip'})
-                        held={}
+                    if phase!='draft' and held.get('active'):
+                        if held.get('reason')=='repeated-official-permission-refusal':
+                            break
+                        if held.get('sourceProductId')==pid:
+                            if held.get('reason') not in ('application-rejected','readback-different'):
+                                break
+                            atomic_json(root/'hold.json',{**held,'active':False,'resolvedBy':'merchant-skip'})
+                            held={}
                     continue
                 except (api.api.JdoError,api.pipeline.PipelineError,api.matrix.MatrixError,ValueError,KeyError,OSError) as error:
                     state=read_json(path,{})

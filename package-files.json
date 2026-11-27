@@ -7,6 +7,7 @@
     "heideng_merchant/owned_product_copy.py",
     "heideng_merchant/shop_copy_command.py",
     "heideng_merchant/shop_copy_materials.py",
+    "heideng_merchant/shop_copy_short_titles.py",
     "heideng_merchant/shop_copy_history.py",
     "heideng_merchant/refresh_selection.py",
     "heideng_merchant/media_upload.py",

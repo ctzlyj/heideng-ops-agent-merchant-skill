@@ -27,7 +27,7 @@
     },
     "scripts/jd_product_pipeline.py": {
       "upstreamSha256": "389d5df3d1f64000fd2febeeed6fed19a32adb3c4465191b2fe9331e8fdbc372",
-      "sha256": "f170112240d60d93dcd89f8774591e37781f71bc59de874b9969d4ea7d5cb200",
+      "sha256": "56af872aa52283c461493d624a0de8f81245749254eb19f6ec9c46c61f541d0b",
       "adapted": true
     },
     "scripts/source_pricing.py": {

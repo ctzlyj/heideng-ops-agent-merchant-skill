@@ -1011,20 +1011,23 @@ def export_pop_image_appeals(report, output_dir):
 def audit_generation_summary(path):
     """Estimate from the same approved sibling sources, not from SKU deficits or local alpha work."""
     rows=json.loads(Path(path).read_text(encoding='utf-8')).get('rows') or []
-    missing={};sources={};approved=set();pending=set()
+    missing={};sources={};approved=set();pending=set();unknown=set()
     for row in rows:
         spu=str(row.get('productId') or row.get('spuId'))
         for kind,slot in (row.get('slots') or {}).items():
             state=slot.get('state') or slot.get('status') if isinstance(slot,dict) else slot
             if state=='missing':missing.setdefault(spu,set()).add(kind)
             if state=='pending':pending.add((spu,kind))
+            if state=='unknown' and kind in IMAGE_SUFFIXES:unknown.add((spu,kind))
             if state=='approved':
                 approved.add((spu,kind))
                 for value in slot.get('approvedValues') or [] if isinstance(slot,dict) else []:
                     if kind in IMAGE_SUFFIXES and _trusted_jd_image_url(value):sources.setdefault((spu,kind),set()).add(value)
-    reuse=0;derived=0;new=0;generation_spus=set();uncertain=[]
+    reuse=0;derived=0;new=0;generation_spus=set()
+    uncertain=[{'spuId':spu,'kind':kind,'reason':'部分 SKU 素材查询尚未核实'} for spu,kind in sorted(unknown)]
     for spu,kinds in missing.items():
         for kind in sorted(kinds & set(IMAGE_SUFFIXES)):
+            if (spu,kind) in unknown:continue
             values=sources.get((spu,kind),set())
             if (spu,kind) in pending or len(values)>1 or ((spu,kind) in approved and not values):
                 uncertain.append({'spuId':spu,'kind':kind,'reason':'来源缺失、歧义或审核中；先核对，不报精确付费量'})
@@ -1119,7 +1122,8 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
     if _shop_identity(client.seller_info()) != identity:
         raise ValueError('shop identity changed during coverage audit')
     appeals = collect_pop_image_appeals(online, materials)
-    return {'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'appealRows': appeals, 'manualAppealSkuIds': list(dict.fromkeys(item['skuId'] for item in appeals)), 'shopIdentity': identity, 'onlineProductCount': len(product_ids), 'onlineSkuCount': len(online), 'allSiblingSkuCount': len(siblings), 'healthSkuCount': len(health), 'unscoredSkuIds': [sku for sku in online_ids if sku not in scores], 'materialDeficitSkuCount': len(deficits), 'materialDeficitSkuIds': deficits, 'rejectedSkuCount': len(rejected), 'rejectedSkuIds': rejected, 'pendingSkuCount': len(pending), 'pendingSkuIds': pending, 'shortTitleIssueSkuIds': list(dict.fromkeys(short_titles)), 'issueCounts': issues, 'historicalTitleSkuCount': len(historical_ids), 'historicalTitleFiles': historical_files, 'notInHistoricalTitleSkuIds': [sku for sku in online_ids if sku not in historical_ids], 'historicalTitleNoLongerOnlineSkuIds': sorted(historical_ids - set(online_ids)), 'rows': rows, 'writesPerformed': False, 'platformTitleImportVerified': False, 'scopeNote': 'Complete paginated on-sale inventory, not a transaction snapshot; scores and workbook delivery do not prove material acceptance. Rejected white/scene/transparent images default to manual appeal delivery, not automatic repair; other rejected slots require a reviewed strategy.'}
+    unknown_slots = sum(slot['state']=='unknown' for row in rows for slot in row['slots'].values())
+    return {'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'unverifiedMaterialSlotCount':unknown_slots,'materialCoverageComplete':not unknown_slots,'materialReadGaps':read_gaps, 'appealRows': appeals, 'manualAppealSkuIds': list(dict.fromkeys(item['skuId'] for item in appeals)), 'shopIdentity': identity, 'onlineProductCount': len(product_ids), 'onlineSkuCount': len(online), 'allSiblingSkuCount': len(siblings), 'healthSkuCount': len(health), 'unscoredSkuIds': [sku for sku in online_ids if sku not in scores], 'materialDeficitSkuCount': len(deficits), 'materialDeficitSkuIds': deficits, 'rejectedSkuCount': len(rejected), 'rejectedSkuIds': rejected, 'pendingSkuCount': len(pending), 'pendingSkuIds': pending, 'shortTitleIssueSkuIds': list(dict.fromkeys(short_titles)), 'issueCounts': issues, 'historicalTitleSkuCount': len(historical_ids), 'historicalTitleFiles': historical_files, 'notInHistoricalTitleSkuIds': [sku for sku in online_ids if sku not in historical_ids], 'historicalTitleNoLongerOnlineSkuIds': sorted(historical_ids - set(online_ids)), 'rows': rows, 'writesPerformed': False, 'platformTitleImportVerified': False, 'scopeNote': 'Complete paginated on-sale inventory, not a transaction snapshot; scores and workbook delivery do not prove material acceptance. Rejected white/scene/transparent images default to manual appeal delivery, not automatic repair; other rejected slots require a reviewed strategy.'}
 
 def _short_title_issue(score_item: dict[str, Any]) -> bool:
     for entry in score_item.get('improvementList') or []:

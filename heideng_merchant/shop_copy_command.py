@@ -749,8 +749,17 @@ def compare(root, folder, frozen, target, args):
                            'not-on-sale' if str(live_code) in ('0','2','8','104','105') else 'unknown')
     audit_code=str(report['applicationStatus'].get('draftComputeStatus'))
     report['auditState']='pending' if audit_code=='1' else 'rejected' if audit_code=='3' else 'unknown'
-    if args.apply_id or report['auditState']=='rejected':
-        report.update(application_observation(pid,args.apply_id,detail))
+    original_id = submitted.get('applyId')
+    if (not args.apply_id and original_id and report['auditState'] in ('pending','rejected')
+            and str(report['applicationStatus'].get('applyId')) != str(original_id)):
+        # The live product can expose a different, newer application. Look up the original receipt.
+        report.update(auditState='unknown',applicationStatus={'lookupId':str(original_id)})
+        try:
+            report.update(application_observation(pid,original_id))
+        except (api.JdoError,matrix.MatrixError,KeyError,ValueError):
+            pass
+    elif args.apply_id or report['auditState']=='rejected':
+        report.update(application_observation(pid,args.apply_id or original_id,detail))
     atomic_json(folder/'comparison.json',report)
     checks = [*report['checks'], *report['delivery'].get('checks',[])]
     counts = {state:sum(c.get('status') == state for c in checks)
@@ -762,6 +771,7 @@ def compare(root, folder, frozen, target, args):
                                'target':str(c.get('target',c.get('targetValue')))[:120]})
     return {k:report[k] for k in ('status','sourceProductId','targetProductId','sourcePlatformStatus','platformStatus','readbackView',
                                   'consumerPageStatus','buyerPurchaseStatus','packagingListStatus','readbackScope','applicationStatus','saleState','auditState','checkedAt','readGaps')} | {
+            **{k:report[k] for k in ('latestProductReview',) if k in report},
             'rejection':report.get('rejection'),'buyerEvidence':'本次核对的是后台商品和库存。买家在特定地区、规格或预售条件下能否下单，需对应前台证据。',
             'merchantCodeCoverage':report.get('merchantCodeCoverage'), 'matchedSkuCount':len(report['skuPairs']),
             'checkCounts':counts,'skuLinkCount':len(report['skuLinks']),'skuLinks':report['skuLinks'][:3],
@@ -773,10 +783,12 @@ def compare(root, folder, frozen, target, args):
 def main(argv=None):
     from heideng_merchant import shop_copy_batch as batches
     from heideng_merchant import shop_copy_materials as materials
+    from heideng_merchant import shop_copy_short_titles as titles
     from heideng_merchant import shop_copy_history as history
     parser = argparse.ArgumentParser(description='自家两店商品复制与按原批次恢复')
     subs = parser.add_subparsers(dest='action',required=True)
     materials.register(subs)
+    titles.register(subs)
     history.register(subs)
     review = subs.add_parser('diagnose-application',help='读取指定目标商品的原申请、审核原因和商品库状态')
     review.add_argument('--target-config',type=Path,required=True)
@@ -822,6 +834,8 @@ def main(argv=None):
     try:
         if args.action=='copy-materials':
             result=materials.handle(args,sys.modules[__name__])
+        elif args.action=='copy-short-titles':
+            result=titles.handle(args,sys.modules[__name__])
         elif args.action=='history-census':
             result=history.run(args,sys.modules[__name__])
         elif args.action=='diagnose-application':
