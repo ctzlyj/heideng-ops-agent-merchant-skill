@@ -107,12 +107,14 @@ class MatureCollectionTests(unittest.TestCase):
     def test_original_functions_match_pinned_upstream_ast(self):
         # Development-time hashes from the pinned Git blobs; no upstream lookup at runtime.
         expected = {'scripts/package_live.py::live_data': '267369c319f8f8d58ddeb0d5f1a7b33b71d85eea807665e240beadbe321ef3c4',
- 'scripts/package_live.py::plan_product': 'baf89cdd67f213f1123f9c9a8500144e615ce59c687a9f990c1191200383a562',
+ # Packaging and verification functions from the separately pinned collection files.
+ 'scripts/package_live.py::plan_product': 'bccf8579c66cd5d56befaccb965648148b2bc50925bf285689d4d6e16a0f4c13',
  'scripts/package_live.py::finalize': 'deda0d20cfa6e19987c2b635a771917984ebc555919fadcd369a500e54a6366d',
  'scripts/package_live.py::verify_table': 'b0e8427a090121c7bb417042dbd077d0ecb7519db2779d85a85fb6361f6d4583',
  'scripts/package_live.py::_detail_jobs': 'cccc119294811db5f99e6662c46d4a693101917bbda1e03319201cb574a1fa2e',
  'scripts/package_live.py::details': '703b1814f90a4220d711ff7ee8d5d63ba4ba49206e64eb9bb11eb56a26af0e56',
- 'scripts/verify_batch.py::run': 'c1dd6990259d60b4a9b7d5899e65522502f6e6da2557c3cbc53f2876202157bc',
+ # Verification entry as adopted with the shared collection price fallback.
+ 'scripts/verify_batch.py::run': '46eb6e8820067793a4143d1a872e3998832f445a4df6008f070039960accc247',
  'scripts/prepare_batch.py::parse_batch': '59ab1406dd43a53c81b6c17a2552fe1fe36671bb3682ad940205e5353c5fde10',
  'scripts/prepare_batch.py::parse_rows_flat': '829e74ffc37ce916e772778c54aeb85be27e251dc8308823a8e2c947abbed52b',
  'scripts/prepare_batch.py::parse_rows_listing': '2490a05a8065b14723d3b99a95fe37bec9510207f21fa22a55e8e0e403393ead',

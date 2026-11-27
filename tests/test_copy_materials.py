@@ -10,7 +10,45 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tests.test_owned_product_copy import SOURCE, TARGET, sample
+SOURCE={'profile':'lantern-source','shopName':'甲灯具','shopId':'910','venderId':'110'}
+TARGET={'profile':'lantern-target','shopName':'乙灯具','shopId':'920','venderId':'120'}
+
+
+def sample(target=False):
+    pid=802 if target else 701
+    first=300 if target else 200
+    prefix='target' if target else 'source'
+    def group(gid,urls):
+        return {'uuid':gid,'imageInfoList':[{'orderSort':pos,'imgUrl':url} for pos,url in enumerate(urls,1)]}
+    groups=[group('0000000000',['shared','features'])]
+    rows=[]
+    specs=[]
+    for n,color in enumerate(('白','蓝'),1):
+        sid=first+n
+        gid=prefix+'group'+str(n)
+        groups.append(group(gid,[f'hero{n}',f'angle{n}',f'size{n}']))
+        specs.append({'uuid':str(sid),'imageUrl':f'spec{n}'})
+        rows.append({'skuId':sid,'productId':pid,'outerId':('000134','LED/A-9')[n-1],'logo':f'hero{n}',
+                     'saleAttrs':[{'attrId':25,'attrName':'饰面','attrValueAlias':color,'attrValues':gid,'dim':1,'attrValuesSeqNo':n}],
+                     'priceInfo':{'jdPrice':('18.50','22.75')[n-1]},'stockNum':(0,17)[n-1],'skuEnableStatus':1,
+                     'upcCode':'', 'goodsAttrInfos':[]})
+    return {'productInfo':{'productId':pid,'productName':'合成阅读灯','brandInfo':{'brandId':12},'itemNum':'L-008',
+                           'categoryDetail':{'lastCategoryId':800},'goodsAttrInfos':[],'length':210,'wide':120,
+                           'height':80,'weight':'.52','packSpecification':'',
+                           'productDetailDesc':{'desc':'<p>使用说明<img src="https://img10.360buyimg.com/imgzone/jfs/detail1"><img src="https://img10.360buyimg.com/imgzone/jfs/detail2"></p>',
+                                                'mobileDesc':'<p><img data-src="https://img10.360buyimg.com/imgzone/jfs/mobile1"></p>'}},
+            'skuList':list(reversed(rows)) if target else rows,
+            'material':{'mainImages':groups,'rectangleImages':[],'ggtImages':specs}}
+
+
+def reference():
+    codes=('WareTitle WareItemnum WareBrand WareSkuImg WareEditor WareLength WareWide WareHeight WareWeight '
+           'SKUS SKU SkuVendorSku SkuJdprice SkuStockNum SkuEnableStatus SkuMainImage VenderCategoryValue sale-prop-25')
+    return {'shopIdentity':TARGET,'category':{'id':800},'brands':[{'brandId':12}],
+            'schema':{'componentList':[{'componentCode':c} for c in codes.split()]}}
+
+
+
 
 
 def scene(order, path, status=4):
@@ -21,10 +59,21 @@ def scene(order, path, status=4):
 class CopyMaterialTests(unittest.TestCase):
     def setUp(self):
         self.root=Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.enterContext(patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':str(self.root)}))
         project=Path(__file__).resolve().parents[1]
-        self.enterContext(patch.object(sys,'path',[str(project/'mature/listing/scripts'),*sys.path]))
-        from heideng_merchant import shop_copy_command as entry
+        if (project / 'scripts/merchant.py').is_file():
+            import heideng_merchant
+            project = Path(heideng_merchant.__file__).resolve().parents[1]
+            self.state_env = 'HEIDENG_MERCHANT_HOME'
+            self.enterContext(patch.object(sys, 'path', [str(project/'mature/listing/scripts'), *sys.path]))
+            from heideng_merchant import shop_copy_command as entry, shop_copy_materials, safety, pop_copy_titles
+        else:
+            self.state_env = 'HEIDENG_POP_HOME'
+            self.enterContext(patch.object(sys, 'path', [str(project/'scripts'), *sys.path]))
+            from pop_copy import entry, shop_copy_materials, safety, pop_copy_titles
+        self.enterContext(patch.dict(os.environ, {self.state_env:str(self.root)}))
+        self.materials = shop_copy_materials
+        self.titles = pop_copy_titles
+        self.safety = safety
         self.entry=entry
         self.details={'701':sample(),'802':sample(True)}
         self.source={'201':[scene(1,'red-a.jpg'),scene(2,'red-b.jpg')],'202':[]}
@@ -220,7 +269,7 @@ class CopyMaterialTests(unittest.TestCase):
         self.assertEqual(self.target['301'][0]['imageMaterial']['skuImages'][0]['imgUrl'],'jfs/colleague.jpg')
 
     def test_batch_health_reads_merchant_pages_once_then_filters_each_product(self):
-        from heideng_merchant.shop_copy_materials import _health
+        _health = self.materials._health
         self.active=TARGET
         cache={}
         api=self.entry.api
@@ -251,7 +300,7 @@ class CopyMaterialTests(unittest.TestCase):
 
     def test_stopped_batch_cannot_create_new_material_intent(self):
         from argparse import Namespace
-        from heideng_merchant.shop_copy_materials import handle
+        handle = self.materials.handle
         class Stopped(Exception):
             pass
         def stop():
@@ -283,7 +332,7 @@ class CopyMaterialTests(unittest.TestCase):
         self.assertFalse(self.posts)
 
     def legacy_history(self):
-        from heideng_merchant.safety import atomic_json,file_sha
+        atomic_json, file_sha = self.safety.atomic_json, self.safety.file_sha
         history=self.root/'old-run'
         member=history/'batch5/701'
         folder=member/'201_lamp'
@@ -326,7 +375,7 @@ class CopyMaterialTests(unittest.TestCase):
         self.assertTrue(all(not self.target[tid] for tid in ('401','402')))
 
     def test_legacy_state_candidate_or_unrelated_product_file_cannot_authorize(self):
-        from heideng_merchant.safety import atomic_json
+        atomic_json = self.safety.atomic_json
         history,archive,state_path,state=self.legacy_history()
         other=history/'batch5/999/other/.pipeline/publish/verification.json'
         atomic_json(other,state['verification'])
@@ -345,7 +394,7 @@ class CopyMaterialTests(unittest.TestCase):
         self.assertFalse(self.posts)
 
     def test_legacy_path_readback_hash_and_current_target_are_checked_at_their_own_boundaries(self):
-        from heideng_merchant.safety import atomic_json
+        atomic_json = self.safety.atomic_json
         history,archive,state_path,state=self.legacy_history()
         atomic_json(state_path,{**state,'verification':str(archive/'verification.json'),'payloadSha256':'f'*64})
         published,_=self.call(history=history,pid=803,write=True)
@@ -395,7 +444,7 @@ class CopyMaterialTests(unittest.TestCase):
     def test_timeout_code_and_partial_results_keep_slots_reserved_after_source_changes(self):
         for mode in ('system','raw-system','partial'):
             with (self.subTest(mode=mode), tempfile.TemporaryDirectory() as isolated,
-                  patch.dict(os.environ,{'HEIDENG_MERCHANT_HOME':isolated})):
+                  patch.dict(os.environ,{self.state_env:isolated})):
                 self.posts.clear()
                 self.mode=mode
                 data,report=self.call(write=True)
@@ -419,6 +468,47 @@ class CopyMaterialTests(unittest.TestCase):
         self.assertEqual(next(iter(report['originalRequests'].values()))['requestStatus'],'outcome-unknown')
         self.assertEqual(data['platformRequestsIssued'],0)
         self.assertEqual(len(self.posts),1)
+
+
+    def test_short_titles_pair_by_spec_and_preserve_existing_target(self):
+        from types import SimpleNamespace
+        src = self.details['701']
+        dst = self.details['802']
+        for sku in src['skuList']:
+            sku['features'] = {'shortTitle':'来源规格'+str(sku['skuId'])}
+        for sku in dst['skuList']:
+            sku['features'] = {'shortTitle':'原目标标题' if sku['skuId'] == 301 else ''}
+        frozen = self.materials.copy.freeze_copy(SOURCE, TARGET, src)
+        self.active = TARGET
+        proof, rows, _ = self.titles._observe(self.entry, frozen, ['701'], dst,
+                                               SimpleNamespace(valid_short_title=lambda text: bool(text)), ())
+        self.assertTrue(proof['verified'])
+        self.assertEqual({r['targetSkuId']:(r['sourceSkuId'],r['status']) for r in rows},
+                         {'301':('201','target-preserved'), '302':('202','ready')})
+        self.assertFalse(self.posts)
+
+    def test_multiple_targets_keep_both_historical_links(self):
+        history, _, _, _ = self.legacy_history()
+        argv = ['copy-materials', '--source-profile', SOURCE['profile'], '--source-config', 'source.json',
+                '--source-product-id', '701', '--target-profile', TARGET['profile'], '--target-config', 'target.json',
+                '--target-product-id', '803', '--target-product-id', '802', '--history-dir', str(history)]
+        out = StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(self.entry.main(argv), 0)
+        rows = json.loads(out.getvalue())['rows']
+        self.assertEqual([(row['targetProductId'], row['productPair']['basis']) for row in rows],
+                         [(803, 'legacy-accepted-publication'), (802, 'legacy-product-readback')])
+        self.assertTrue(all(row['pairedSkuCount'] == 2 for row in rows))
+        self.assertNotEqual(rows[0]['reportFile'], rows[1]['reportFile'])
+        self.assertEqual(self.posts, [])
+
+
+class PopCopyCliTests(unittest.TestCase):
+    def test_empty_source_never_delivers_a_copy(self):
+        import runpy
+        run_contract = runpy.run_path(str(Path(__file__).with_name('pop_copy_contract.py')))['run']
+        root = Path(__file__).resolve().parents[1]
+        run_contract(root, merchant=(root/'scripts/merchant.py').is_file())
 
 
 if __name__=='__main__':

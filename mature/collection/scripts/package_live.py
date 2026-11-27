@@ -1,6 +1,5 @@
 """Create completed collection packages from live per-SKU checkpoints only."""
 from __future__ import annotations
-
 # Help is offline and has no runtime/browser side effects.
 import sys as _sys
 if __name__ == '__main__' and ('--help' in _sys.argv or '-h' in _sys.argv):
@@ -16,8 +15,11 @@ import json,sys,hashlib,subprocess,concurrent.futures,shutil
 from pathlib import Path
 from datetime import datetime,timezone
 from collector_guard import atomic_json,validate_main,ordered_variants
-from asset_paths import ROOT,STAGE,CACHE,safe_name,image_url,save_jpeg,get_public
+from asset_paths import ROOT,STAGE,CACHE,safe_name,image_url,save_jpeg,save_main_jpeg,get_public
 from workbook_writer import write_workbook
+from checkpoint_status import active_variants
+from image_variants import reuse_variant
+from asset_paths import prior_receipts_path
 from package_contract import ordered_detail_urls,decode_detail_payload,HEADERS,table_matrix,error_state
 from media_guard import inspect_mp4
 SCRIPT=Path(__file__).parent
@@ -92,7 +94,8 @@ def plan_product(keyword,item,known_names):
     if not main:
         if error.exists():return {'pid':pid,'keyword':keyword,'state':error_state(load(error)),'reason':load(error).get('evidence',{}).get('itemOverTip') or load(error).get('reason')}
         return {'pid':pid,'keyword':keyword,'state':'MAIN_OR_PRICE_PENDING'}
-    rows=ordered_variants(pid,main['colorSize']);prices={r['sku']:live_data(r['sku']) for r in rows}
+    rows=active_variants(STAGE,ordered_variants(pid,main['colorSize']))
+    prices={r['sku']:live_data(r['sku']) for r in rows}
     missing=[k for k,v in prices.items() if v is None]
     if missing:return {'pid':pid,'keyword':keyword,'state':'SKU_PRICES_PENDING','missingSku':missing}
     title=safe_name(main['title']);key=(keyword,title)
@@ -105,8 +108,13 @@ def plan_product(keyword,item,known_names):
         if r.get('state')=='COMPLETE' and Path(r['folder']).exists():return {'pid':pid,'keyword':keyword,'state':'COMPLETE','folder':r['folder']}
     temp.mkdir(parents=True,exist_ok=True)
     for name in ['主图','详情图','SKU图','主图视频']:(temp/name).mkdir(exist_ok=True)
-    jobs=[]
-    for i,c in enumerate([c for c in main['carousel'] if c.get('u')],1):jobs.append((image_url(c['u']),temp/'主图'/f'主图_{i}.jpg'))
+    jobs=[];source_notes=[]
+    # Main images are saved eagerly: a corrupt size variant falls back to the
+    # same-host n12 standard size and the substitution is recorded in the receipt.
+    main_images=[image_url(c['u']) for c in main['carousel'] if c.get('u')]
+    for i,u in enumerate(main_images,1):
+        note=save_main_jpeg(u,temp/'主图'/f'主图_{i}.jpg')
+        if note:source_notes.append(note)
     detail_jobs,dead_detail_urls=_detail_jobs(details(main['realSpuId']),temp/'详情图',save_jpeg)
     jobs.extend(detail_jobs)
     names=set()
@@ -115,7 +123,9 @@ def plan_product(keyword,item,known_names):
         if not image:raise ValueError('SKU_IMAGE_MISSING')
         n=safe_name(' '.join(x for x in [row['spec1'],row['spec2']] if x) or row['sku'])
         if n in names:n+='_'+row['sku']
-        names.add(n);jobs.append((image_url(image),temp/'SKU图'/(n+'.jpg')))
+        names.add(n)
+        destination = temp/'SKU图'/(n+'.jpg')
+        jobs.append((reuse_variant(image_url(image), destination, temp, source_notes), destination))
     groups={}
     for u,p in jobs:groups.setdefault(u,[]).append(p)
     def download(u,paths):
@@ -135,14 +145,14 @@ def plan_product(keyword,item,known_names):
         videos.append({'file':str(vp.relative_to(temp)),**inspect_mp4(vp.read_bytes())})
     matrix=table_matrix(main,rows,prices)
     spec={'headers':HEADERS,'rows':matrix,'output':str(temp/'商品信息.xlsx')}
-    metadata={'sourceSku':pid,'keyword':keyword,'title':main['title'],'finalFolder':str(final),'variants':rows,'arrivalPrices':{r['sku']:prices[r['sku']]['pp'] for r in rows},'expectedImages':len(jobs),'videos':videos,'deadDetailUrls':dead_detail_urls,'priceSource':'live_signed_page','priceSources':{r['sku']:prices[r['sku']].get('priceSource','bestPromotion.purchasePrice') for r in rows},'collectedAt':datetime.now(timezone.utc).isoformat(),'state':'AWAITING_WORKBOOK'}
+    metadata={'sourceSku':pid,'keyword':keyword,'title':main['title'],'finalFolder':str(final),'variants':rows,'arrivalPrices':{r['sku']:prices[r['sku']]['pp'] for r in rows},'expectedImages':len(jobs)+len(main_images),'videos':videos,'deadDetailUrls':dead_detail_urls,'sourceNotes':source_notes,'priceSource':'live_signed_page','priceSources':{r['sku']:prices[r['sku']].get('priceSource','bestPromotion.purchasePrice') for r in rows},'collectedAt':datetime.now(timezone.utc).isoformat(),'state':'AWAITING_WORKBOOK'}
     atomic_json(temp/'package_metadata.json',metadata)
     return {'pid':pid,'keyword':keyword,'state':'AWAITING_WORKBOOK','spec':spec,'metadata':metadata,'temp':str(temp),'final':str(final)}
 
 def prior_folder_owner(final,pid):
     """True only when a provided prior receipt proves the folder packages this same pid."""
     import os
-    path=os.environ.get('HEIDENG_COLLECTION_PRIOR_RECEIPTS')
+    path=prior_receipts_path()
     if not path:return False
     try:entries=json.loads(Path(path).read_text(encoding='utf-8-sig'))
     except (OSError,ValueError):return False

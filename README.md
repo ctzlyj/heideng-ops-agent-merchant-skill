@@ -1,4 +1,6 @@
-# 黑灯运营智能体商家版 0.4.28 · GitHub 源码内测
+# 黑灯运营智能体商家版 0.4.30 · GitHub 源码内测
+
+选热卖商品做组合链接时，可按本店近 30 天订单选 SKU，先交付价格对照表和本地草稿。指定一批商品查素材缺口时，直接按这些商品和规格核对。两项操作都沿用本店已有授权。[聚合草稿](references/experience-listing.md) · [共同修复的来源记录](maintenance/shared-pop.json)
 
 搬家后的商品可以按源店、目标店逐 SKU 核信息分素材，查看未绑定、缺来源、审核中和平台驳回的具体原因。主图可按每链接一张、指定规格或剩余颜色组处理，已认可的样张可直接沿用。生成、上传、图位回读和买家端展示分别记录。
 
@@ -8,7 +10,7 @@
 
 将下面这句话发给 WorkBuddy 即可安装。安装完成后，用自己的话说想做什么，例如“连上我的店，给这个商品先做一张样图”。
 
-> 请从 https://github.com/ctzlyj/heideng-ops-agent-merchant-skill/tree/codex/merchant-materials-and-gallery 安装黑灯运营智能体商家版，按这个链接的源码安装到 WorkBuddy，装好告诉我。
+> 请从 https://github.com/ctzlyj/heideng-ops-agent-merchant-skill/tree/codex/shared-pop-business 安装黑灯运营智能体商家版，按这个链接的源码安装到 WorkBuddy，装好告诉我。
 
 本版支持在同一个登录页扫码，用商家自己的原图和贴图免费做样张，以及按一个指定 SKU 试发首图。样图、后台提交与买家端核验分别记录。市场专家的 0.4.20 授权卡仍在独立联调，审核期间小范围内测通过 GitHub 源码安装。
 
@@ -24,7 +26,7 @@ Mac 上已有连接的商家，继续使用原安装回执绑定的状态目录�
 
 ## 给宿主 Agent 的安装入口
 
-宿主从给定的 GitHub tree 链接解析分支或提交。分支链接先解析为 40 位提交号；在临时目录 Git 检出该提交，核对 `git rev-parse HEAD` 与 `VERSION`，再运行根目录 `install.py`。公开源码可匿名读取。为仅取得源码，可用 `git clone --filter=blob:none --no-checkout --single-branch --branch codex/merchant-materials-and-gallery <仓库URL> <临时目录>`，在该目录执行 `git sparse-checkout set --no-cone "/*" "!/updates/artifacts/"` 和 `git checkout --detach <所选提交>`。宿主遇到分支更新也以商家链接指定的提交为准。
+宿主从给定的 GitHub tree 链接解析分支或提交。分支链接先解析为 40 位提交号；在临时目录 Git 检出该提交，核对 `git rev-parse HEAD` 与 `VERSION`，再运行根目录 `install.py`。公开源码可匿名读取。为仅取得源码，可用 `git clone --filter=blob:none --no-checkout --single-branch --branch codex/shared-pop-business <仓库URL> <临时目录>`，在该目录执行 `git sparse-checkout set --no-cone "/*" "!/updates/artifacts/"` 和 `git checkout --detach <所选提交>`。宿主遇到分支更新也以商家链接指定的提交为准。
 
 ```text
 python install.py --host workbuddy --with-runtime --with-official --no-auto-update

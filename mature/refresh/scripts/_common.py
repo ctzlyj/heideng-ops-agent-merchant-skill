@@ -7,6 +7,8 @@ same scripts work for any store without editing code.
 
 from __future__ import annotations
 
+from heideng_merchant.refresh_selection import plan_products
+
 import hashlib
 import json
 import os
@@ -559,31 +561,6 @@ def build_plan(
         "tasks": tasks,
         "capped": capped,
     }
-
-
-def plan_products(plan: dict[str, Any], pids: Iterable[str] | None = None) -> list[dict[str, Any]]:
-    wanted = {str(item) for item in (pids or []) if str(item).strip()}
-    products = plan.get("products") or []
-    result = []
-    for item in products:
-        if wanted and str(item["productId"]) not in wanted:
-            continue
-        if "tasks" in plan and not plan.get("selectionMode"):
-            # Some older hosts narrowed tasks after planning without narrowing positions.
-            # Never carry discarded keys into a second batch's patch, report or verification.
-            keys = plan["tasks"]
-            physical = item.get("positions", [])
-            details = item.get("detailImages", [])
-            kept = [r for r in physical if r["key"] in keys]
-            kept_details = [r for r in details if r["key"] in keys]
-            if (physical or details) and not (kept or kept_details):
-                continue
-            if len(kept) != len(physical) or len(kept_details) != len(details):
-                item = {**item, "positions": kept, "uniqueImages": len({r["key"] for r in kept})}
-                if details:
-                    item["detailImages"] = kept_details
-        result.append(item)
-    return result
 
 
 def plan_tasks(plan: dict[str, Any], pids: Iterable[str] | None = None) -> dict[str, dict[str, Any]]:

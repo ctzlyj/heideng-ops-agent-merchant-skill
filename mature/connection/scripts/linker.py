@@ -24,6 +24,7 @@ SKILL_DIR = Path(__file__).resolve().parents[1]
 APP_DIR = SKILL_DIR / "app"
 sys.path.insert(0, str(APP_DIR))
 import shoplib as sl  # noqa: E402
+import pop_connection
 from redaction import safe_text
 
 SERVER_PY = APP_DIR / "server.py"
@@ -253,11 +254,13 @@ def cmd_connect(a):
     elif 'browserConfig' not in payload:
         payload['browserConfig']={'provider':'builtin','shopIdentity':{'shopName':a.shop or '','venderId':a.vender_id or ''}}
     check_browser_python(payload['browserConfig'])
-    data = _unwrap(*api("/api/connect", payload))
-    if data.get('jobId'):
-        sl.save_pending({'jobId': data['jobId'], 'profile': data['profile'], 'query': a.shop,
-                         'shopName': a.shop or '', 'venderId': a.vender_id or ''})
-    return data
+    query = a.shop or a.vender_id or ''
+    if not query:
+        return {'ok':False, 'status':'error', 'error':'请填写店铺名称或 venderId。'}
+    if not payload['profile']:
+        payload['profile'] = sl.suggest_profile_name(query, sl.list_disk_profiles())
+    fields = {'query':query, 'shopName':payload['shopName'], 'venderId':payload['venderId']}
+    return pop_connection.dispatch(sl, api, payload, fields, requested_profile=a.profile)
 
 
 def _job_matches(job, job_id='', profile='', vender_id='', shop_name=''):
@@ -379,9 +382,7 @@ def _reconcile_original(pending, query, shop_name, vender_id, *, exact_task=Fals
         identity = sl.verify_profile(original)
         sl.assert_profile_proof(original, identity)
         expected_exact = pending.get('confirmedShopName')
-        if ((vender_id and identity.get('venderId') != vender_id)
-                or (shop_name and not sl.name_matches(shop_name,[identity.get('shopName','')]))
-                or (expected_exact and identity.get('shopName') != expected_exact)):
+        if not pop_connection.target_matches(identity, shop_name, vender_id, sl.name_matches, expected_exact):
             return {'ok':False,'status':'mismatch','profile':original,'message':'原 Profile 核店与目标不符。'}
         from heideng_merchant.mature_runtime import merchant_profile_directory
         directory = merchant_profile_directory(pending.get('browserProfileDir'))
@@ -421,12 +422,12 @@ def _cmd_ensure_shop(a, wait_timeout=None):
         return blocker
     job_id = getattr(a, 'job_id', None)
     if job_id is not None:
-        pending = sl.load_pending()
+        pending = pop_connection.pending_for(sl, job_id)
         original = getattr(a, 'profile', None)
         if (not getattr(a,'resume',False) or getattr(a,'fresh',False) or getattr(a,'confirmed_shop_name',None)
                 or not original or not sl.PROFILE_RE.fullmatch(original) or original == 'default'
-                or not job_id or pending.get('jobId') != job_id or pending.get('profile') != original
-                or a.shop.strip() != pending.get('query') or pending.get('processRunning') is not False
+                or not pop_connection.original_target(pending, original, job_id, a.shop)
+                or pending.get('processRunning') is not False
                 or pending.get('outcome') not in ('callback_unknown','native_receipt_pending')):
             return {'ok':False,'status':'blocked','errorKind':'original_task_mismatch',
                     'message':'请使用同一条已暂停回执的店铺原称、Profile 和 jobId 对账。'}
@@ -437,12 +438,8 @@ def _cmd_ensure_shop(a, wait_timeout=None):
                     'jobId':job_id,'message':'原任务尚无可核验的本目录官方完成记录。','retryAllowed':False}
         return _reconcile_original(pending, a.shop, pending.get('shopName'), pending.get('venderId'), exact_task=True)
     res = sl.resolve(a.shop)
-    if res.get('status') == 'ready' and getattr(a,'profile',None) and a.profile != res.get('profile'):
-        target = sl.exact_authorized_shop(a.profile,a.shop)
-        if not target.get('ok'):
-            return target
-        entry = sl.load_registry()['profiles'].get(a.profile,{})
-        return {'ok':True,'status':'ready',**sl._public(a.profile,target['identity'],entry)}
+    res = pop_connection.explicit_profile(sl, res, getattr(a, 'profile', None), a.shop)
+    pop_connection.settle_ready(sl, res, a.shop, getattr(a, 'profile', None))
     if res['status'] == 'ambiguous':
         receipt = _original_receipt(sl.load_pending(), a.shop)
         if receipt and any(item.get('profile') == receipt['profile'] for item in (res.get('candidates') or [])):
@@ -524,7 +521,12 @@ def _cmd_ensure_shop(a, wait_timeout=None):
             and active_job.get('status') in ('starting', 'waiting', 'verifying')):
         check_browser_python(payload['browserConfig'])
     if wait_timeout is not None:ensure_embedded_server()
-    started = _unwrap(*api("/api/connect", payload))
+    fields = {'query':q, 'shopName':shop_name, 'venderId':vender_id}
+    if (payload.get('browserConfig') or {}).get('confirmedShopName'):
+        fields.update(confirmedShopName=shop_name, browserShopIdentity=browser_identity)
+    started = pop_connection.dispatch(sl, api, payload, fields, requested_profile=getattr(a, 'profile', None))
+    if started.get('errorKind') == 'result_unknown' or started.get('requestAccepted') is False:
+        return started
     if started.get('status') == 'ready':
         return started
     if not started.get("ok"):
@@ -541,11 +543,6 @@ def _cmd_ensure_shop(a, wait_timeout=None):
     for key in ('browserChannel', 'browserSelectionReason'):
         if started_job.get(key):
             out_base[key] = started_job[key]
-    pending_data = {'jobId': started.get('jobId'), 'profile': profile, 'query': q, 'shopName': shop_name,
-                    'venderId': vender_id}
-    if (payload.get('browserConfig') or {}).get('confirmedShopName'):
-        pending_data.update(confirmedShopName=shop_name,browserShopIdentity=browser_identity)
-    sl.save_pending(pending_data)
     if a.no_wait:
         return {'ok': True, 'status': 'awaiting_auth', 'message': (started.get('job') or {}).get('message', ''), **out_base}
     waited = wait_job(wait_timeout if wait_timeout is not None else min(a.timeout, 3), interval=0.5, job_id=started.get('jobId', ''), profile=profile,

@@ -3,8 +3,17 @@ import importlib.util,json,os,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import Mock,patch,call
 from tests.test_mature_connection import SOURCE,ROOT
+def accepted(reply):
+ def respond(path, payload):
+  assert path == '/api/connect'
+  return 200, {**reply, 'authorizationRequestId':payload['authorizationRequestId'],
+               'authorizationRequestedProfile':payload['profile']}
+ return respond
+
 class SingleFlowTests(unittest.TestCase):
  def setUp(self):
+  home = self.enterContext(tempfile.TemporaryDirectory())
+  self.enterContext(patch.dict(os.environ, {'JINGMAI_LINKER_HOME':home}))
   self.path=list(sys.path);self.names=('shoplib','redaction','browser_auth','browser_adapters','linker','server')
   self.saved={n:sys.modules.get(n) for n in self.names};sys.path.insert(0,str(SOURCE/'app'));sys.path.insert(0,str(SOURCE/'scripts'))
   for n in self.names:sys.modules.pop(n,None)
@@ -24,7 +33,7 @@ class SingleFlowTests(unittest.TestCase):
  def test_default_new_auth_selects_builtin_without_changing_explicit_host(self):
   cli=self.load('flow_linker',SOURCE/'scripts/linker.py')
   args=type('Args',(),{'shop':'fixture','profile':None,'no_auth':False,'no_open':False,'no_wait':True,'resume':False,'browser_config':None,'timeout':3})()
-  with patch.object(cli,'_env_blockers',return_value=None),patch.object(cli.sl,'resolve',return_value={'status':'needs_auth','shopName':'fixture'}),patch.object(cli.sl,'suggest_profile_name',return_value='fixture-profile'),patch.object(cli.sl,'save_pending'),patch.object(cli,'api',return_value=(200,{'ok':True,'status':'awaiting_auth','profile':'fixture-new','jobId':'fixture','job':{'stage':'waiting_browser','message':'waiting'}})) as api:
+  with patch.object(cli,'_env_blockers',return_value=None),patch.object(cli.sl,'resolve',return_value={'status':'needs_auth','shopName':'fixture'}),patch.object(cli.sl,'suggest_profile_name',return_value='fixture-profile'),patch.object(cli.sl,'save_pending'),patch.object(cli,'api',side_effect=accepted({'ok':True,'status':'awaiting_auth','profile':'fixture-new','jobId':'fixture','job':{'stage':'waiting_browser','message':'waiting'}})) as api:
    result=cli.cmd_ensure_shop(args)
   self.assertEqual(api.call_args.args[1]['browserConfig']['provider'],'builtin')
   self.assertEqual(api.call_args.args[1]['browserConfig']['shopIdentity']['shopName'],'fixture')
@@ -131,7 +140,7 @@ class SingleFlowTests(unittest.TestCase):
       cli.sl,'resolve',return_value={'status':'needs_auth','shopName':args.shop,'suggestedProfile':'fixture-profile'}), patch.object(
       cli.sl,'load_pending',return_value=pending), patch.object(cli.sl,'save_pending') as save, patch.object(
       cli,'ensure_embedded_server'), patch.object(cli,'wait_job',return_value={'status':'awaiting_auth'}), patch.object(
-      cli,'api',return_value=(200,started)) as api:
+      cli,'api',side_effect=accepted(started)) as api:
    cli._cmd_ensure_shop(args, wait_timeout=60)
    payload = api.call_args.args[1]
    self.assertEqual(payload['shopName'], args.confirmed_shop_name)
@@ -188,7 +197,7 @@ class SingleFlowTests(unittest.TestCase):
  def test_low_level_connect_uses_explicit_shop_arguments(self):
   cli=self.load('flow_low_level_connect',SOURCE/'scripts/linker.py')
   args=type('Args',(),{'shop':'fixture-shop','profile':'fixture-profile','vender_id':'123','no_open':False})()
-  with patch.object(cli,'api',return_value=(200,{'ok':True,'jobId':'job-fixture','profile':'fixture-profile-task'})) as api,patch.object(cli.sl,'save_pending'):
+  with patch.object(cli,'api',side_effect=accepted({'ok':True,'jobId':'job-fixture','profile':'fixture-profile-task'})) as api,patch.object(cli.sl,'save_pending'):
    try:cli.cmd_connect(args)
    except NameError as error:self.fail(f'底层连接不应引用未定义变量：{error}')
   payload=api.call_args.args[1]['browserConfig']['shopIdentity']
@@ -323,7 +332,7 @@ class SingleFlowTests(unittest.TestCase):
   cli=self.load('flow_channel_receipt',SOURCE/'scripts/linker.py')
   args=type('Args',(),{'shop':'fixture','profile':None,'no_auth':False,'no_open':False,'no_wait':True,'resume':False,'fresh':False,'browser_config':None,'timeout':3})()
   started={'ok':True,'status':'awaiting_auth','profile':'fixture-new','jobId':'fixture','job':{'stage':'waiting_login','message':'waiting','browserChannel':'msedge','browserSelectionReason':'system-default-https'}}
-  with patch.object(cli,'_env_blockers',return_value=None),patch.object(cli.sl,'resolve',return_value={'status':'needs_auth','shopName':'fixture'}),patch.object(cli.sl,'suggest_profile_name',return_value='fixture-profile'),patch.object(cli.sl,'save_pending'),patch.object(cli,'api',return_value=(200,started)):
+  with patch.object(cli,'_env_blockers',return_value=None),patch.object(cli.sl,'resolve',return_value={'status':'needs_auth','shopName':'fixture'}),patch.object(cli.sl,'suggest_profile_name',return_value='fixture-profile'),patch.object(cli.sl,'save_pending'),patch.object(cli,'api',side_effect=accepted(started)):
    result=cli.cmd_ensure_shop(args)
   self.assertEqual(result.get('browserChannel'),'msedge');self.assertEqual(result.get('browserSelectionReason'),'system-default-https')
 

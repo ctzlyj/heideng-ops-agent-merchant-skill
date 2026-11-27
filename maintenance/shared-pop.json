@@ -1,0 +1,381 @@
+{
+  "groups": {
+    "top-sku": {
+      "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+      "commit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "entrypoints": [
+        "mature/listing/scripts/top_sku_aggregation.py"
+      ],
+      "files": {
+        "mature/listing/scripts/top_sku_aggregation.py": {
+          "source": "scripts/top_sku_aggregation.py",
+          "sha256": "a35462bcc28eabfd2051c1c65582cb93a59d8d100c6af42791a12cdf2c5e0524"
+        },
+        "mature/listing/references/top-sku-aggregation.md": {
+          "source": "references/top-sku-aggregation.md",
+          "sha256": "83259fd5931f61c82f600ee722c0e867466b58b88babbcd267ac39320f95358d"
+        },
+        "tests/pop_top_sku_contract.py": {
+          "source": "tests/pop_top_sku_contract.py",
+          "sha256": "ede283870b334bd1eb8eb0479c8159da52855cf7df5c136d70506a31f67c79fb"
+        }
+      }
+    },
+    "refresh": {
+      "repository": "ctzlyj/jingmai-batch-image-refresh-skill",
+      "commit": "f01f7431848a537b2b005d62e281707150d7c2aa",
+      "files": {
+        "mature/refresh/scripts/upload.py": {
+          "source": "scripts/upload.py",
+          "sha256": "c8a1a57df3cdf4568be9f941b373e88c6e921d3f5516709a948276a4caa7f49d"
+        },
+        "mature/refresh/scripts/patch.py": {
+          "source": "scripts/patch.py",
+          "sha256": "e4ab22e6d093bd8cd1a2bd10b03d445dec454f90d2fe7edbdeca6e20e965c59c"
+        },
+        "mature/refresh/scripts/verify.py": {
+          "source": "scripts/verify.py",
+          "sha256": "08bcca6080a851b6815ff8f34f1d66ab666b37f7f626dfbab57f4eae11dac7b1"
+        },
+        "mature/refresh/scripts/report.py": {
+          "source": "scripts/report.py",
+          "sha256": "895ce47a420474c575b2d2dc81e2bae884ab2356dde77f4ac0363e192f59104c"
+        },
+        "heideng_merchant/media_upload.py": {
+          "source": "scripts/pop_refresh/media_upload.py",
+          "sha256": "504c8834de764a74bc2f18f5924813090439ab6a5f2e29a42cdb9d273f0cc6f1"
+        },
+        "heideng_merchant/pop_gallery.py": {
+          "source": "scripts/pop_refresh/pop_gallery.py",
+          "sha256": "11ec2dd3576cd047b1418ba2327ed490b08d41ac73c617bd28a38d880c8cd67a"
+        },
+        "heideng_merchant/refresh_selection.py": {
+          "source": "scripts/pop_refresh/refresh_selection.py",
+          "sha256": "a814c11e7c606cd97655b9254d80c3ca4ac12830b51a035246e7a30e310a443b"
+        },
+        "tests/test_shared_refresh_entry.py": {
+          "source": "tests/test_shared_refresh_entry.py",
+          "sha256": "602748b9b85bae1926d67dd4ec2bb8411bd10f91936f454597ddc0b41be38be2"
+        },
+        "tests/pop_refresh_cli_contract.py": {
+          "source": "tests/pop_refresh_cli_contract.py",
+          "sha256": "891ef2647a7d5475563fbbedbf5437406587aecd0f01fbb429350b35fc4e6245"
+        }
+      }
+    },
+    "materials": {
+      "repository": "ctzlyj/jd-material-pop-skill",
+      "commit": "5d02a6dd054c4b62bd916fc6df3015670fb656bb",
+      "files": {
+        "mature/materials/scripts/pop_audit_scope.py": {
+          "source": "jd-material-pop/scripts/pop_audit_scope.py",
+          "sha256": "0d6ed84fd7ec6281aeaa69c5ced104d80b7f7afa517280a2ad912364f2117b57"
+        },
+        "tests/pop_audit_contract.py": {
+          "source": "jd-material-pop/tests/pop_audit_contract.py",
+          "sha256": "292670dc06708cbfec80adea782928465c6332fd24a0d091a44b199387f510ff"
+        },
+        "mature/materials/scripts/pop_delivery_readback.py": {
+          "source": "jd-material-pop/scripts/pop_delivery_readback.py",
+          "sha256": "c10786367e5b0445105e8564874a4488be1936197a89332d4c696492ff424758"
+        },
+        "mature/materials/scripts/pop_scope.py": {
+          "source": "jd-material-pop/scripts/pop_scope.py",
+          "sha256": "d5c473918e05c9ed7814bbd13b13856c1b4bbe8f31de7277eebf453f2c3afdb6"
+        },
+        "mature/materials/scripts/pop_title_batches.py": {
+          "source": "jd-material-pop/scripts/pop_title_batches.py",
+          "sha256": "16345ca45a3085069d886409b92cc317b6917a62fce1f4f5e2bc01d85b19c3e4"
+        },
+        "mature/materials/scripts/pop_title_dispatch.py": {
+          "source": "jd-material-pop/scripts/pop_title_dispatch.py",
+          "sha256": "8212c63565af548eafbeaac09a2795aedc71ca470397d27bad78b1a02024c6a8"
+        },
+        "mature/materials/scripts/pop_title_workflow.py": {
+          "source": "jd-material-pop/scripts/pop_title_workflow.py",
+          "sha256": "efb724f9e340ca2b411acb11bccdc5e60dad02675cbe63d4aaad990358f87572"
+        }
+      }
+    },
+    "shop-copy": {
+      "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+      "commit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "files": {
+        "heideng_merchant/shop_copy_materials.py": {
+          "source": "scripts/pop_copy/shop_copy_materials.py",
+          "sha256": "1c15a20d12b9e89f6245638b1a2c66c2a66e52415240842c81b3037cabcdd942"
+        },
+        "heideng_merchant/shop_copy_history.py": {
+          "source": "scripts/pop_copy/shop_copy_history.py",
+          "sha256": "1a40b36fca6259ffa71a25005ac3e4f2f812794b1cfae063e0306b3db4c1c372"
+        },
+        "heideng_merchant/pop_copy_pairing.py": {
+          "source": "scripts/pop_copy/pop_copy_pairing.py",
+          "sha256": "2c856905ef75a0605dc42939c13677d2c9294d26d500490475ba12f9d159218f"
+        },
+        "heideng_merchant/pop_copy_titles.py": {
+          "source": "scripts/pop_copy/pop_copy_titles.py",
+          "sha256": "d7280f3ac51ea63458772b6807e0485dd03a64cccd4a487a0024f7eaedced240"
+        },
+        "mature/listing/scripts/sale_attr_templates.py": {
+          "source": "scripts/sale_attr_templates.py",
+          "sha256": "027d84745aa5e811c7a1789306e5ed925ee4af4f5b3b3c5932b2475a75b50086"
+        },
+        "tests/test_copy_materials.py": {
+          "source": "tests/test_copy_materials.py",
+          "sha256": "1f0b3c7d624b075b4743cde423863312ce8cad94c6b990ea08e264664cd04377"
+        },
+        "tests/pop_copy_contract.py": {
+          "source": "tests/pop_copy_contract.py",
+          "sha256": "e7fae0929859f46247fbc22773e855d8a66e336efd0e59a3e882e3394cab36a4"
+        }
+      }
+    },
+    "connection": {
+      "repository": "ctzlyj/jingmai-cli-linker",
+      "commit": "8e925139250d1899bd8331e86c681aa1519b5e9c",
+      "files": {
+        "mature/connection/app/profile_registry.py": {
+          "source": "app/profile_registry.py",
+          "sha256": "dc19ad77ff78c7c5824164b022c10bd3f5ba0246b7e13cdd58ac1683c6354945"
+        },
+        "tests/test_registered_shop.py": {
+          "source": "tests/test_registered_shop.py",
+          "sha256": "f15dc36fb4c60a53210e378e5b2c48a5ed8fa5d2183e2062dc214dcddc9ff379"
+        },
+        "mature/connection/app/pop_connection.py": {
+          "source": "app/pop_connection.py",
+          "sha256": "06faa34e0e9efc5180fcca001b472f2cfd2dd286debde548fd4ada8cb7d1980b"
+        },
+        "tests/connection_contract.py": {
+          "source": "tests/connection_contract.py",
+          "sha256": "fa3c6b14e8dd845a93635ebf9c427c4f60d3d41613ed7386a8af6ed659bdd957"
+        },
+        "tests/test_pop_connection.py": {
+          "source": "tests/test_pop_connection.py",
+          "sha256": "ab32417d305e887917570f78020f9c0a639672e3c7b7d92740f947d78aa45e0d"
+        }
+      }
+    },
+    "diagnosis": {
+      "repository": "ctzlyj/jd-store-diagnosis-skill",
+      "commit": "2f613a2d791082084b3f9bf3da2b1d6a85cd6923",
+      "files": {
+        "mature/diagnosis/scripts/inspection.cjs": {
+          "source": "scripts/inspection/inspection.cjs",
+          "sha256": "5bcd7bf7eb3f870e352b07a0e3e11576c37712378d7db91f63d563ae986d7314"
+        },
+        "mature/diagnosis/scripts/validate_report.py": {
+          "source": "scripts/validate_report.py",
+          "sha256": "d8c27ae529bb7fea0e8ec8f922aaceb5a87dcd43d0eccc2d08d8457c56fc0117"
+        },
+        "tests/pop_diagnosis_contract.py": {
+          "source": "tests/pop_diagnosis_contract.py",
+          "sha256": "1796f37d84d990911c1551931f2e0a410fe3811fb0ec70f2d3e7517619b68eaa"
+        }
+      }
+    },
+    "video": {
+      "repository": "ctzlyj/jd-main-video-batch-skill",
+      "commit": "9942a371c748e305912589006e258f38f70fa2a0",
+      "files": {
+        "mature/video/scripts/local_handoff.py": {
+          "source": "scripts/local_handoff.py",
+          "sha256": "747451059fc77c57f1a7daf41917e23ab1858b0e0bcd062165008a7b25e8f1a4"
+        },
+        "mature/video/scripts/video_publication.py": {
+          "source": "scripts/video_publication.py",
+          "sha256": "13a1c7613bc02b7c63a0163ff8de9e9325d402601477e3f87229ead748338c88"
+        },
+        "tests/pop_video_contract.py": {
+          "source": "tests/pop_video_contract.py",
+          "sha256": "0cca5cf0036d3eba69159c7fa180b4fca28190c493b5f8ed68e8cb798d684682"
+        },
+        "mature/video/scripts/local_composition.py": {
+          "source": "scripts/local_composition.py",
+          "sha256": "79a66c462808cae98d44d57a631fafe8854aac767a5ee1475c55181476e6f142"
+        },
+        "mature/video/local-composition.json": {
+          "source": "maintenance/local-composition.json",
+          "sha256": "34333cb2fb0183a1dd736b74a152d09f323d4662c9a3c6c29d83117554186350"
+        }
+      }
+    },
+    "collection": {
+      "repository": "ctzlyj/jd-hot-link-collector",
+      "commit": "2b6cf1242048860412985f0967661dd2651d70c7",
+      "entrypoints": [
+        "mature/collection/scripts/shop_table.py"
+      ],
+      "files": {
+        "mature/collection/scripts/checkpoint_status.py": {
+          "source": "scripts/checkpoint_status.py",
+          "sha256": "2fe441ac96ed4e4aa5334e59321c3fbf23650d6be3bf907b221f449bd070b63c"
+        },
+        "mature/collection/scripts/deliver_batch.py": {
+          "source": "scripts/deliver_batch.py",
+          "sha256": "bc0856b319e311658a30ff6d2fe90a94b9717b9490fdaf37170edf4aca64e312"
+        },
+        "mature/collection/scripts/shop_table.py": {
+          "source": "scripts/shop_table.py",
+          "sha256": "1a60f31ae617526238e8c908c99d96863753728b2e1e7c65cd3ab9fdd4e7d031"
+        },
+        "mature/collection/scripts/batch_driver/original_price_fallback.py": {
+          "source": "scripts/batch_driver/original_price_fallback.py",
+          "sha256": "e662a014d19eff7e42344b04b5240c388522a7935a43c66c733a9d27d1a00ffe"
+        },
+        "tests/pop_collection_contract.py": {
+          "source": "tests/pop_collection_contract.py",
+          "sha256": "b001ca73376abd7a0e15f62b3178321cc711a38876509b20b36cfe8fd9b3cf74"
+        },
+        "mature/collection/scripts/image_variants.py": {
+          "source": "scripts/image_variants.py",
+          "sha256": "35e52c4f00df2d7b1271ff83c1bea8d356ce8653fdbb0fef1a0b8d5c441482d7"
+        },
+        "mature/collection/scripts/jpeg_cache.py": {
+          "source": "scripts/jpeg_cache.py",
+          "sha256": "cd948d595bc835618bdf31761c06ba12867ffe153801dd3ab1572356fb01b27f"
+        },
+        "mature/collection/scripts/package_live.py": {
+          "source": "scripts/package_live.py",
+          "sha256": "aef992ca0ca8000c2b0c378c15cb99908fd871de9340c0ba49781a2f344972fa"
+        },
+        "mature/collection/scripts/verify_batch.py": {
+          "source": "scripts/verify_batch.py",
+          "sha256": "a475bbf85c2a2a18ddab96b1ba2435a55088ab1871c2c99f42026f2ad6b477f6"
+        },
+        "mature/collection/scripts/batch_driver/stage_pending_materials.py": {
+          "source": "scripts/batch_driver/stage_pending_materials.py",
+          "sha256": "1df824fd0c381a6d99d523ffcb0e5723673f72d55bced83642460ed407778213"
+        }
+      }
+    },
+    "pricing": {
+      "repository": "ctzlyj/jd-competitor-price-adjustment-skill",
+      "commit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
+      "files": {
+        "mature/comparison/scripts/jd_price_adjustment.py": {
+          "source": "scripts/jd_price_adjustment.py",
+          "sha256": "76463861105d10ec7f5160656f20b7e77cbf29b5efeb66779c74765401b96b31"
+        },
+        "mature/comparison/scripts/jd_detail_evidence.py": {
+          "source": "scripts/jd_detail_evidence.py",
+          "sha256": "3dfc5baae79fd618fc8a3d317fafcf1f80c8bfa89f5d36c452827b5d03de03fc"
+        },
+        "mature/comparison/scripts/jingmai_api.py": {
+          "source": "scripts/jingmai_api.py",
+          "sha256": "0ebf48d2ea0a1e64f5628aab07fa5e48b0a1d25c74ac8281f95d38c0f42d161d"
+        },
+        "mature/comparison/scripts/store_pricing.py": {
+          "source": "scripts/store_pricing.py",
+          "sha256": "39e1fba04807309c2291cf6e9b47acc63ffb45b5ad768b7a5acd69bd970e129b"
+        },
+        "mature/comparison/scripts/same_product_market.py": {
+          "source": "scripts/same_product_market.py",
+          "sha256": "8727b35315c49c18fa6ae1e5825ada6adb7b85c74b5dd07c7783aa69745b12ec"
+        },
+        "tests/pop_price_contract.py": {
+          "source": "tests/pop_price_contract.py",
+          "sha256": "5a64984a770649f22fa87be436b7f501666b1a85b972e022072386c00224d6cb"
+        }
+      }
+    },
+    "listing-samples": {
+      "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+      "commit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "files": {
+        "mature/listing/scripts/photo_samples.py": {
+          "source": "scripts/photo_samples.py",
+          "sha256": "701770f31019413e586c0888cec34775e4a9cec506af0f51f1f410866d3e8ae1"
+        },
+        "tests/pop_photo_sample_contract.py": {
+          "source": "tests/pop_photo_sample_contract.py",
+          "sha256": "342ce70f1b5d78c003d888685b2acbb8faeae456cbff3f90f4f2a829e0919247"
+        }
+      }
+    },
+    "shop-copy-batch": {
+      "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+      "commit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "files": {
+        "heideng_merchant/shop_copy_batch.py": {
+          "source": "scripts/pop_copy/shop_copy_batch.py",
+          "sha256": "25503f2b04919d2a0ef30015cd72fe267b3d1b25a2e8c7210cd2a39eabacfecf"
+        },
+        "heideng_merchant/shop_copy_command.py": {
+          "source": "scripts/pop_copy/shop_copy_command.py",
+          "sha256": "3024f353a19c88e836f09b7ff1e2f8542ce72eaaa1e6560302bb44980dd478eb"
+        },
+        "heideng_merchant/shop_copy_router.py": {
+          "source": "scripts/pop_copy/shop_copy_router.py",
+          "sha256": "0430756a037d3587575949674843742012ec9cebfe3f88cc2b6184e59eae42d8"
+        },
+        "heideng_merchant/shop_copy_delivery.py": {
+          "source": "scripts/pop_copy/shop_copy_delivery.py",
+          "sha256": "5030da2377bbf89970d67c90f47eaf909073440ff497d3e2e4a6cfd3509f601c"
+        },
+        "heideng_merchant/shop_copy_preview.py": {
+          "source": "scripts/pop_copy/shop_copy_preview.py",
+          "sha256": "115bb5078fdefd74de1d6717aebcd2d8b2265047cea30bfadbe868e45dd242da"
+        },
+        "heideng_merchant/owned_product_copy.py": {
+          "source": "scripts/pop_copy/owned_product_copy.py",
+          "sha256": "13fa60f97632fee71f8761e7f0cd81ef35258fc6489885e111daaee07f60253b"
+        },
+        "tests/pop_copy_batch_contract.py": {
+          "source": "tests/pop_copy_batch_contract.py",
+          "sha256": "c23ce4f334b75183c742ccbc9c213b255ae2e44afb51aba6ed6f5446c482f394"
+        }
+      }
+    },
+    "psd": {
+      "repository": "ctzlyj/generate-psd-label-template",
+      "commit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "entrypoints": [
+        "mature/psd/scripts/psd_template.cjs"
+      ],
+      "files": {
+        "mature/psd/LICENSE": {
+          "source": "LICENSE",
+          "sha256": "6294fd19fc48bcfca69aba5cf90537221a6fa01fe1a365d25941396b7446604c"
+        },
+        "mature/psd/package.json": {
+          "source": "package.json",
+          "sha256": "db6b5a181b4c21a172c9ab774c83826d18e874753e0600ef4d60a13a0075f8a6"
+        },
+        "mature/psd/package-lock.json": {
+          "source": "package-lock.json",
+          "sha256": "567abbb710143fb6befb757f550171dbcb4609689d2231ab814f2a2a709e9ed6"
+        },
+        "mature/psd/scripts/psd_template.cjs": {
+          "source": "scripts/psd_template.cjs",
+          "sha256": "68782b8053a94bb083d56a41944a33fb320d5eb5e38b1bfcdf402e612bc13b7d"
+        },
+        "mature/psd/scripts/build_jd_template.mjs": {
+          "source": "scripts/build_jd_template.mjs",
+          "sha256": "8e837ceeb7a32df9c9cf0db08da85eec68504a48cefab45b819d1b27a71d2437"
+        },
+        "mature/psd/scripts/global_text_engine.mjs": {
+          "source": "scripts/global_text_engine.mjs",
+          "sha256": "34ebaaee47fc6d03bf1aec0977728cc76520088dfbd69dbb11ec970213984aa6"
+        },
+        "mature/psd/scripts/patch_ag_psd_compat.mjs": {
+          "source": "scripts/patch_ag_psd_compat.mjs",
+          "sha256": "3d22f191e085e1261dc7b3758f3f45c3a27d73dce19dc3b62b4ed38dfc36d62b"
+        },
+        "mature/psd/scripts/verify_jd_template.mjs": {
+          "source": "scripts/verify_jd_template.mjs",
+          "sha256": "077d71707970fc71769016e2ca0c4ee1873557443cca6c9ed34cbf3a369a661f"
+        },
+        "mature/psd/references/local-pop-template.md": {
+          "source": "references/local-pop-template.md",
+          "sha256": "3c718afd5d32b4df9da02dba81ed79604d15d69842bb0da62a69db61a3f70c2e"
+        },
+        "tests/pop_psd_contract.py": {
+          "source": "tests/pop_psd_contract.py",
+          "sha256": "e6617be4e9298ad425b80c04cbf71b19e466f9a55896cb121daf01daa9355ebb"
+        }
+      }
+    }
+  }
+}

@@ -206,6 +206,16 @@ def _record_path(root, pid):
     return safe_join(root,'items/'+pid+'.json')
 
 
+def confirmed_refusal(record, marker, body):
+    codes = record.get('platformCodes')
+    return (record.get('status') == 'official-rejection' and record.get('noIssuedIds') is True
+            and isinstance(codes, list) and bool(codes)
+            and all(c in ('1010300506','10103001002','99904030007','99904030008') for c in codes)
+            and not marker.get('productId') and not marker.get('applyId')
+            and marker.get('payloadSha256') and body.is_file()
+            and record.get('payloadSha256') == marker['payloadSha256'] == file_sha(body))
+
+
 def publication_attempts(root):
     """A correction joins the history only after saving its own native dispatch intent."""
     base=safe_join(root,'publication')
@@ -229,7 +239,7 @@ def publication_attempts(root):
         original=read_json(parent/'rejection.json',{})
         parent_marker=read_json(parent/'publish-body.submit-state.json',{})
         parent_sha=original.get('payloadSha256')
-        if (not original.get('noIssuedIds') or parent_sha not in seen or parent_sha not in children
+        if (not confirmed_refusal(original, parent_marker, parent/'publish-body.json') or parent_sha not in seen or parent_sha not in children
                 or parent_sha!=parent_marker.get('payloadSha256') or parent_marker.get('productId') or parent_marker.get('applyId')):
             raise ValueError('缺少与下一次尝试对应的原平台明确拒绝，保留所有原申请')
         retry,marker,request=children.pop(parent_sha)

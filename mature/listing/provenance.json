@@ -47,7 +47,7 @@
     },
     "scripts/photo_listing.py": {
       "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
-      "sha256": "3463d311d5ae9eae47ef6e9274e07f5c6b7d043f311dbf394a6820247192519b",
+      "sha256": "51b2f69b0cbd929a4bf4f764bc964ab8d9e45ffd7ced3fa4dd54f9c41abe572e",
       "adapted": true
     },
     "scripts/photo_contract.py": {
@@ -86,9 +86,11 @@
       "adapted": false
     },
     "scripts/sale_attr_templates.py": {
-      "upstreamSha256": "97471cda42fc31c5365167c8dd3b5786f9eec8436a046cd75ad51c4ee475fa83",
+      "upstreamCommit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "upstreamPath": "scripts/sale_attr_templates.py",
+      "upstreamSha256": "027d84745aa5e811c7a1789306e5ed925ee4af4f5b3b3c5932b2475a75b50086",
       "sha256": "027d84745aa5e811c7a1789306e5ed925ee4af4f5b3b3c5932b2475a75b50086",
-      "adapted": true
+      "adapted": false
     },
     "scripts/merchant_template_import.py": {
       "upstreamSha256": "044333ad7db87336c1244687837ec2078f08503ff88ee546377cf80d8912b067",
@@ -214,6 +216,27 @@
       "upstreamSha256": "d27e25f00e9645de397430dc084262a44b8aa5cd44348b331e0707201c63854a",
       "sha256": "d4d51089a2884303e6d40d6cad61e9c5d5a035543a55c22ba4895deeea6e0e1e",
       "adapted": true
+    },
+    "scripts/top_sku_aggregation.py": {
+      "upstreamCommit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "upstreamPath": "scripts/top_sku_aggregation.py",
+      "upstreamSha256": "a35462bcc28eabfd2051c1c65582cb93a59d8d100c6af42791a12cdf2c5e0524",
+      "sha256": "a35462bcc28eabfd2051c1c65582cb93a59d8d100c6af42791a12cdf2c5e0524",
+      "adapted": false
+    },
+    "references/top-sku-aggregation.md": {
+      "upstreamCommit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "upstreamPath": "references/top-sku-aggregation.md",
+      "upstreamSha256": "83259fd5931f61c82f600ee722c0e867466b58b88babbcd267ac39320f95358d",
+      "sha256": "83259fd5931f61c82f600ee722c0e867466b58b88babbcd267ac39320f95358d",
+      "adapted": false
+    },
+    "scripts/photo_samples.py": {
+      "upstreamCommit": "3128bf71a08e0173cd0dc357e9026777b35a3018",
+      "upstreamPath": "scripts/photo_samples.py",
+      "upstreamSha256": "701770f31019413e586c0888cec34775e4a9cec506af0f51f1f410866d3e8ae1",
+      "sha256": "701770f31019413e586c0888cec34775e4a9cec506af0f51f1f410866d3e8ae1",
+      "adapted": false
     }
   },
   "entrypoints": [
@@ -234,6 +257,7 @@
     "scripts/hot_replica_apply.py",
     "scripts/hot_replica_price_plan.py",
     "scripts/hot_replica_preflight.py",
-    "scripts/hot_replica_publish.py"
+    "scripts/hot_replica_publish.py",
+    "scripts/top_sku_aggregation.py"
   ]
 }

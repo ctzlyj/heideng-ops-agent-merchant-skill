@@ -187,12 +187,8 @@ class BrowserAuthJob:
         return bool((self.shop_name and name) or (self.expect_vender_id and (vid or name)))
 
     def request_workspace_check(self):
-        """Acknowledge a merchant-reported login; only the original worker drives its page."""
-        if (self.browser_config.get('provider') != 'builtin' or self.stage != 'waiting_login'
-                or self.status != 'waiting' or self._shutdown_requested.is_set() or self._cancelled.is_set()):
-            return False
-        self._workspace_check_requested.set()
-        return True
+        from pop_connection import signal_workspace_check
+        return self.browser_config.get('provider') == 'builtin' and signal_workspace_check(self)
 
     def _verify_and_commit(self):
         self._stage('verifying_cli', '正在实时核验这家店的 CLI 连接。', 'verifying')
@@ -260,10 +256,8 @@ class BrowserAuthJob:
             identity = None
             while not self._cancelled.is_set() and not self._shutdown_requested.is_set() and time.monotonic() < deadline:
                 try:
-                    if self._workspace_check_requested.is_set() and not self._workspace_check_handled:
-                        self._workspace_check_handled = True
-                        self.browser.check_workspace_after_login()
-                    observation = self.browser.observe()
+                    from pop_connection import observe_workspace
+                    observation = observe_workspace(self)
                 except Exception as exc:
                     # Login redirects can destroy an evaluation context. Repeat
                     # only the read, bounded by the independent scan deadline.

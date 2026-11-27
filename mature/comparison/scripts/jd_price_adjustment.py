@@ -75,6 +75,28 @@ def parse_target_gap(value: str | Decimal) -> Decimal:
 
 
 def normalize_size(value: str) -> str:
+    text = unicodedata.normalize("NFKC", str(value)).lower()
+    patterns = (
+        r"宽\s*(\d+)\s*(?:厘米|cm)?\s*(?:[x×*]|[-_/，, ])*\s*高?\s*(\d+)\s*(?:厘米|cm)?",
+        r"(\d+)\s*[x×*]\s*(\d+)\s*(?:厘米|cm)?",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return f"{int(match.group(1))}x{int(match.group(2))}"
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:厘米|cm)", text, flags=re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}cm"
+    match = re.search(r"(\d+(?:\.\d+)?)\s*件套", text)
+    if match:
+        return f"{match.group(1)}件套"
+    match = re.search(r"(\d+(?:\.\d+)?)\s*支", text)
+    if match:
+        return f"{match.group(1)}支"
+    raise CatalogValidationError(f"Cannot normalize size: {value!r}")
+
+
+def exact_dimensions(value: str) -> str:
     text = unicodedata.normalize("NFKC", str(value)).strip().lower()
     text = re.sub(r"\s+", "", text).replace("毫米", "mm").replace("厘米", "cm")
     match = re.fullmatch(r"宽(\d+(?:\.\d+)?(?:cm|mm)?)\s*[-×x*]?高(\d+(?:\.\d+)?(?:cm|mm)?)", text)
@@ -101,7 +123,7 @@ def canonical_spec(value: str) -> str:
     if text.startswith("variant:"):
         return text
     try:
-        return normalize_size(text)
+        return exact_dimensions(text)
     except CatalogValidationError:
         return "variant:" + text
 

@@ -15,8 +15,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from jd_price_adjustment import calculate_final_price, canonical_spec, normalize_size
-from merchant_runtime import RuntimeConfigurationError, merchant_path, official_executable
+from pricing_runtime import official_executable, state_directory
+from jd_price_adjustment import calculate_final_price, canonical_spec, exact_dimensions
 from store_pricing import PolicyError, PolicyStore, activity_rates, canonical, digest, evaluate, fresh, money, read_identity, timestamp, write_json
 
 ENDPOINTS = {
@@ -29,7 +29,9 @@ ENDPOINTS = {
 
 
 class ApiError(PolicyError):
-    pass
+    def __init__(self, code, detail=""):
+        super().__init__(code)
+        self.detail = detail
 
 
 def require(condition, code):
@@ -41,6 +43,20 @@ def identifier(value):
     result = str(value)
     require(bool(re.fullmatch(r"[1-9][0-9]{0,19}", result)), "INVALID_PLATFORM_ID")
     return result
+
+
+def uncertain_effect(result):
+    """A partial acceptance, missing rejection reason or transport fault needs readback."""
+    errors = result.get("errorList") or result.get("error")
+    if not errors:
+        return True
+    payloads = (result, result.get("data"))
+    for payload in payloads:
+        if isinstance(payload, dict) and any(payload.get(key) not in (None, 0, "0", False, [], {})
+                                             for key in ("successCount", "acceptedCount", "successList", "acceptedList")):
+            return True
+    return bool(re.search(r"timeout|timed? out|system error|service unavailable|upstream|超时|系统异常|服务不可用",
+                          canonical(errors), re.I))
 
 
 def ids(values):
@@ -85,7 +101,7 @@ class Client:
         self.profile = profile
         try:
             self.executable = official_executable(executable)
-        except RuntimeConfigurationError as error:
+        except ValueError as error:
             raise ApiError(str(error)) from error
         self.interval, self.max_requests, self.request_count, self.last_request = interval, max_requests, 0, 0.0
 
@@ -127,7 +143,9 @@ class Client:
                 code = "AUTH_REQUIRED"
             elif re.search(r"429|限流|频繁|throttl|rate.?limit", error_text, re.I):
                 code = "RATE_LIMIT"
-            raise ApiError(code)
+            elif body is not None and uncertain_effect(result):
+                code = "WRITE_OUTCOME_UNKNOWN"
+            raise ApiError(code, error_text[:500])
         return result
 
     def get(self, name, params):
@@ -209,7 +227,7 @@ def normalize_sku(row):
         size = "variant:" + json.dumps(dimensions, ensure_ascii=False, separators=(",", ":"))
     elif not values:
         try:
-            size = normalize_size(str(row.get("skuName", "")))
+            size = exact_dimensions(str(row.get("skuName", "")))
         except ValueError:
             pass
     design = " / ".join(value for name, value in values if name in design_names)
@@ -280,10 +298,31 @@ def collect(client, identity, product_ids=None, sku_ids=None, all_products=False
             "activity_enrollment": "UNKNOWN", "warnings": sorted(set(warnings)), "platform_write_performed": False}
 
 
-def requests_for(products, desired):
+DEFAULT_BATCH_POLICY = {"mvp_first": 1, "mvp_second": 10, "batch_size": 50}
+
+
+def batch_policy(policy=None):
+    """Client-side batching policy; the official schema has no maxItems or phase
+    requirement, so only this executor's conservative cap of 50 applies."""
+    if policy is None:
+        return dict(DEFAULT_BATCH_POLICY)
+    require(isinstance(policy, dict) and not set(policy) - set(DEFAULT_BATCH_POLICY), "INVALID_BATCH_POLICY")
+    result = {**DEFAULT_BATCH_POLICY, **policy}
+    for value in result.values():
+        require(isinstance(value, int) and not isinstance(value, bool), "INVALID_BATCH_POLICY")
+    require(result["mvp_first"] >= 0 and result["mvp_second"] >= 0, "INVALID_BATCH_POLICY")
+    require(1 <= result["batch_size"] <= 50, "INVALID_BATCH_POLICY")
+    return result
+
+
+def requests_for(products, desired, policy=None):
+    policy = batch_policy(policy)
     ordered = list(desired.items())
-    batches = [("mvp1", ordered[:1]), ("mvp10", ordered[1:11])]
-    batches += [("batch", ordered[offset:offset+50]) for offset in range(11, len(ordered), 50)]
+    first = policy["mvp_first"]
+    second = policy["mvp_second"]
+    rest = ordered[first+second:]
+    batches = [("mvp1", ordered[:first]), ("mvp10", ordered[first:first+second])]
+    batches += [("batch", rest[offset:offset+policy["batch_size"]]) for offset in range(0, len(rest), policy["batch_size"])]
     owners = {sku: product_id for product_id, product in products.items() for sku in product["prices"]}
     result = []
     for phase, batch in batches:
@@ -309,6 +348,7 @@ def prepare_plan(client, policy, source, now=None, product_ids=None, sku_ids=Non
     source_gate = source.get("preflight") or {}
     require(source_gate.get("status") == "READY" and source_gate.get("purpose") in {"discovery", "price", "repricing"}, "SOURCE_PREFLIGHT_REQUIRED")
     fresh(source_gate.get("checked_at"), now)
+    policy_batch = batch_policy(source.get("batch_policy"))
     original_rows = source.get("own_skus", [])
     direct_table = source.get("repricing_mode") == "direct_target_table"
     if direct_table and not product_ids and not sku_ids:
@@ -347,17 +387,17 @@ def prepare_plan(client, policy, source, now=None, product_ids=None, sku_ids=Non
     desired = {row["SKUID"]: row["京东价"] for row in pricing["upload_rows"] if row["京东价"] != actual_prices[row["SKUID"]]}
     return seal({"schema": "jd-api-price-plan/v1", "kind": "repricing", "identity": policy["identity"],
                  "created_at": now.isoformat(), "policy_hash": policy["confirm_token"], "source": normalized, "source_gate": source_gate,
-                 "pricing": pricing, "applications": applications,
+                 "pricing": pricing, "applications": applications, "batch_policy": policy_batch,
                  "current_price_basis": "LIVE_JD_PRICE_WITH_CONFIRMED_ACTIVITY_MODEL",
                  "products": catalog["products"], "desired": desired,
-                 "requests": requests_for(catalog["products"], desired), "warnings": catalog["warnings"],
+                 "requests": requests_for(catalog["products"], desired, policy_batch), "warnings": catalog["warnings"],
                  "platform_write_performed": False})
 
 
 def validate_plan(plan, token):
     require(isinstance(plan, dict) and plan.get("schema") == "jd-api-price-plan/v1", "INVALID_PLAN_SCHEMA")
     require(token == plan.get("confirm_token") == digest({key: value for key, value in plan.items() if key != "confirm_token"}), "CONFIRMATION_MISMATCH")
-    require(plan["requests"] == requests_for(plan["products"], plan["desired"]), "REQUEST_BODY_CHANGED")
+    require(plan["requests"] == requests_for(plan["products"], plan["desired"], plan.get("batch_policy")), "REQUEST_BODY_CHANGED")
     require(plan["kind"] in {"repricing", "rollback"}, "INVALID_PLAN_KIND")
     if plan["kind"] == "repricing":
         rows = {row["SKUID"]: row["京东价"] for row in plan["pricing"]["upload_rows"]}
@@ -389,7 +429,7 @@ def persist(path, value):
                 temporary.replace(path)
                 break
             except OSError as error:
-                if getattr(error, "winerror", None) not in (32, 33) or attempt == 7:
+                if getattr(error, "winerror", None) not in (5, 32, 33) or attempt == 7:
                     raise
                 time.sleep(min(0.05 * 2 ** attempt, 2))
     finally:
@@ -461,8 +501,8 @@ def execute(client, store, plan, token, root, now=None, poll_count=6, poll_inter
     if not read_only:
         validate_current_policy(store, plan)
     try:
-        root = merchant_path(root, "api-runs")
-    except RuntimeConfigurationError as error:
+        root = state_directory(root, "api-runs")
+    except ValueError as error:
         raise ApiError(str(error)) from error
     package = Path(__file__).resolve().parents[1]
     require(root != package and package not in root.parents, "AUDIT_MUST_BE_OUTSIDE_INSTALLATION")
@@ -492,6 +532,8 @@ def execute(client, store, plan, token, root, now=None, poll_count=6, poll_inter
             "platform_write_performed": False, "platform_write_attempted": False}
         require(state.get("plan_hash") == token, "STATE_PLAN_MISMATCH")
         expected = {product_id: dict(product["prices"]) for product_id, product in plan["products"].items()}
+        rejected_products = {request["product_id"] for request in plan["requests"]
+                             if state["requests"].get(request["request_id"], {}).get("status") == "REJECTED"}
         for request in plan["requests"]:
             request_id, product_id = request["request_id"], request["product_id"]
             baseline = plan["products"][product_id]
@@ -500,6 +542,11 @@ def execute(client, store, plan, token, root, now=None, poll_count=6, poll_inter
             record = state["requests"].get(request_id)
             if record and record["status"] == "VERIFIED":
                 expected[product_id] = desired
+                continue
+            if product_id in rejected_products:
+                # An explicitly rejected request exists for this product. All its
+                # other requests share the same baseline, so they are held rather
+                # than continued or replayed; independent products may proceed.
                 continue
             require(client.identity() == plan["identity"], "IDENTITY_MISMATCH")
             if not read_only:
@@ -519,6 +566,29 @@ def execute(client, store, plan, token, root, now=None, poll_count=6, poll_inter
                 try:
                     response = client.patch(product_id, request["body"])
                 except ApiError as error:
+                    if str(error) == "API_REJECTED":
+                        record["status"] = "REJECTED"
+                        record["error_code"] = str(error)
+                        record["error_detail"] = getattr(error, "detail", "")[:500]
+                        no_effect = False
+                        try:
+                            live_view = snapshot(get_detail(client, product_id))
+                            application_view = snapshot(get_detail(client, product_id, application=True))
+                            no_effect = live_view["prices"] == old and application_view["prices"] == old
+                        except PolicyError:
+                            no_effect = False
+                        if not no_effect:
+                            # The rejection cannot be proven side-effect free: this is
+                            # an unknown outcome, not a retryable rejection.
+                            record["status"] = "WRITE_OUTCOME_UNKNOWN"
+                            state["status"] = "WRITE_OUTCOME_UNKNOWN"
+                            state["platform_write_performed"] = None
+                            persist(path, state)
+                            return state
+                        rejected_products.add(product_id)
+                        state["status"] = "REJECTED"
+                        persist(path, state)
+                        continue
                     record["status"] = "WRITE_OUTCOME_UNKNOWN"
                     record["error_code"] = str(error)
                     state["status"] = "WRITE_OUTCOME_UNKNOWN"
@@ -557,8 +627,9 @@ def execute(client, store, plan, token, root, now=None, poll_count=6, poll_inter
                 return state
         for product_id, prices in expected.items():
             guard(get_detail(client, product_id), plan["products"][product_id], prices)
-        state["status"] = "VERIFIED"
-        state["verified_skus"] = len(plan["desired"])
+        rejected_any = any(item["status"] == "REJECTED" for item in state["requests"].values())
+        state["status"] = "REJECTED" if rejected_any else "VERIFIED"
+        state["verified_skus"] = sum(len(item["sku_ids"]) for item in state["requests"].values() if item["status"] == "VERIFIED")
         persist(path, state)
         return state
     except PolicyError as error:
@@ -595,7 +666,8 @@ def prepare_rollback(client, store, original, root, now=None):
         desired.update({sku: price for sku, price in baseline["prices"].items() if sku in original["desired"]})
     return seal({"schema": "jd-api-price-plan/v1", "kind": "rollback", "identity": original["identity"],
                  "created_at": now.isoformat(), "policy_hash": policy["confirm_token"], "original_plan": original,
-                 "products": products, "applications": applications, "desired": desired, "requests": requests_for(products, desired),
+                 "products": products, "applications": applications, "desired": desired,
+                 "batch_policy": batch_policy(original.get("batch_policy")), "requests": requests_for(products, desired, original.get("batch_policy")),
                  "platform_write_performed": False})
 
 
@@ -608,7 +680,7 @@ def main():
     parser.add_argument("--sku-ids", help="Explicit comma-separated merchant SKU IDs")
     parser.add_argument("--all-products", action="store_true", help="Only for an explicitly authorized whole-store scope")
     parser.add_argument("--policy-dir", type=Path)
-    parser.add_argument("--runs-dir", type=Path, help="Defaults to HEIDENG_MERCHANT_HOME/comparison/api-runs")
+    parser.add_argument("--runs-dir", type=Path)
     parser.add_argument("--input", type=Path)
     parser.add_argument("--plan", type=Path)
     parser.add_argument("--output", type=Path)
@@ -617,7 +689,7 @@ def main():
     parser.add_argument("--max-requests", type=int, default=2000)
     arguments = parser.parse_args()
     try:
-        arguments.runs_dir = merchant_path(arguments.runs_dir, "api-runs")
+        arguments.runs_dir = state_directory(arguments.runs_dir, "api-runs")
         require(arguments.max_requests > 0, "INVALID_REQUEST_BUDGET")
         client = Client(arguments.profile, max_requests=arguments.max_requests)
         identity = client.identity()

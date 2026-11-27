@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "repository": "ctzlyj/generate-psd-label-template",
+  "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+  "upstreamVersion": "2.1.1",
+  "license": "MIT",
+  "permissionRecord": "LICENSE",
+  "files": {
+    "LICENSE": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "LICENSE",
+      "upstreamSha256": "6294fd19fc48bcfca69aba5cf90537221a6fa01fe1a365d25941396b7446604c",
+      "sha256": "6294fd19fc48bcfca69aba5cf90537221a6fa01fe1a365d25941396b7446604c",
+      "adapted": false
+    },
+    "package.json": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "package.json",
+      "upstreamSha256": "db6b5a181b4c21a172c9ab774c83826d18e874753e0600ef4d60a13a0075f8a6",
+      "sha256": "db6b5a181b4c21a172c9ab774c83826d18e874753e0600ef4d60a13a0075f8a6",
+      "adapted": false
+    },
+    "package-lock.json": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "package-lock.json",
+      "upstreamSha256": "567abbb710143fb6befb757f550171dbcb4609689d2231ab814f2a2a709e9ed6",
+      "sha256": "567abbb710143fb6befb757f550171dbcb4609689d2231ab814f2a2a709e9ed6",
+      "adapted": false
+    },
+    "scripts/psd_template.cjs": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "scripts/psd_template.cjs",
+      "upstreamSha256": "68782b8053a94bb083d56a41944a33fb320d5eb5e38b1bfcdf402e612bc13b7d",
+      "sha256": "68782b8053a94bb083d56a41944a33fb320d5eb5e38b1bfcdf402e612bc13b7d",
+      "adapted": false
+    },
+    "scripts/build_jd_template.mjs": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "scripts/build_jd_template.mjs",
+      "upstreamSha256": "8e837ceeb7a32df9c9cf0db08da85eec68504a48cefab45b819d1b27a71d2437",
+      "sha256": "8e837ceeb7a32df9c9cf0db08da85eec68504a48cefab45b819d1b27a71d2437",
+      "adapted": false
+    },
+    "scripts/global_text_engine.mjs": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "scripts/global_text_engine.mjs",
+      "upstreamSha256": "34ebaaee47fc6d03bf1aec0977728cc76520088dfbd69dbb11ec970213984aa6",
+      "sha256": "34ebaaee47fc6d03bf1aec0977728cc76520088dfbd69dbb11ec970213984aa6",
+      "adapted": false
+    },
+    "scripts/patch_ag_psd_compat.mjs": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "scripts/patch_ag_psd_compat.mjs",
+      "upstreamSha256": "3d22f191e085e1261dc7b3758f3f45c3a27d73dce19dc3b62b4ed38dfc36d62b",
+      "sha256": "3d22f191e085e1261dc7b3758f3f45c3a27d73dce19dc3b62b4ed38dfc36d62b",
+      "adapted": false
+    },
+    "scripts/verify_jd_template.mjs": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "scripts/verify_jd_template.mjs",
+      "upstreamSha256": "077d71707970fc71769016e2ca0c4ee1873557443cca6c9ed34cbf3a369a661f",
+      "sha256": "077d71707970fc71769016e2ca0c4ee1873557443cca6c9ed34cbf3a369a661f",
+      "adapted": false
+    },
+    "references/local-pop-template.md": {
+      "upstreamCommit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "upstreamPath": "references/local-pop-template.md",
+      "upstreamSha256": "3c718afd5d32b4df9da02dba81ed79604d15d69842bb0da62a69db61a3f70c2e",
+      "sha256": "3c718afd5d32b4df9da02dba81ed79604d15d69842bb0da62a69db61a3f70c2e",
+      "adapted": false
+    }
+  },
+  "entrypoints": [
+    "scripts/psd_template.cjs"
+  ]
+}

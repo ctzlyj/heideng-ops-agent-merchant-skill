@@ -13,7 +13,7 @@
     },
     "app/browser_auth.py": {
       "upstreamSha256": "b8377e77716588c906337c1d3d7e4aca7e897d5fde3f9eb82c38c06ec938dbaa",
-      "sha256": "09f562e935ebb99c9a470f3c57d5292d6c90d6a634491f2465ccdca31be90543",
+      "sha256": "19967cfdc06b9d8c20fd0f74dbe62faea3ed774af03525e8821047b410cf3dbe",
       "adapted": true
     },
     "app/redaction.py": {
@@ -23,12 +23,12 @@
     },
     "app/server.py": {
       "upstreamSha256": "fdbe3a272f6ebfec99dff8340da787c830f2373944d870f6404d7878fdb7bcd8",
-      "sha256": "badc8efe8454234fcaa83b7d050c58bf514e3013ad42f581228c73b9c4320c22",
+      "sha256": "12d0a60a9284b97acfe180602867268a2e7d1555afdec0b3c2d1cf143dfdfbec",
       "adapted": true
     },
     "app/shoplib.py": {
       "upstreamSha256": "3302e5f77efe076313b2d18f5bc8c41eedda3164e9835c6d1a466b704c48e1b2",
-      "sha256": "e8173e5659814c25f3caa871f865b36a9cdc1f0dd3ab95a9f03c328eb7cacd6a",
+      "sha256": "92531262b4691fd5aa06e1d28733bbe11e48254db7b6daa8891f6eedd3867213",
       "adapted": true
     },
     "app/static/index.html": {
@@ -38,7 +38,7 @@
     },
     "scripts/linker.py": {
       "upstreamSha256": "fcc261f757b6de8c3cfdfb76216d54a448777dbd2d37eac54dfdf3b6bb3e74e0",
-      "sha256": "851a241d15a05c5eaa42ef439486c0a9329e43fbf69019b7f75b74a3e46f72cf",
+      "sha256": "6477971f1a33b3212b4d8ed445df0ea3b6ff791455997678499b236cb3ebb890",
       "adapted": true
     },
     "scripts/browser_bridge.py": {
@@ -60,6 +60,20 @@
       "upstreamSha256": null,
       "sha256": "5ebc8abae00da3a5248c80d771f0c9aac523e73be92aa5d9dd4b0d487d23ca45",
       "adapted": true
+    },
+    "app/profile_registry.py": {
+      "upstreamCommit": "8e925139250d1899bd8331e86c681aa1519b5e9c",
+      "upstreamPath": "app/profile_registry.py",
+      "upstreamSha256": "dc19ad77ff78c7c5824164b022c10bd3f5ba0246b7e13cdd58ac1683c6354945",
+      "sha256": "dc19ad77ff78c7c5824164b022c10bd3f5ba0246b7e13cdd58ac1683c6354945",
+      "adapted": false
+    },
+    "app/pop_connection.py": {
+      "upstreamCommit": "8e925139250d1899bd8331e86c681aa1519b5e9c",
+      "upstreamPath": "app/pop_connection.py",
+      "upstreamSha256": "06faa34e0e9efc5180fcca001b472f2cfd2dd286debde548fd4ada8cb7d1980b",
+      "sha256": "06faa34e0e9efc5180fcca001b472f2cfd2dd286debde548fd4ada8cb7d1980b",
+      "adapted": false
     }
   },
   "entrypoints": [

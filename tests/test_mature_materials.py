@@ -129,11 +129,22 @@ class MatureMaterialsTests(unittest.TestCase):
             result=a.validate_short_title_workbook(path)
         self.assertTrue(result['valid'],result)
     def test_original_automatic_title_import_workflow_remains_present(self):
-        source=(SOURCE/'scripts/pop_workflow.py').read_text(encoding='utf-8')
-        self.assertIn('def complete_short_title_import(',source)
-        self.assertIn('import_short_titles',source)
-        self.assertIn('platformTitleImportVerified',source)
-        self.assertNotIn('short_title_worker',source)
+        from types import SimpleNamespace
+        from pop_workflow import complete_short_title_import
+        agent=self.agent()
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'titles.xlsx'
+            path.write_bytes(agent._short_title_workbook_bytes([('1234','家用整理收纳实用商品')]))
+            args=SimpleNamespace(output_dir=Path(tmp),profile_dir=str(Path(tmp)/'profile'))
+            original={'status':'import-completed','taskId':'12345678','creationAccepted':True,
+                      'successRows':1,'failedRows':0}
+            with patch('pop_browser.import_short_titles',return_value=original) as submit, \
+                 patch.object(agent,'audit_pop_coverage',return_value={'rows':[{'skuId':'1234'}]}) as audit:
+                result=complete_short_title_import(args,{'shortTitleFiles':[str(path)],'rowCount':1},
+                                                   {'shopName':'synthetic','shopId':'1'},None,agent)
+            submit.assert_called_once()
+            audit.assert_called_once()
+            self.assertTrue(result['platformTitleImportVerified'])
     def test_image_call_uses_existing_sufy_adapter_once_even_on_error(self):
         a=self.agent()
         from heideng_merchant.mature_image import MerchantImageClient

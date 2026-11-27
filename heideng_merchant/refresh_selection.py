@@ -5,9 +5,8 @@ import os
 from pathlib import Path
 import tempfile
 
-from .gallery_patch import PUBLIC_GROUP, gallery_owners, gallery_readback, snapshot
-from .safety import file_sha, read_json
-from .state import merchant_home
+from .pop_gallery import PUBLIC_GROUP, gallery_owners, gallery_readback, snapshot
+from .refresh_storage import file_sha, read_json, configure_design
 
 
 def digest(value):
@@ -37,8 +36,6 @@ def copy_targets(report, excluded, shop):
     by_target, skipped, sources = {}, [], set()
     for row in report['rows']:
         source = str(row['sourceProductId'])
-        if source in sources:
-            raise ValueError('搬家报告包含重复来源商品')
         sources.add(source)
         target = str(row.get('targetProductId') or '')
         evidence = row.get('comparison') or {}
@@ -125,7 +122,7 @@ def configure(job, args):
         if photo.parent.name != 'generated' or photo.suffix.lower() != '.png' or not photo.is_file():
             raise ValueError('请选择商家已批准的原任务 generated 目录中的 PNG')
         spec['approvedSample'] = {'file': str(photo), 'sha256': file_sha(photo)}
-        if not spec.get('approvedPrompt') and not args.image_prompts_file:
+        if not spec.get('approvedPrompt') and not getattr(args, 'image_prompts_file', None):
             record = (read_json(photo.parent.parent / 'internal-generation.json') or {}).get(photo.stem, {})
             if record.get('status') != 'succeeded' or not str(record.get('prompt') or '').strip():
                 raise ValueError('原样张缺少成功回执和提示词原文')
@@ -133,27 +130,6 @@ def configure(job, args):
             spec['promptSource'] = {'kind': 'approved-sample', 'file': str(photo)}
     spec['productIds'] = chosen
     job.update(mainSelection=spec, productIds=[int(p) for p in chosen], scope='main', mainPositions=[1])
-
-
-def configure_design(job, args):
-    from . import image_design
-    design = {}
-    if args.approved_prompt_file:
-        prompt = args.approved_prompt_file.read_bytes().decode('utf-8-sig')
-        if not prompt.strip() or args.image_prompts_file:
-            raise ValueError('商家原文与逐图提示词请选择一种')
-        design.update(approvedPrompt=prompt, promptSource={'kind': 'merchant-brief', 'file': str(args.approved_prompt_file.resolve())})
-    state = merchant_home()
-    verified = image_design.identity(state, job['venderId'], job.get('shopId'), job['profile'])
-    preference = image_design.load_design(state, verified) if verified else {}
-    if args.reuse_approved_prompt:
-        saved = preference.get('approvedPrompt') or {}
-        if not saved or args.approved_prompt_file or args.image_prompts_file or args.use_host_design:
-            raise ValueError('本店缺少已批准的提示词，或指定了冲突的设计来源')
-        design.update(approvedPrompt=saved['text'], promptSource={k: v for k, v in saved.items() if k != 'text'})
-    if (preference.get('preference') or {}).get('mode') == 'merchant-first' and not args.use_host_design:
-        design['merchantBriefFirst'] = True
-    return design
 
 
 def listed_products(cli, wanted):
@@ -357,3 +333,56 @@ def import_sample(run, job, designs, ledger):
     ledger[key] = {**design, 'status': 'succeeded', 'attempts': 0, 'outputSha256': sha,
                    'bytes': len(raw), 'model': old.get('model'),
                    'reusedSample': {'sourceRun': str(parent), 'key': key, 'sha256': sha}}
+
+
+def build_scoped(common, run, job, args):
+    from concurrent.futures import ThreadPoolExecutor
+
+    spec = job["mainSelection"]
+    pids = [int(pid) for pid in spec["productIds"]]
+    if args or job["productIds"] != pids:
+        raise ValueError("已冻结商品范围，build_plan 从原任务获取商品及快照")
+    existing = common.load_json(run / "plan-batch.json")
+    if existing:
+        verify_frozen(job, existing, run)
+        print("沿用已冻结范围，图片", len(existing["tasks"]), "实际图位", existing["selectedSlotCount"])
+        return
+    cli = common.connect(job)
+    common.verify_identity(cli, job, run)
+    listed = listed_products(cli, pids)
+    with ThreadPoolExecutor(max_workers=int(job.get("fetchConcurrency") or 6)) as pool:
+        snapshots = dict(zip(listed, pool.map(lambda pid: common.apply_detail(cli, pid), listed)))
+    plan = common.build_plan(snapshots, prompt_template=job.get("promptTemplate"), image_base=job.get("imageBase"), order=[p for p in pids if p in listed],
+                             scopes=["main"], positions=[1])
+    derive(plan, spec, snapshots, listed, common.clean_url)
+    for product in plan["products"]:
+        pid = product["productId"]
+        common.save_json(run / "products" / str(pid) / "before-apply.json", snapshots[pid])
+    common.save_json(run / "plan-batch.json", plan)
+    print("商品", len(plan["products"]), "成图", len(plan["tasks"]), "实际图位", plan["selectedSlotCount"],
+          "排除记录", len(plan["exclusions"]))
+
+
+def plan_products(plan, pids=None):
+    wanted = {str(item) for item in (pids or []) if str(item).strip()}
+    products = plan.get("products") or []
+    result = []
+    for item in products:
+        if wanted and str(item["productId"]) not in wanted:
+            continue
+        if "tasks" in plan and not plan.get("selectionMode"):
+            # Some older hosts narrowed tasks after planning without narrowing positions.
+            # Never carry discarded keys into a second batch's patch, report or verification.
+            keys = plan["tasks"]
+            physical = item.get("positions", [])
+            details = item.get("detailImages", [])
+            kept = [r for r in physical if r["key"] in keys]
+            kept_details = [r for r in details if r["key"] in keys]
+            if (physical or details) and not (kept or kept_details):
+                continue
+            if len(kept) != len(physical) or len(kept_details) != len(details):
+                item = {**item, "positions": kept, "uniqueImages": len({r["key"] for r in kept})}
+                if details:
+                    item["detailImages"] = kept_details
+        result.append(item)
+    return result

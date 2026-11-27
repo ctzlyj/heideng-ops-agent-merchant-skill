@@ -11,10 +11,10 @@ MANIFEST='package-manifest.json'
 RECEIPT='.merchant-install.json'
 
 def admissible_file(name):
- if name in {'SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py','package-files.json','requirements-updates.txt','updates/trust.json',MANIFEST}:return True
+ if name in {'SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py','package-files.json','requirements-updates.txt','updates/trust.json','maintenance/shared-pop.json',MANIFEST}:return True
  if re.fullmatch(r'(?:heideng_merchant|scripts)/[a-zA-Z0-9_-]+\.py|references/[a-zA-Z0-9_-]+\.md',name):return True
  parts=name.split('/')
- if len(parts)<3 or parts[0]!='mature' or parts[1] not in {'connection','materials','listing','collection','comparison','diagnosis','refresh','video'}:return False
+ if len(parts)<3 or parts[0]!='mature' or parts[1] not in {'connection','materials','listing','collection','comparison','diagnosis','refresh','video','psd'}:return False
  # Path safety remains safe_join's responsibility; binary templates need their original Unicode names.
  return Path(name).name=='LICENSE' or Path(name).suffix.lower() in {'.py','.md','.json','.mjs','.js','.txt','.xlsx','.csv','.ps1','.sh','.svg','.html','.cjs'}
 
@@ -54,6 +54,13 @@ def source_files(source):
    total+=len(data)
    if name in mature_hashes and hashlib.sha256(data).hexdigest()!=mature_hashes[name]:raise SafetyError('mature-source-modified')
    files[name]=data if name.startswith("mature/") else data.replace(b"\r\n",b"\n")
+  if 'maintenance/shared-pop.json' in files:
+   groups=json.loads(files['maintenance/shared-pop.json'])['groups']
+   for group in groups.values():
+    for name,record in group['files'].items():
+     if name.startswith('tests/'):continue
+     if name not in files or hashlib.sha256(files[name]).hexdigest()!=record['sha256']:
+      raise SafetyError('shared-pop-source-modified: '+name)
   if not {'SKILL.md','VERSION'}<=files.keys():raise SafetyError('missing-package-entry')
   return files
  candidates=['SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py']

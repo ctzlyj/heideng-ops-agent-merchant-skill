@@ -16,8 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401  (hide jdo-cli console windows)
 import _common as common
+from refresh_runtime import gallery_readback, snapshot, refresh_selection
 import detail_patch_update as detail_patch
-from heideng_merchant.gallery_patch import gallery_readback, snapshot
 
 
 def evaluate_product(
@@ -132,31 +132,6 @@ def evaluate_detail(before, after, detail_images, uploads):
     }
 
 
-def list_status_map(cli):
-    result = {}
-    page = 1
-    while True:
-        response = cli.get(
-            "jdo-product-status",
-            "/rest/sp-product/v0/products",
-            {
-                "scopeSet": "productId,productStatus",
-                "page": page,
-                "pageSize": 50,
-                "sortBy": "created",
-                "sortType": "desc",
-            },
-        )
-        rows = response.get("data") or []
-        for row in rows:
-            result[int(row["productId"])] = row.get("productStatus")
-        total = int((response.get("paginationData") or {}).get("totalItems") or 0)
-        if not rows or len(result) >= total:
-            break
-        page += 1
-    return result
-
-
 def main(argv):
     if len(argv) < 2:
         raise SystemExit("usage: verify.py <run_dir> [productId ...]")
@@ -165,6 +140,7 @@ def main(argv):
     plan = common.load_json(run / "plan-batch.json")
     if not plan:
         raise SystemExit("missing plan-batch.json; run build_plan.py first")
+    refresh_selection.verify_frozen(job, plan, run)
     scopes = plan.get("scopes") or ["main"]
     uploads = common.load_json(run / "uploads.json") or {}
     patches = common.load_json(run / "patch-results.json") or {}
@@ -173,7 +149,7 @@ def main(argv):
 
     cli = common.connect(job)
     common.verify_identity(cli, job, run)
-    statuses = list_status_map(cli)
+    statuses = refresh_selection.listed_products(cli, [p["productId"] for p in selected])
     print("listed products:", len(statuses), "scope:", "+".join(scopes), flush=True)
 
     def fetch(pid):

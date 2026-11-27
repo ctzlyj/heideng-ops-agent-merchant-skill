@@ -1,12 +1,14 @@
 """Read and fill SKU content slots in two merchant-owned shops using live product identities."""
 from collections import Counter, defaultdict
+from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 import re
 from urllib.parse import urlsplit
+from uuid import uuid4
 
-from . import owned_product_copy as copy
+from . import pop_copy_pairing as copy
 from .shop_copy_history import material_origins
 from .safety import atomic_json, file_sha, read_json, redact, safe_join
 from .state import FileLock, merchant_home
@@ -22,7 +24,9 @@ def register(subs):
     for side in ('source','target'):
         p.add_argument('--'+side+'-profile',required=True)
         p.add_argument('--'+side+'-config',type=Path,required=True)
-        p.add_argument('--'+side+'-product-id',type=int,required=True)
+    p.add_argument('--source-product-id', type=int, required=True)
+    p.add_argument('--target-product-id', type=int, action='append', required=True,
+                   help='原交办范围内的目标商品，可重复。按每个链接分别核对并出具回执')
     p.add_argument('--confirm',choices=['FILL_MISSING_COPY_MATERIALS'])
     p.add_argument('--health',action='store_true',help='另外读取目标店当前信息分诊断和平台提出的改进项')
     p.add_argument('--history-dir',type=Path,help='对照原搬家目录中的发布回执或商品回读，分别核实同源的每个目标商品')
@@ -464,10 +468,10 @@ def product_pair(entry, frozen, detail, source_numbers, origins=()):
     return {**proof,'verified':True,'basis':'unique-item-number-and-product-facts'}
 
 
-def handle(args, entry):
+def _read_source(args, entry):
     api=entry.api
     source=entry.verify(args.source_config,args.source_profile)
-    src_id,dst_id=args.source_product_id,args.target_product_id
+    src_id=args.source_product_id
     source_detail=entry.read_owned_detail(src_id)
     source_numbers=_numbers(entry,source_detail['productInfo'])
     src=snapshot(api,src_id,list(copy.sku_rows(source_detail,src_id)),source)
@@ -481,6 +485,48 @@ def handle(args, entry):
         except (api.JdoError,OSError,KeyError,TypeError,ValueError) as exc:
             candidates={'status':'unverified','reason':redact(str(exc))[:220]}
         _same_session(api,source)
+    return source,source_detail,source_numbers,src,candidates
+
+
+def handle(args, entry):
+    raw = args.target_product_id
+    targets = list(dict.fromkeys(raw if isinstance(raw, list) else [raw]))
+    if not targets or min([args.source_product_id, *targets]) < 1 or args.source_product_id in targets:
+        raise ValueError('请提供有效且不同于源商品的目标商品编号')
+    if len(targets) == 1:
+        single = Namespace(**{**vars(args), 'target_product_id': targets[0]})
+        return _one_target(single, entry, _read_source(single, entry))
+
+    # One active CLI profile per process. Keep profile changes sequential.
+    # Each target has its own locked ledger. Re-running reconciles uncertain writes.
+    original = None if args.confirm else _read_source(args, entry)
+    report_file = safe_join(merchant_home(), 'work/shop-copy-materials/batches/'+uuid4().hex+'.json')
+    health = {}
+    batch = {'ok':False, 'status':'running', 'sourceProductId':args.source_product_id,
+             'targetProductIds':targets, 'rows':[], 'reportFile':str(report_file)}
+    atomic_json(report_file, batch)
+    for tid in targets:
+        single = Namespace(**{**vars(args), 'target_product_id':tid, '_batch_health':health})
+        try:
+            receipt = _one_target(single, entry, original or _read_source(single, entry))
+        except (entry.api.JdoError, entry.pipeline.PipelineError, entry.matrix.MatrixError,
+                OSError, ValueError, KeyError, TypeError) as exc:
+            receipt = {'ok':False, 'migrationStatus':'unverified', 'reason':redact(str(exc))[:240]}
+        batch['rows'].append({'targetProductId':tid, **receipt})
+        atomic_json(report_file, batch)
+    batch['ok'] = all(row['ok'] for row in batch['rows'])
+    if args.confirm:
+        batch['status'] = 'material-copy-checked' if batch['ok'] else 'material-copy-incomplete'
+    else:
+        batch['status'] = 'material-audit-ready' if batch['ok'] else 'material-audit-partial'
+    atomic_json(report_file, batch)
+    return batch
+
+
+def _one_target(args, entry, source_read):
+    api = entry.api
+    src_id, dst_id = args.source_product_id, args.target_product_id
+    source, source_detail, source_numbers, src, candidates = source_read
     target=entry.verify(args.target_config,args.target_profile)
     if source['shopId']==target['shopId'] or source['profile']==target['profile'] or src_id==dst_id:
         raise ValueError('请核对两店与已落地的源、目标商品')
@@ -604,7 +650,7 @@ def handle(args, entry):
         if report['sourceSlotsReturned']==0:
             report['sourceEvidenceNextStep']='按本商品核对源店图片空间候选和原通过记录，取得 SKU、用途及顺序后再绑定。'
         atomic_json(path,report)
-        completed=report['migrationStatus'] in ('verified','no-source-materials')
+        completed=report['migrationStatus']=='verified'
         audit_complete=not (report['sourceReadGaps'] or report['targetReadGaps'] or
                             report['unpairedSource'] or report['unpairedTarget'])
         return {'ok':(completed if args.confirm else audit_complete) and (not args.health or health['status']=='observed'),

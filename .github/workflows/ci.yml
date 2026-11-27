@@ -38,6 +38,16 @@ jobs:
           --only-binary=:all: --no-cache-dir -r tests/mature-requirements.txt -r requirements-updates.txt
       - name: Installed merchant journey
         run: python -B tests/run_merchant_journey.py
+      - name: Shared listing sample from a Git source installation
+        run: python -B tests/pop_photo_sample_contract.py
+      - name: Shared POP comparison and price confirmation contract
+        run: python -B tests/pop_price_contract.py
+      - name: Shared collection contract through the merchant command
+        run: python -B tests/pop_collection_contract.py
+      - name: Shared batch pause and original receipts
+        run: python -B tests/pop_copy_batch_contract.py
+      - name: Shared shop-copy contract through the merchant command
+        run: python -B tests/pop_copy_contract.py
       - name: Local Chrome and driver on macOS ARM64
         if: runner.os == 'macOS' && matrix.python == '3.12'
         run: python -B -m tests.smoke_connection_browser --channel chrome

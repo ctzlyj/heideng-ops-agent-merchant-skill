@@ -1,0 +1,12 @@
+{
+  "authoritativeRepository": "ctzlyj/jd-main-video-batch-skill",
+  "authoritativePath": "scripts/local_composition.py",
+  "distribution": "The project owner requested this newly authored standalone compositor be distributed as source in the public merchant Skill and the internal POP Skill.",
+  "scope": "This record applies only to the standalone local_composition.py module.",
+  "originalPublicSource": {
+    "repository": "ctzlyj/heideng-ops-agent-merchant-skill",
+    "commit": "be7c13f08b2f06102af411c081fce7aa3edfd62e",
+    "path": "mature/video/scripts/local_composition.py",
+    "sha256AtHandoff": "79a66c462808cae98d44d57a631fafe8854aac767a5ee1475c55181476e6f142"
+  }
+}

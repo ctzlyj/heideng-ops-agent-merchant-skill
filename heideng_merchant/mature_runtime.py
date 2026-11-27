@@ -17,6 +17,7 @@ ROUTES = {
     'video-handoff': ('video', 'scripts/local_handoff.py'),
     'matrix-listing': ('listing', 'scripts/matrix_listing.py'),
     'images': ('listing', 'scripts/image_patch_update.py'),
+    'psd-template': ('psd', 'scripts/psd_template.cjs'),
     'image-refresh': ('refresh', 'scripts/new_job.py'),
     'collection': ('collection', 'scripts/prepare_batch.py'),
     'comparison': ('comparison', 'scripts/same_product_market.py'),
@@ -31,7 +32,7 @@ class MatureSourceUnavailable(SafetyError):
         super().__init__('mature-source-unavailable')
 
 
-def node_for_merchant(environment):
+def node_for_merchant(environment, minimum=24):
     """A host can prepend an older bundled Node while a supported installation is on PATH."""
     seen = set()
     for directory in environment.get('PATH', '').split(os.pathsep):
@@ -47,8 +48,10 @@ def node_for_merchant(environment):
         except (OSError, subprocess.TimeoutExpired):
             continue
         match = re.fullmatch(r'v(\d+)\.\d+\.\d+\s*', probe.stdout)
-        if probe.returncode == 0 and match and int(match.group(1)) >= 24:
+        if probe.returncode == 0 and match and int(match.group(1)) >= minimum:
             return candidate
+    if minimum == 18:
+        raise SafetyError('node-18-or-newer-required-for-psd-template')
     raise SafetyError('node-24-or-newer-required-for-mature-diagnosis')
 
 def allowed_host(host):
@@ -178,39 +181,46 @@ def browser_profile_channel(profile_dir):
 
 
 def source_path(capability, entry=None, package_root=None):
+    return _source_path(capability, entry, package_root, {})
+
+
+def _source_path(capability, entry, package_root, checked):
     if capability not in ROUTES:
         raise SafetyError('unknown-mature-capability')
     source_name, default_entry = ROUTES[capability]
     root = Path(package_root or PACKAGE_ROOT)/'mature'/source_name
-    provenance = read_json(root/'provenance.json')
+    provenance = checked.get(root) or read_json(root/'provenance.json')
     if not isinstance(provenance, dict):
         raise MatureSourceUnavailable(capability)
     path_name = entry or default_entry
     files = provenance.get('files')
     if not isinstance(files, dict) or path_name not in provenance.get('entrypoints', []):
         raise SafetyError('unregistered-mature-entrypoint')
-    for name, record in files.items():
-        path = safe_join(root, name)
-        if is_linked(path) or not path.is_file() or file_sha(path) != record.get('sha256'):
-            raise SafetyError('mature-source-modified')
-    actual = {x.relative_to(root).as_posix() for x in root.rglob('*') if x.is_file() and '__pycache__' not in x.parts and x.suffix not in ('.pyc', '.pyo')}
-    if actual != set(files) | {'provenance.json'}:
-        raise SafetyError('unregistered-mature-source-file')
+    if root not in checked:
+        for name, record in files.items():
+            path = safe_join(root, name)
+            if is_linked(path) or not path.is_file() or file_sha(path) != record.get('sha256'):
+                raise SafetyError('mature-source-modified')
+        actual = {x.relative_to(root).as_posix() for x in root.rglob('*') if x.is_file() and '__pycache__' not in x.parts and x.suffix not in ('.pyc', '.pyo')}
+        if actual != set(files) | {'provenance.json'}:
+            raise SafetyError('unregistered-mature-source-file')
+        checked[root] = provenance
     return safe_join(root, path_name), provenance
 
-def capability_contract(capability, package_root=None):
-    registry = read_json(Path(package_root or PACKAGE_ROOT)/'registry.json', {})
+def capability_contract(capability, registry):
     key = {'photo-listing':'listing','matrix-listing':'listing','price-update':'comparison','short-title':'materials','link-replica':'listing','shop-copy':'listing','video-handoff':'video','video-binding':'video','image-refresh':'images'}.get(capability, capability)
     row = next((x for x in registry.get('capabilities', []) if x.get('id')==key), {})
     return {'status':row.get('migration','verification-required'), 'knownBlockers':row.get('knownBlockers',[])}
 
 def status(package_root=None):
     from .image_models import MODELS, TIER_CREDITS
-    rows = []
+    rows, checked, registry = [], {}, None
     for capability in ROUTES:
         try:
-            path, source = source_path(capability, package_root=package_root)
-            rows.append({'capability': capability, 'source': source['repository'], 'upstreamVersion': source['upstreamVersion'], 'upstreamCommit': source['upstreamCommit'], 'entry': path.relative_to(Path(package_root or PACKAGE_ROOT)).as_posix(), 'matureImplementationReused': True, 'merchantAdaptation': capability_contract(capability, package_root), 'liveMerchantVerified': False})
+            path, source = _source_path(capability, None, package_root, checked)
+            if registry is None:
+                registry = read_json(Path(package_root or PACKAGE_ROOT)/'registry.json', {})
+            rows.append({'capability': capability, 'source': source['repository'], 'upstreamVersion': source['upstreamVersion'], 'upstreamCommit': source['upstreamCommit'], 'entry': path.relative_to(Path(package_root or PACKAGE_ROOT)).as_posix(), 'matureImplementationReused': True, 'merchantAdaptation': capability_contract(capability, registry), 'liveMerchantVerified': False})
         except MatureSourceUnavailable:
             rows.append({'capability': capability, 'matureImplementationReused': False, 'status': 'blocked-source-or-distribution-permission', 'liveMerchantVerified': False})
         except SafetyError as error:
@@ -316,7 +326,7 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
     environment["HEIDENG_MERCHANT_PACKAGE"] = str(root)
     from .official import OfficialClient
     official = OfficialClient(state)
-    if official.ready():
+    if capability != 'psd-template' and official.ready():
         environment['JDO_CLI_PATH'] = str(official.executable())
     work = state/'work'/ROUTES[capability][0]
     work.mkdir(parents=True, exist_ok=True)
@@ -338,8 +348,8 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
             command = [str(runtime_python(state)), '-I', '-B', str(root/'scripts/mature_entry.py'), str(path), *arguments]
         elif path.suffix == '.cjs' or (capability=='diagnosis' and path.suffix=='.js') or (capability=='collection' and path.suffix=='.mjs'):
             if capability=='collection':source_path('diagnosis',package_root=root)
-            node = node_for_merchant(environment)
-            if path.suffix=='.cjs' and official.ready() and arguments[:1] not in (['--help'],['help']) and '--dry-run' not in arguments:
+            node = node_for_merchant(environment, minimum=18) if capability == 'psd-template' else node_for_merchant(environment)
+            if capability=='diagnosis' and path.suffix=='.cjs' and official.ready() and arguments[:1] not in (['--help'],['help']) and '--dry-run' not in arguments:
                 checked_command([str(official.executable())])
             command=[node,str(path),*arguments]
         else:

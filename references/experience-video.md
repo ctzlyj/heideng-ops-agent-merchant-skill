@@ -1,4 +1,4 @@
-# 已有视频交接、上传与绑定
+# 本地拼片、已有视频交接与绑定
 
 ## 两件事不能混为一谈
 
@@ -29,3 +29,5 @@ TRANSFER/SAVE/BINDING结果未知先查原请求/已保存videoId/关系，按�
 本地发布来源 jd-main-video-batch-skill 1.1.3 / 40d664e：[原发布](../mature/video/scripts/video_publication.py)、[本地入口](../mature/video/scripts/local_handoff.py)。上传绑定来自 mover 1.2.6 / 3ee08af：[photo_video](../mature/listing/scripts/photo_video.py)、[handoff](../mature/listing/scripts/video_handoff.py)。没有复制公司生成器。
 
 本轮未执行真实生成、上传、绑定或试听验证；真实文件契约/平台审核/权限依然适用。其他合法商家已授权视频工具可由宿主使用，但不是绕过未知写入或模型/费用选择的入口。
+
+给定商品包内已有照片时，使用 `run video-handoff -- compose-local <商品包> --image <第1张> --image <第2张>` 按传入顺序制作无声候选 MP4 和封面，不使用模型额度。需要音轨、审核或上架时分别按实际任务执行，已有视频仍可直接交接。

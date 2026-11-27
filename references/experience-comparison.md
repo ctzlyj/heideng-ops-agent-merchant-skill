@@ -25,3 +25,5 @@
 ## 来源与边界
 
 jd-competitor-price-adjustment-skill 1.0.0 / 43bdf67；[原工作法](../mature/comparison/references/workflow.md)、[店铺政策](../mature/comparison/references/shop-policies.md)、[官方改价接口适配](../mature/comparison/references/jingmai-api.md)。源文历史平台与固定样本只作经验来源；公司浏览器/服务不是商家fallback。未获实际调价范围批准时只交分析，不写店铺。
+
+同批改价若只有某件商品被平台明确拒绝，按当前申请稿和线上价核实该请求没有产生变化后，可继续其他独立商品。相同商品未提交的行保留在原计划里。回执同时报告部分接受、超时或仍有不明影响时，保存原请求并走 `price-update -- status` 只读核验。

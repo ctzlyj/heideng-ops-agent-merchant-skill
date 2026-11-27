@@ -10,8 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401  (hide jdo-cli console windows)
 import _common as common
-from heideng_merchant import refresh_selection
-from heideng_merchant.state import FileLock
+from refresh_runtime import refresh_selection, FileLock
 
 
 def main(argv):
@@ -21,7 +20,7 @@ def main(argv):
     job = common.load_job(run)
     if job.get("mainSelection"):
         with FileLock(run / ".state" / "main-selection.lock"):
-            return build_scoped(run, job, argv[2:])
+            return refresh_selection.build_scoped(common, run, job, argv[2:])
     use_cache = "--cache" in argv
     args = [item for item in argv[2:] if item != "--cache"]
     pids = common.requested_pids(job, args)
@@ -127,32 +126,6 @@ def main(argv):
                   % (product["productId"], product["rectImages"]))
         if not product["title"]:
             print("  WARN empty title for", product["productId"])
-
-
-def build_scoped(run, job, args):
-    spec = job["mainSelection"]
-    pids = [int(pid) for pid in spec["productIds"]]
-    if args or job["productIds"] != pids:
-        raise ValueError("已冻结商品范围，build_plan 从原任务获取商品及快照")
-    existing = common.load_json(run / "plan-batch.json")
-    if existing:
-        refresh_selection.verify_frozen(job, existing)
-        print("沿用已冻结范围，图片", len(existing["tasks"]), "实际图位", existing["selectedSlotCount"])
-        return
-    cli = common.connect(job)
-    common.verify_identity(cli, job, run)
-    listed = refresh_selection.listed_products(cli, pids)
-    with ThreadPoolExecutor(max_workers=int(job.get("fetchConcurrency") or 6)) as pool:
-        snapshots = dict(zip(listed, pool.map(lambda pid: common.apply_detail(cli, pid), listed)))
-    plan = common.build_plan(snapshots, image_base=job.get("imageBase"), order=[p for p in pids if p in listed],
-                             scopes=["main"], positions=[1])
-    refresh_selection.derive(plan, spec, snapshots, listed, common.clean_url)
-    for product in plan["products"]:
-        pid = product["productId"]
-        common.save_json(run / "products" / str(pid) / "before-apply.json", snapshots[pid])
-    common.save_json(run / "plan-batch.json", plan)
-    print("商品", len(plan["products"]), "成图", len(plan["tasks"]), "实际图位", plan["selectedSlotCount"],
-          "排除记录", len(plan["exclusions"]))
 
 
 if __name__ == "__main__":

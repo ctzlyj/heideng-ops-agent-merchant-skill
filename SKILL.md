@@ -1,8 +1,8 @@
 ---
 name: heideng-ops-agent-merchant
-description: 京东 POP 商家在本地 Agent 宿主中用自然语言交办运营任务；提供电商经验导航、独立安装更新与成熟工具。适用于连接店铺、内容信息分、上新复刻实拍、图文优化、采集比价、经营广告诊断及已有视频交接，也支持按任务组合其他商家已授权官方能力。
+description: 京东 POP 商家在本地 Agent 宿主中用自然语言交办运营任务；提供电商经验导航、独立安装更新与成熟工具。适用于连接店铺、内容信息分、上新复刻实拍、图文优化、采集比价、经营广告诊断、本地图片拼片及已有视频交接，也支持按任务组合其他商家已授权官方能力。
 metadata:
-  version: 0.4.28
+  version: 0.4.30
 ---
 
 # 黑灯运营智能体商家版
@@ -42,7 +42,7 @@ metadata:
 
 macOS 连接失败时先沿原 Profile 只读核店。保留主动登录、复用授权、回调未知三种不同结果。系统执行权限、浏览器启动和官方 CLI 的 TLS 失败分别报告；公开 HTTPS 可用 `doctor-cli` 单独检查。遇到 iCloud 占位提示，给出具体文件与访达操作，沿原任务恢复。详见[连接与身份](references/experience-connection.md)。
 
-先读 [经验导航](references/experience-navigation.md)，然后只加载相关模块。跨模块任务可同时取用多个模块，不需要另装8份子产品。
+先读 [经验导航](references/experience-navigation.md)，然后只加载相关模块。跨模块任务可同时取用多个模块，按本次经营目标选择工具。
 
 | 商家问题 | 按需经验 |
 |---|---|
@@ -51,10 +51,11 @@ macOS 连接失败时先沿原 Profile 只读核店。保留主动登录、复�
 | 自家两店搬商品、核对差异、原链接修编码 | [自家店铺复制](references/owned-shop-copy.md) |
 | 上新、实拍、重制素材、矩阵 | [商品上新](references/experience-listing.md) |
 | 主图、详情图、SKU图、整店刷新 | [图文优化](references/experience-images.md) |
+| 本地制作可复用的分层 PSD 打标模板 | [图文优化](references/experience-images.md) |
 | 素材、逐SKU到手价和断点采集 | [采集](references/experience-collection.md) |
 | 同规格比价、确认后的改价 | [比价与定价](references/experience-comparison.md) |
 | 经营与广告诊断 | [商家诊断](references/experience-diagnosis.md) |
-| 已有视频交接、上传、绑定 | [视频交接](references/experience-video.md) |
+| 本地图片拼片、视频交接、上传、绑定 | [视频交接](references/experience-video.md) |
 
 这些问题是导航示例，不是命令词。目录外能力先看官方/宿主实际可用工具与授权，不能因为包装器没有 choices 就拒绝。
 

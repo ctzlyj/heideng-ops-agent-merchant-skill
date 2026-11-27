@@ -123,10 +123,11 @@
       "upstreamPath": "scripts/image_similarity.py"
     },
     "scripts/jd_detail_evidence.py": {
-      "upstreamSha256": "27e27f977f859501af2b3b94f7b308c3b7737a1f679647033b6ac93afa15c9d0",
-      "sha256": "6427aa0e8a13b8f2c1e1d6294554f0b2257d1fbe73ccb67b7b0d0b02bc9ffede",
-      "adapted": true,
-      "upstreamPath": "scripts/jd_detail_evidence.py"
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
+      "upstreamPath": "scripts/jd_detail_evidence.py",
+      "upstreamSha256": "3dfc5baae79fd618fc8a3d317fafcf1f80c8bfa89f5d36c452827b5d03de03fc",
+      "sha256": "3dfc5baae79fd618fc8a3d317fafcf1f80c8bfa89f5d36c452827b5d03de03fc",
+      "adapted": false
     },
     "scripts/jd_image_search_capture.py": {
       "upstreamSha256": "61b4edb40225ff990c79b0b7d8ed485dfe59583c2bbb3505dfa10a256ee16c93",
@@ -135,17 +136,18 @@
       "upstreamPath": "scripts/jd_image_search_capture.py"
     },
     "scripts/jd_price_adjustment.py": {
-      "upstreamSha256": "4f13ae5e9ad4851e9da6717b9540c142006e2d3b6918cf4035c220dcdb1c8016",
-      "sha256": "7a7b9405341a3761329298fc45156d0c2e5a6eac01bf992f93a265f2113f36bb",
-      "adapted": true,
-      "upstreamPath": "scripts/jd_price_adjustment.py"
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
+      "upstreamPath": "scripts/jd_price_adjustment.py",
+      "upstreamSha256": "76463861105d10ec7f5160656f20b7e77cbf29b5efeb66779c74765401b96b31",
+      "sha256": "76463861105d10ec7f5160656f20b7e77cbf29b5efeb66779c74765401b96b31",
+      "adapted": false
     },
     "scripts/jingmai_api.py": {
-      "upstreamSha256": "7491085ad8c1923b9a0ae37878e61a2e1242a4f94d2d7737e3119b0a67eacd29",
-      "sha256": "b2461ac8c07b19bceadeb64175bfad120ed0fe09a20430f18c649d8e9ac25758",
-      "adapted": true,
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
       "upstreamPath": "scripts/jingmai_api.py",
-      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+      "upstreamSha256": "0ebf48d2ea0a1e64f5628aab07fa5e48b0a1d25c74ac8281f95d38c0f42d161d",
+      "sha256": "0ebf48d2ea0a1e64f5628aab07fa5e48b0a1d25c74ac8281f95d38c0f42d161d",
+      "adapted": false
     },
     "scripts/merchant_runtime.py": {
       "upstreamSha256": null,
@@ -155,17 +157,18 @@
       "reason": "New merchant path/executable boundary or inferred requirements; no upstream file exists."
     },
     "scripts/same_product_market.py": {
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
+      "upstreamPath": "scripts/same_product_market.py",
       "upstreamSha256": "8727b35315c49c18fa6ae1e5825ada6adb7b85c74b5dd07c7783aa69745b12ec",
       "sha256": "8727b35315c49c18fa6ae1e5825ada6adb7b85c74b5dd07c7783aa69745b12ec",
-      "adapted": false,
-      "upstreamPath": "scripts/same_product_market.py"
+      "adapted": false
     },
     "scripts/store_pricing.py": {
-      "upstreamSha256": "1c87b669609b4227e982a5a591a29b9d78874195255b2ff8622b88ff5a093a77",
-      "sha256": "5dbcd05faa8a85378b4fad30f9f1160886439a0fc85aaea0979208bf68a17201",
-      "adapted": true,
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
       "upstreamPath": "scripts/store_pricing.py",
-      "reason": "Thin merchant transport/state boundary or corresponding usage/reference instructions; mature business algorithms retained."
+      "upstreamSha256": "39e1fba04807309c2291cf6e9b47acc63ffb45b5ad768b7a5acd69bd970e129b",
+      "sha256": "39e1fba04807309c2291cf6e9b47acc63ffb45b5ad768b7a5acd69bd970e129b",
+      "adapted": false
     },
     "scripts/webcli_jd_detail_capture.py": {
       "upstreamSha256": "27bd99cf731b6bd8d002fa8580ab5108488875a955dd3acf915790f57f3ea3bd",
@@ -179,6 +182,11 @@
       "sha256": "1480473302ebdde1defb0d77635b256bb68f62c2c6701c18adeecdc86fb29232",
       "adapted": false,
       "upstreamPath": "scripts/webcli_jd_search_capture.py"
+    },
+    "scripts/pricing_runtime.py": {
+      "upstreamSha256": null,
+      "sha256": "10dc6dc942608ee47db829839b2f1ebc2db63130469350392467ae1dfa049f24",
+      "adapted": true
     }
   },
   "entrypoints": [

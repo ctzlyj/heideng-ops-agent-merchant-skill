@@ -17,9 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import no_window  # noqa: F401  (hide jdo-cli console windows)
 import _common as common
-from heideng_merchant.gallery_patch import frozen_patch
-from heideng_merchant.refresh_selection import verify_frozen
-from heideng_merchant.safety import file_sha
+from refresh_runtime import frozen_patch, file_sha, refresh_selection
+verify_frozen = refresh_selection.verify_frozen
 
 LOCK = threading.RLock()
 
