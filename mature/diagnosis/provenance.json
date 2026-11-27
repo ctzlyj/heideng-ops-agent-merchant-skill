@@ -13,10 +13,11 @@
       "adapted": true
     },
     "scripts/inspection.cjs": {
+      "upstreamCommit": "2f613a2d791082084b3f9bf3da2b1d6a85cd6923",
       "upstreamPath": "scripts/inspection/inspection.cjs",
-      "upstreamSha256": "f079fa12318bc9e4511d48dd7b8eb301d16ff54e57e670a9afccf38f19870aaf",
-      "sha256": "e53a84ea25f8f23474393cda3a5bf1a2561e361c04b21d2a92f259d98abcbbab",
-      "adapted": true
+      "upstreamSha256": "5bcd7bf7eb3f870e352b07a0e3e11576c37712378d7db91f63d563ae986d7314",
+      "sha256": "5bcd7bf7eb3f870e352b07a0e3e11576c37712378d7db91f63d563ae986d7314",
+      "adapted": false
     },
     "scripts/transport.cjs": {
       "upstreamPath": "scripts/inspection/transport.cjs",
@@ -103,10 +104,11 @@
       "adapted": true
     },
     "scripts/validate_report.py": {
+      "upstreamCommit": "2f613a2d791082084b3f9bf3da2b1d6a85cd6923",
       "upstreamPath": "scripts/validate_report.py",
-      "upstreamSha256": "0a71f43166d6c6df1ff38da543f6950bb42931b802e79c46ccfd44ffacd9f05f",
-      "sha256": "52bee10a554f4e25a0e1a815f57ed09d9d605b59db446d24e8bde81745ac6d7a",
-      "adapted": true
+      "upstreamSha256": "d8c27ae529bb7fea0e8ec8f922aaceb5a87dcd43d0eccc2d08d8457c56fc0117",
+      "sha256": "d8c27ae529bb7fea0e8ec8f922aaceb5a87dcd43d0eccc2d08d8457c56fc0117",
+      "adapted": false
     },
     "references/api-reference.md": {
       "upstreamPath": "references/api-reference.md",

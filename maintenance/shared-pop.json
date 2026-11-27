@@ -116,6 +116,24 @@
           "sha256": "f15dc36fb4c60a53210e378e5b2c48a5ed8fa5d2183e2062dc214dcddc9ff379"
         }
       }
+    },
+    "diagnosis": {
+      "repository": "ctzlyj/jd-store-diagnosis-skill",
+      "commit": "2f613a2d791082084b3f9bf3da2b1d6a85cd6923",
+      "files": {
+        "mature/diagnosis/scripts/inspection.cjs": {
+          "source": "scripts/inspection/inspection.cjs",
+          "sha256": "5bcd7bf7eb3f870e352b07a0e3e11576c37712378d7db91f63d563ae986d7314"
+        },
+        "mature/diagnosis/scripts/validate_report.py": {
+          "source": "scripts/validate_report.py",
+          "sha256": "d8c27ae529bb7fea0e8ec8f922aaceb5a87dcd43d0eccc2d08d8457c56fc0117"
+        },
+        "tests/pop_diagnosis_contract.py": {
+          "source": "tests/pop_diagnosis_contract.py",
+          "sha256": "1796f37d84d990911c1551931f2e0a410fe3811fb0ec70f2d3e7517619b68eaa"
+        }
+      }
     }
   }
 }

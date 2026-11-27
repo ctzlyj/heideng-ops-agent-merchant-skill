@@ -2,7 +2,7 @@ const summaries = require('./vendor/core.cjs');
 const rules = require('./vendor/merchant-sync.cjs');
 const { ALLOWED, requireProfile, assertSuccess, responseRows, createOfficialInvoker, readIdentity, readPages } = require('./transport.cjs');
 
-const SKILL_VERSION = '0.2.0';
+const SKILL_VERSION = '0.2.1';
 const TITLES = ['在售商品供给', '商品信息健康', '价格竞争力', '近30天零动销', '动销商品零库存规格', '商品违规违约单', '待出库超过24小时', '客服未回复', '违规待整改商品', '商品审核异常', '官方素材待优化项', '客服低分评价'];
 const MATERIAL_FACTORS = new Set(['hasMainVideo', 'isImgWhite', 'hasShortTitle', 'hasTransImg', 'hasSellPointImg', 'hasSceneImg', 'hasElectronicManual', 'sellPointNum', 'hasLongImage', 'squareMainImageQuality', 'longMainImageQuality']);
 const ACTIONS = {

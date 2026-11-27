@@ -3,6 +3,7 @@
 | 一线问题 | 修改与补回归的位置 | 商家来源组 |
 | --- | --- | --- |
 | 续登时核验原 Profile 绑定的店铺身份 | jingmai-cli-linker | connection |
+| 经营诊断的检查覆盖、部分结果和报告复检 | jd-store-diagnosis-skill | diagnosis |
 | 搬家两端的 SKU 配对、源材料、目标链接、短标题 | jingmai-hot-product-mover-skill | shop-copy |
 | 一个类目的热卖 SKU 聚合草稿 | jingmai-hot-product-mover-skill | top-sku |
 | 限定商品的素材缺口、SKU 读数与覆盖 | jd-material-pop-skill | materials |
