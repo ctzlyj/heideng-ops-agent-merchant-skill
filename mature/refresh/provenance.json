@@ -62,7 +62,7 @@
       "adapted": true
     },
     "scripts/patch.py": {
-      "upstreamCommit": "f01f7431848a537b2b005d62e281707150d7c2aa",
+      "upstreamCommit": "a8fa5d9a6ba7d14bcca0327d5ff0e9f32560da36",
       "upstreamPath": "scripts/patch.py",
       "upstreamSha256": "e4ab22e6d093bd8cd1a2bd10b03d445dec454f90d2fe7edbdeca6e20e965c59c",
       "sha256": "e4ab22e6d093bd8cd1a2bd10b03d445dec454f90d2fe7edbdeca6e20e965c59c",
@@ -84,10 +84,10 @@
       "adapted": true
     },
     "scripts/report.py": {
-      "upstreamCommit": "f01f7431848a537b2b005d62e281707150d7c2aa",
+      "upstreamCommit": "a8fa5d9a6ba7d14bcca0327d5ff0e9f32560da36",
       "upstreamPath": "scripts/report.py",
-      "upstreamSha256": "895ce47a420474c575b2d2dc81e2bae884ab2356dde77f4ac0363e192f59104c",
-      "sha256": "895ce47a420474c575b2d2dc81e2bae884ab2356dde77f4ac0363e192f59104c",
+      "upstreamSha256": "2ea00f912ee34a00ddb8f06916b2cf456890298aa4d03b13afd9bd94cafa8d59",
+      "sha256": "2ea00f912ee34a00ddb8f06916b2cf456890298aa4d03b13afd9bd94cafa8d59",
       "adapted": false
     },
     "scripts/run_all.py": {
@@ -101,17 +101,17 @@
       "adapted": true
     },
     "scripts/upload.py": {
-      "upstreamCommit": "f01f7431848a537b2b005d62e281707150d7c2aa",
+      "upstreamCommit": "a8fa5d9a6ba7d14bcca0327d5ff0e9f32560da36",
       "upstreamPath": "scripts/upload.py",
       "upstreamSha256": "c8a1a57df3cdf4568be9f941b373e88c6e921d3f5516709a948276a4caa7f49d",
       "sha256": "c8a1a57df3cdf4568be9f941b373e88c6e921d3f5516709a948276a4caa7f49d",
       "adapted": false
     },
     "scripts/verify.py": {
-      "upstreamCommit": "f01f7431848a537b2b005d62e281707150d7c2aa",
+      "upstreamCommit": "a8fa5d9a6ba7d14bcca0327d5ff0e9f32560da36",
       "upstreamPath": "scripts/verify.py",
-      "upstreamSha256": "08bcca6080a851b6815ff8f34f1d66ab666b37f7f626dfbab57f4eae11dac7b1",
-      "sha256": "08bcca6080a851b6815ff8f34f1d66ab666b37f7f626dfbab57f4eae11dac7b1",
+      "upstreamSha256": "8d6e5a7105e21129709ab66a5e23cb93781f06e9267156482fa50fe843695899",
+      "sha256": "8d6e5a7105e21129709ab66a5e23cb93781f06e9267156482fa50fe843695899",
       "adapted": false
     },
     "requirements.txt": {

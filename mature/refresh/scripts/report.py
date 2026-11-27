@@ -38,6 +38,12 @@ HEADERS = [
     "问题",
     "主图对比",
     "详情对比",
+    "授权主图位",
+    "已核实保留原图",
+    "目标图位待核",
+    "范围外3:4长图",
+    "长图改前位数",
+    "长图回读位数",
 ]
 
 
@@ -55,13 +61,86 @@ def price_result(entry):
     return {True: "未变更", False: "有变更"}.get(entry.get("pricesUnchanged"), "待核对")
 
 
+def main_target(plan, product):
+    return "main" in (plan.get("scopes") or ["main"]) and (
+        "positions" not in product or bool(product["positions"]) or bool(product.get("selectedSlots"))
+    )
+
+
+def slot_counts(product, entry):
+    receipt = entry.get("mainSlotReadback") or {}
+    fields = ("requested", "verified", "retained", "unresolved")
+    if (all(type(receipt.get(k)) is int and receipt[k] >= 0 for k in fields)
+            and receipt["requested"] == sum(receipt[k] for k in fields[1:])):
+        return {k:receipt[k] for k in fields}, True
+    # Older plans can list one asset per URL even when several physical positions use it.
+    # Only selectedSlots contains the explicitly frozen physical positions.
+    slots = product.get("selectedSlots")
+    requested = None
+    if isinstance(slots, list) and all(isinstance(s, dict) and s.get("group") is not None
+                                      and type(s.get("position")) is int and s["position"] > 0 for s in slots):
+        requested = len({(str(s["group"]), s["position"]) for s in slots})
+    return {"requested":requested, "verified":0, "retained":0, "unresolved":requested}, False
+
+
+def rectangle_result(entry):
+    receipt = entry.get("rectangleReadback") or {}
+    if receipt.get("status") == "changed":
+        return "范围外有变化"
+    if receipt.get("status") == "unchanged" and type(receipt.get("beforeSlots")) is int:
+        if receipt["beforeSlots"] == receipt.get("afterSlots") and receipt["beforeSlots"] >= 0:
+            return "已核实未变" if receipt["beforeSlots"] else "已核实无长图"
+    return "待核对"
+
+
+def product_verdict(entry, needs_main, has_slot_evidence):
+    if not entry or (needs_main and not has_slot_evidence):
+        return "待核对"
+    return "通过" if entry.get("ok") else "未通过"
+
+
 def progress(plan, generation, uploads, patches, verification):
     """Summarize the frozen task's existing receipts, including partially finished runs."""
     keys = set(plan.get("tasks") or {})
-    pids = {str(task["productId"]) for task in plan["tasks"].values()}
+    products = plan.get("products")
+    if products is None:
+        # Early progress receipts may only contain a task index.
+        products = [{"productId":pid} for pid in {task["productId"] for task in plan.get("tasks", {}).values()}]
+    pids = {str(item["productId"]) for item in products}
     succeeded = [generation[key] for key in keys if generation.get(key, {}).get("status") == "succeeded"]
     confirmed = {pid: patches[pid] for pid in pids if patches.get(pid, {}).get("status") == "verified-in-edit-detail"}
-    independent = {pid: verification[pid] for pid in pids if verification.get(pid, {}).get("ok")}
+    independent = 0
+    passed_slots = 0
+    slots = {"requested":0, "verified":0, "retained":0, "unresolved":0, "productsPendingEvidence":0}
+    rectangles = {"unchangedProducts":0, "unchangedSlots":0, "absentProducts":0, "changedProducts":0,
+                  "unverifiedProducts":0, "beforeSlots":0, "afterSlots":0}
+    for product in products:
+        entry = verification.get(str(product["productId"])) or {}
+        needs_main = main_target(plan, product)
+        counts, known = slot_counts(product, entry)
+        if product_verdict(entry, needs_main, known) == "通过":
+            independent += 1
+            passed_slots += counts["verified"] if needs_main else 0
+        if not needs_main:
+            continue
+        for key, value in counts.items():
+            slots[key] = slots[key] + value if slots[key] is not None and value is not None else None
+        slots["productsPendingEvidence"] += not known
+        rect = entry.get("rectangleReadback") or {}
+        for key in ("beforeSlots", "afterSlots"):
+            value = rect.get(key)
+            rectangles[key] = rectangles[key] + value if (rectangles[key] is not None and
+                                                          type(value) is int and value >= 0) else None
+        state = rectangle_result(entry)
+        if state == "已核实未变":
+            rectangles["unchangedProducts"] += 1
+            rectangles["unchangedSlots"] += entry["rectangleReadback"]["beforeSlots"]
+        elif state == "已核实无长图":
+            rectangles["absentProducts"] += 1
+        elif state == "范围外有变化":
+            rectangles["changedProducts"] += 1
+        else:
+            rectangles["unverifiedProducts"] += 1
     reused = sum(bool(record.get("reusedSample")) for record in succeeded)
     return {"targetProducts": len(pids), "plannedAssets": len(keys), "newImagesSucceeded": len(succeeded) - reused,
             "approvedSamplesReused": reused,
@@ -71,9 +150,44 @@ def progress(plan, generation, uploads, patches, verification):
             "patchVerifiedMainSlots": sum(record.get("changedSlots", 0) for record in confirmed.values()),
             "patchAwaitingReadback": sum(patches.get(pid, {}).get("status") in
                                          ("awaiting-readback", "prior-edit-pending") for pid in pids),
-            "finalVerifiedProducts": len(independent),
-            "finalVerifiedMainSlots": sum(record.get("newImages", 0) for record in independent.values()),
+            "finalVerifiedProducts": independent,
+            "finalVerifiedMainSlots": passed_slots,
+            "mainSlotReadback": slots, "rectangleReadback": rectangles,
             "consumerPageStatus": "unchecked"}
+
+
+def main_delivery(counts):
+    slots = counts["mainSlotReadback"]
+    requested = slots["requested"]
+    scope = f"本次授权 {requested} 个主图位" if requested is not None else "本次授权主图位总数待核对"
+    parts = [scope, f"已逐位核实换新 {slots['verified']} 个"]
+    if slots["retained"]:
+        parts.append(f"审核拒绝后已核实保留原图 {slots['retained']} 个")
+    if slots["unresolved"]:
+        parts.append(f"仍待核实 {slots['unresolved']} 个")
+    if slots["productsPendingEvidence"]:
+        parts.append(f"{slots['productsPendingEvidence']} 个商品缺少逐位终验回执")
+    return "，".join(parts) + "。"
+
+
+def rectangle_delivery(counts):
+    rect = counts["rectangleReadback"]
+    facts = []
+    for key, description in [("unchangedProducts", f"个商品的 {rect['unchangedSlots']} 个长图位已核实未变"),
+                             ("absentProducts", "个商品已核实无长图"),
+                             ("changedProducts", "个商品的长图发生变化，需核对改动来源"),
+                             ("unverifiedProducts", "个商品的长图状态待核对")]:
+        if rect[key]:
+            facts.append(f"{rect[key]} {description}")
+    return "，".join(facts) + "。" if facts else "本次没有目标主图。"
+
+
+def readback_problems(entry):
+    messages = {
+        "rectangle images present": "旧版把已有 3:4 长图计为失败，需按原范围只读复核",
+        "rectangle images changed": "范围外 3:4 长图发生变化，需核对改动来源",
+    }
+    return "，".join(messages.get(problem, problem) for problem in entry.get("problems") or [])
 
 
 def rejected_rows(plan, generation):
@@ -97,7 +211,7 @@ def rejected_rows(plan, generation):
     return rows
 
 
-def build_xlsx(run, job, identity, plan, verification, patches, generation, label):
+def build_xlsx(run, job, identity, plan, verification, patches, generation, label, counts=None):
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "优化结果"
@@ -110,6 +224,9 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
     for product in plan["products"]:
         pid = str(product["productId"])
         entry = verification.get(pid) or {}
+        needs_main = main_target(plan, product)
+        slots, known = slot_counts(product, entry)
+        rect = entry.get("rectangleReadback") or {}
         patch = patches.get(pid) or {}
         planned_keys = [item["key"] for item in product.get("positions") or []]
         planned_keys += [item["key"] for item in product.get("detailImages") or []]
@@ -117,7 +234,7 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
             1 for key in planned_keys
             if (generation.get(key) or {}).get("status") == "rejected"
         )
-        kept_original = max(0, entry.get("oldKept", 0) or 0)
+        kept_original = entry.get("oldKept") if known and needs_main else None
         # Comparison images are optional: only link files that actually exist.
         main_compare = (
             "comparisons/%s-compare.png" % pid
@@ -136,7 +253,7 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
                 product["title"],
                 product["groupCount"],
                 entry.get("images", ""),
-                entry.get("newImages", ""),
+                slots["verified"] if known and needs_main else None,
                 entry.get("detailImages", 0),
                 entry.get("detailNewImages", 0),
                 patch.get("cappedPositions", capped_count(plan, pid)),
@@ -144,10 +261,16 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
                 kept_original,
                 price_result(entry),
                 entry.get("status", ""),
-                "待核对" if not entry else ("通过" if entry.get("ok") else "未通过"),
-                "; ".join(entry.get("problems") or []),
+                product_verdict(entry, needs_main, known),
+                readback_problems(entry),
                 main_compare if product.get("positions") else "",
                 detail_compare,
+                slots["requested"] if needs_main else None,
+                slots["retained"] if known and needs_main else None,
+                slots["unresolved"] if needs_main else None,
+                rectangle_result(entry) if needs_main else None,
+                rect.get("beforeSlots") if needs_main else None,
+                rect.get("afterSlots") if needs_main else None,
             ]
         )
         row = sheet.max_row
@@ -158,7 +281,7 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
                 cell.font = UNDERLINE
 
     sheet.freeze_panes = "A2"
-    widths = [16, 50, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 26, 32, 34]
+    widths = [16, 50, 9, 9, 12, 9, 9, 9, 9, 9, 9, 9, 8, 26, 32, 34, 15, 20, 16, 22, 16, 16]
     for index, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(index)].width = width
     for row in sheet.iter_rows(min_row=2):
@@ -183,6 +306,13 @@ def build_xlsx(run, job, identity, plan, verification, patches, generation, labe
             "本次主图操作的位置上限为 %d。" % int(job.get("maxPosition") or common.DEFAULT_MAX_POSITION),
         ),
     ]
+    counts = counts or progress(plan, generation, {}, patches, verification)
+    if "main" in (plan.get("scopes") or ["main"]):
+        rows.extend([("本次主图交付", main_delivery(counts)),
+                     ("范围外3:4长图", rectangle_delivery(counts)),
+                     ("商品独立终验", f"{counts['finalVerifiedProducts']}/{counts['targetProducts']} 个商品通过")])
+        if counts["mainSlotReadback"]["productsPendingEvidence"]:
+            rows.append(("补回执", "使用原任务目录只读运行 verify.py，逐图位对照原计划和上传记录。"))
     if "detail" in (plan.get("scopes") or []):
         rows.append(("详情页写回", "desc 与 mobileDesc 只替换计划内图片 URL，其余 HTML 逐字节保留"))
     rows.append((
@@ -222,12 +352,9 @@ def add_rejected_sheet(workbook, plan, generation):
     return len(rows)
 
 
-def build_markdown(run, job, identity, plan, verification, generation, uploads, patches, label):
-    counts = progress(plan, generation, uploads, patches, verification)
-    total_main = sum(entry.get("images", 0) for entry in verification.values())
-    new_main = sum(entry.get("newImages", 0) for entry in verification.values())
-    total_detail = sum(entry.get("detailImages", 0) for entry in verification.values())
-    new_detail = sum(entry.get("detailNewImages", 0) for entry in verification.values())
+def build_markdown(run, job, identity, plan, verification, generation, uploads, patches, label, counts=None):
+    counts = counts or progress(plan, generation, uploads, patches, verification)
+    entries = [verification.get(str(p["productId"])) or {} for p in plan["products"]]
     lines = [
         "# %s 图片批量优化（%s）" % (identity["shopName"], label),
         "",
@@ -236,8 +363,17 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
         "- jdo Profile：%s" % job["profile"],
         "- 优化范围：%s" % scope_text(plan),
         "- 目标商品：%d 条" % counts["targetProducts"],
-        "- 主图：槽位 %d 个，换新 %d 个" % (total_main, new_main),
-        "- 详情页：图片 %d 张，换新 %d 张" % (total_detail, new_detail),
+    ]
+    if "main" in (plan.get("scopes") or ["main"]):
+        lines.extend(["- " + main_delivery(counts), "- 范围外 3:4 长图：" + rectangle_delivery(counts)])
+        if counts["mainSlotReadback"]["productsPendingEvidence"]:
+            lines.append("- 使用原任务目录只读运行 verify.py，按原计划和上传记录补齐图位回执。")
+    if "detail" in (plan.get("scopes") or []):
+        lines.append("- 详情页：已回读图片 %d 张，换新 %d 张。" % (
+            sum(entry.get("detailImages", 0) for entry in entries),
+            sum(entry.get("detailNewImages", 0) for entry in entries),
+        ))
+    lines += [
         "- 图片计划 %d 张，新增生成 %d 张，复用已批准样张 %d 张。" %
         (counts["plannedAssets"], counts["newImagesSucceeded"], counts["approvedSamplesReused"]),
         "- 上传：%d，主图 PATCH：%d/%d 商品成功" % (
@@ -246,7 +382,7 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
         "- 独立终验：%d/%d 通过" % (
             counts["finalVerifiedProducts"], counts["targetProducts"],
         ),
-        "- 终验通过商品的实际主图换新位置共 %d 个。买家端尚未核验。" % counts["finalVerifiedMainSlots"],
+        "- 买家端尚未核验。",
         "- 审核拒绝：%d 张（对应图片保留原图，明细见 Excel「审核拒绝明细」）" % sum(
             1 for value in generation.values() if value.get("status") == "rejected"
         ),
@@ -258,21 +394,23 @@ def build_markdown(run, job, identity, plan, verification, generation, uploads, 
         "## 明细",
         "",
     ]
-    for pid, entry in verification.items():
-        lines.append(
-            "- %s %s：主图 %d/%d，详情 %d/%d，SKU价格%s，状态 %s，%s"
-            % (
-                pid,
-                entry["title"][:22],
-                entry.get("newImages", 0),
-                entry.get("images", 0),
-                entry.get("detailNewImages", 0),
-                entry.get("detailImages", 0),
-                price_result(entry),
-                entry.get("status", ""),
-                "通过" if entry.get("ok") else "未通过：" + "; ".join(entry.get("problems") or []),
-            )
-        )
+    for product, entry in zip(plan["products"], entries):
+        needs_main = main_target(plan, product)
+        slots, known = slot_counts(product, entry)
+        facts = []
+        if needs_main:
+            if known:
+                facts.append(f"目标主图位已核实换新 {slots['verified']}/{slots['requested']}")
+            else:
+                facts.append("目标主图位待核对")
+            facts.append("范围外 3:4 长图" + rectangle_result(entry))
+        if product.get("detailImages"):
+            facts.append("详情换新 %s/%s" % (entry.get("detailNewImages", "待核"), entry.get("detailImages", "待核")))
+        facts.extend(["SKU 价格" + price_result(entry), "状态 " + str(entry.get("status", "待核")),
+                      product_verdict(entry, needs_main, known)])
+        if entry.get("problems"):
+            facts.append(readback_problems(entry))
+        lines.append("- %s %s：%s" % (product["productId"], product["title"][:22], "，".join(facts)))
     lines += [
         "",
         "## 交付物",
@@ -310,14 +448,15 @@ def main(argv):
         raise SystemExit("missing final-verification.json; use --progress to read current receipts")
     label = str(job.get("label") or datetime.now().strftime("%Y%m%d"))
 
-    xlsx = build_xlsx(run, job, identity, plan, verification, patches, generation, label)
+    counts = progress(plan, generation, uploads, patches, verification)
+    xlsx = build_xlsx(run, job, identity, plan, verification, patches, generation, label, counts)
     workbook = openpyxl.load_workbook(xlsx)
     rejected_count = add_rejected_sheet(workbook, plan, generation)
     workbook.save(xlsx)
     if rejected_count:
         print("审核拒绝明细：%d 张（该图片保留原图）" % rejected_count)
     markdown, lines = build_markdown(
-        run, job, identity, plan, verification, generation, uploads, patches, label
+        run, job, identity, plan, verification, generation, uploads, patches, label, counts
     )
     print("saved", xlsx)
     print("saved", markdown)

@@ -20,60 +20,165 @@ from refresh_runtime import gallery_readback, snapshot, refresh_selection
 import detail_patch_update as detail_patch
 
 
+def _rectangle_slots(detail):
+    """Use the observed group, order and original asset URL; absent/malformed data is unknown."""
+    if not isinstance(detail, dict) or not isinstance(detail.get("material"), dict):
+        return None
+    groups = detail["material"].get("rectangleImages")
+    if not isinstance(groups, list):
+        return None
+    slots = {}
+    seen_groups = set()
+    for group in groups:
+        if not isinstance(group, dict) or not isinstance(group.get("imageInfoList"), list):
+            return None
+        group_id = group.get("uuid")
+        if not isinstance(group_id, (str, int)) or isinstance(group_id, bool) or not str(group_id).strip():
+            return None
+        gid = str(group_id)
+        if gid in seen_groups:
+            return None
+        seen_groups.add(gid)
+        for image in group["imageInfoList"]:
+            if not isinstance(image, dict):
+                return None
+            ordinal = str(image.get("orderSort", ""))
+            url = image.get("imgUrl")
+            if not ordinal.isascii() or not ordinal.isdigit() or not isinstance(url, str) or not url.strip():
+                return None
+            pos = int(ordinal)
+            if pos < 1 or (gid, pos) in slots:
+                return None
+            slots[gid, pos] = common.clean_url(url.strip())
+    return slots
+
+
+def rectangle_readback(before, after):
+    old, live = _rectangle_slots(before), _rectangle_slots(after)
+    result = {
+        "status": "unverified",
+        "beforeSlots": len(old) if old is not None else None,
+        "afterSlots": len(live) if live is not None else None,
+    }
+    if old is not None and live is not None:
+        changes = sorted(slot for slot in old.keys() | live.keys() if old.get(slot) != live.get(slot))
+        result.update(status="changed" if changes else "unchanged", changedSlots=len(changes),
+                      examples=[{"group": gid, "position": pos} for gid, pos in changes[:5]])
+    return result
+
+
+def _main_targets(groups, product, plan, max_position=None):
+    """Expand the plan's deduplicated assets onto its authorized physical slots."""
+    pid = int(product["productId"])
+    capped = {(str(row["group"]), int(row["position"])) for row in plan.get("capped") or []
+              if int(row["productId"]) == pid}
+    limit = min(9, int(max_position or plan.get("maxPosition") or common.DEFAULT_MAX_POSITION))
+    position_filter = set(plan.get("positionFilter") or [])
+
+    def allowed(gid, pos):
+        return 1 <= pos <= limit and (not position_filter or pos in position_filter) and (gid, pos) not in capped
+
+    by_url = {}
+    planned_positions = {}
+    for row in product["positions"]:
+        gid, pos = str(row["group"]), int(row["position"])
+        url, key = common.clean_url(row["url"]), row["key"]
+        if not url or not key or (gid, pos) in planned_positions:
+            raise ValueError(f"主图计划地址重复或缺少原图及素材标识：{gid}/{pos}")
+        by_url.setdefault(url, set()).add(key)
+        planned_positions[gid, pos] = (url, key)
+
+    targets = {}
+    if "selectedSlots" in product:
+        for row in product["selectedSlots"]:
+            gid, pos = str(row["group"]), int(row["position"])
+            url, key = common.clean_url(row["url"]), row["key"]
+            urls = groups.get(gid, [])
+            if ((gid, pos) in targets or not allowed(gid, pos) or pos > len(urls)
+                    or urls[pos - 1] != url or key not in by_url.get(url, set())):
+                raise ValueError(f"冻结图位与批准的原图不符：{gid}/{pos}")
+            targets[gid, pos] = (url, key)
+    else:
+        for gid, urls in groups.items():
+            for pos, url in enumerate(urls, 1):
+                if not allowed(gid, pos) or url not in by_url:
+                    continue
+                if (gid, pos) in planned_positions:
+                    targets[gid, pos] = planned_positions[gid, pos]
+                elif len(by_url[url]) == 1:
+                    # Legacy plans recorded the first physical position of each source URL.
+                    targets[gid, pos] = (url, next(iter(by_url[url])))
+                else:
+                    raise ValueError(f"同一原图对应多个素材任务，无法确定图位：{gid}/{pos}")
+                if targets[gid, pos][0] != url:
+                    raise ValueError(f"冻结图位与原图不符：{gid}/{pos}")
+        if not planned_positions.items() <= targets.items():
+            raise ValueError("主图计划的素材任务在授权图位内找不到对应原图")
+    if not set(planned_positions.values()) <= set(targets.values()):
+        raise ValueError("主图计划的素材任务在授权图位内找不到对应原图")
+    return targets
+
+
+def _read_main_slots(targets, groups, live_groups, retained_keys, uploads, generation, problems):
+    slots = []
+    expected = {gid: list(urls) for gid, urls in groups.items()}
+    for (gid, pos), (original, key) in targets.items():
+        live = live_groups.get(gid, [])
+        actual = live[pos - 1] if pos <= len(live) else None
+        state = "unverified"
+        wanted = None
+        if key in retained_keys:
+            if (generation.get(key) or {}).get("status") == "rejected":
+                wanted = original
+                if actual == original:
+                    state = "retained"
+            else:
+                problems.append("待核对的图片缺少成功上传回执：" + key)
+        else:
+            receipt = uploads.get(key) or {}
+            url = receipt.get("imgUrl")
+            if receipt.get("status") != "succeeded" or not isinstance(url, str) or not url.strip():
+                problems.append("missing accepted upload: " + key)
+            else:
+                wanted = common.clean_url(url.strip())
+                expected[gid][pos - 1] = wanted
+                if wanted == original:
+                    problems.append(f"目标图位 {gid}/{pos} 的回读只证明了原图")
+                elif actual == wanted:
+                    state = "verified"
+        slots.append({"group": gid, "position": pos, "key": key, "status": state,
+                      "beforeUrl": original, "expectedUrl": wanted, "observedUrl": actual})
+    verified = sum(x["status"] == "verified" for x in slots)
+    retained = sum(x["status"] == "retained" for x in slots)
+    return expected, {"requested": len(slots), "verified": verified, "retained": retained,
+                      "unresolved": len(slots) - verified - retained, "slots": slots}
+
+
 def evaluate_product(
-    before, after, plan_product, plan, patches, uploads, before_status, list_status, generation=None
+    before, after, plan_product, plan, patches, uploads, before_status, list_status, generation=None, max_position=None
 ):
-    """Per-product main-image decision function."""
+    """Verify authorized physical slots and separately check the out-of-scope rectangle gallery."""
     problems = []
     pid = int(plan_product["productId"])
     before_groups = common.main_groups(before)
     after_groups = common.main_groups(after)
     after_urls = [url for urls in after_groups.values() for url in urls]
     retained_keys = set((patches.get(str(pid)) or {}).get("missingKeys") or [])
-    mapping = {}
-    for item in plan_product["positions"]:
-        if item["key"] in retained_keys:
-            if ((generation or {}).get(item["key"]) or {}).get("status") != "rejected":
-                problems.append("待核对的图片缺少成功上传回执：" + item["key"])
-            continue
-        receipt = uploads.get(item["key"]) or {}
-        if receipt.get("status") != "succeeded" or not receipt.get("imgUrl"):
-            problems.append("missing accepted upload: " + item["key"])
-            continue
-        mapping[item["url"]] = common.clean_url(receipt["imgUrl"])
-    capped = {(str(item["group"]), int(item["position"])) for item in plan.get("capped") or []
-              if int(item["productId"]) == pid}
-    position_filter = set(plan.get("positionFilter") or [])
-    selected = None
-    if "selectedSlots" in plan_product:
-        selected = {}
-        for slot in plan_product["selectedSlots"]:
-            gid, pos = str(slot["group"]), int(slot["position"])
-            urls = before_groups.get(gid, [])
-            if ((gid, pos) in selected or not 1 <= pos <= min(9, len(urls))
-                    or urls[pos - 1] != common.clean_url(slot["url"])):
-                problems.append(f"冻结图位与批准的原图不符：{gid}/{pos}")
-            selected[gid, pos] = common.clean_url(slot["url"])
-    new_count = 0
-    expected_groups = {}
-    for gid, urls in before_groups.items():
-        actual = after_groups.get(gid) or []
-        expected_groups[gid] = []
-        for index, old in enumerate(urls, 1):
-            allowed = index <= 9 and (not position_filter or index in position_filter) and (gid, index) not in capped
-            if selected is not None:
-                allowed = allowed and selected.get((gid, index)) == old
-            expected = mapping.get(old, old) if allowed else old
-            expected_groups[gid].append(expected)
-            if index <= len(actual) and actual[index - 1] == expected and expected != old:
-                new_count += 1
+    targets = _main_targets(before_groups, plan_product, plan, max_position)
+    expected_groups, slot_evidence = _read_main_slots(
+        targets, before_groups, after_groups, retained_keys, uploads, generation or {}, problems
+    )
+    new_count = slot_evidence["verified"]
     before_state, after_state = snapshot(before, pid), snapshot(after, pid)
     before_state["groups"], after_state["groups"] = expected_groups, after_groups
     evidence = gallery_readback(before_state, after_state)
     problems.extend(evidence["problems"])
 
-    if (after.get("material") or {}).get("rectangleImages") != (before.get("material") or {}).get("rectangleImages"):
-        problems.append("rectangle images changed")
+    rectangles = rectangle_readback(before, after)
+    if rectangles["status"] == "changed":
+        problems.append("范围外 3:4 长图的图组、图位或原图发生变化")
+    elif rectangles["status"] == "unverified" and (rectangles["beforeSlots"] or rectangles["afterSlots"]):
+        problems.append("范围外 3:4 长图回读不完整，变化待核对")
 
     after_status = common.status_int((after.get("productInfo") or {}).get("productStatus"))
     raw_status = list_status if list_status is not None else after_status
@@ -88,7 +193,10 @@ def evaluate_product(
         "groupCount": len(after_groups),
         "images": len(after_urls),
         "newImages": new_count,
-        "oldKept": len(after_urls) - new_count,
+        "mainSlotReadback": slot_evidence,
+        "rectangleReadback": rectangles,
+        "oldKept": sum(old == actual for gid, urls in before_groups.items()
+                       for old, actual in zip(urls, after_groups.get(gid, []))),
         "retainedKeys": sorted(retained_keys),
         "pricesUnchanged": not ({"skuId", "price"} & evidence["fieldDifferences"].keys()),
         "consumerPageStatus": "unchecked",
@@ -102,6 +210,23 @@ def evaluate_product(
         "applyStatusBefore": int(before_status or 0),
         "title": plan_product["title"],
     }
+
+
+def _unavailable_main_readback(before, after, product, plan, max_position):
+    result = {"rectangleReadback": rectangle_readback(before, after)}
+    if before and product.get("positions"):
+        try:
+            snapshot(before, int(product["productId"]))
+            groups = common.main_groups(before)
+            targets = _main_targets(groups, product, plan, max_position)
+        except (AttributeError, ValueError, TypeError, KeyError):
+            return result
+        slots = [{"group": gid, "position": pos, "key": key, "status": "unverified",
+                  "beforeUrl": url, "expectedUrl": None, "observedUrl": None}
+                 for (gid, pos), (url, key) in targets.items()]
+        result["mainSlotReadback"] = {"requested": len(slots), "verified": 0, "retained": 0,
+                                      "unresolved": len(slots), "slots": slots}
+    return result
 
 
 def detail_url_map(detail_images, uploads):
@@ -175,11 +300,14 @@ def main(argv):
     for product in selected:
         pid = int(product["productId"])
         before = common.load_json(run / "products" / str(pid) / "before-apply.json")
+        after = after_details.get(pid)
         if not before or pid in read_errors:
-            report[str(pid)] = {"title": product["title"], "ok": False, "consumerPageStatus": "unchecked",
-                                "problems": [read_errors.get(pid) or "missing before-apply.json"]}
+            entry = {"title": product["title"], "ok": False, "consumerPageStatus": "unchecked",
+                     "problems": [read_errors.get(pid) or "missing before-apply.json"]}
+            if product.get("positions"):
+                entry.update(_unavailable_main_readback(before, after, product, plan, job.get("maxPosition")))
+            report[str(pid)] = entry
             continue
-        after = after_details[pid]
         before_status = common.status_int((before.get("productInfo") or {}).get("productStatus"))
         entry = {"title": product["title"]}
         problems = []
@@ -187,10 +315,12 @@ def main(argv):
         if product.get("positions"):
             try:
                 main_entry = evaluate_product(
-                    before, after, product, plan, patches, uploads, before_status, statuses.get(pid), generation
+                    before, after, product, plan, patches, uploads, before_status, statuses.get(pid), generation,
+                    job.get("maxPosition")
                 )
-            except (ValueError, KeyError, TypeError) as exc:
-                main_entry = {"ok": False, "consumerPageStatus": "unchecked", "problems": [str(exc)[:300]]}
+            except (AttributeError, ValueError, KeyError, TypeError) as exc:
+                main_entry = _unavailable_main_readback(before, after, product, plan, job.get("maxPosition"))
+                main_entry.update(ok=False, consumerPageStatus="unchecked", problems=[str(exc)[:300]])
             entry.update(main_entry)
             problems.extend(main_entry["problems"])
         else:
