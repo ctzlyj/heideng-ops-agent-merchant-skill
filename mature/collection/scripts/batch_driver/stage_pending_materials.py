@@ -5,11 +5,14 @@ if '--help' in _help_sys.argv:
     raise SystemExit(0)
 import concurrent.futures,hashlib,json,shutil,sys
 from datetime import datetime,timezone
+from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from collector_guard import atomic_json,ordered_variants
-from stage_cached_assets import ROOT,STAGE,CACHE,image_url,safe_name,save_jpeg,get_public
+from stage_cached_assets import ROOT,STAGE,CACHE,image_url,safe_name,save_jpeg,save_main_jpeg,get_public
 from package_contract import ordered_detail_urls
 from media_guard import inspect_mp4
+from image_variants import reuse_variant
+from checkpoint_status import active_variants
 from staging_cache import media_fingerprint,ready_cache_matches
 
 def read(p):return json.loads(p.read_text(encoding='utf-8-sig'))
@@ -28,7 +31,7 @@ def stage_one(kw,item):
             if d.get('login') is True and d.get('responseSku')==pid and saved.get('source') in ['live_signed_page','live_native_page','live_signed_page_arrival_pending','live_native_page_arrival_pending']:
                 main=d;break
     if not main:return {'sku':pid,'state':'MAIN_PENDING'}
-    rows=ordered_variants(pid,main.get('colorSize') or [])
+    rows=active_variants(STAGE,ordered_variants(pid,main.get('colorSize') or []))
     folder=STAGE/'pending_materials'/pid
     data_list=[main]
     for row in rows:
@@ -40,8 +43,17 @@ def stage_one(kw,item):
         saved=read(manifest)
         if ready_cache_matches(folder,saved,fingerprint):return saved
     for name in ['main','detail','sku','main_video']:(folder/name).mkdir(parents=True,exist_ok=True)
-    jobs=[];issues=[]
-    for i,car in enumerate([c for c in main.get('carousel',[]) if c.get('u')],1):jobs.append((image_url(car['u']),folder/'main'/(str(i)+'.jpg')))
+    jobs=[];issues=[];source_notes=[];images=[]
+    # Main images retry the same-host n12 variant when the published size variant is
+    # corrupt; the substitution is recorded in sourceNotes on the manifest.
+    for i,car in enumerate([c for c in main.get('carousel',[]) if c.get('u')],1):
+        dst=folder/'main'/(str(i)+'.jpg')
+        try:
+            note=save_main_jpeg(image_url(car['u']),dst)
+            if note:source_notes.append(note)
+            images.append({'file':str(dst.relative_to(folder)),'sha256':hashlib.sha256(dst.read_bytes()).hexdigest()})
+        except Exception as e:issues.append({'step':'image','file':str(dst.relative_to(folder)),'error':type(e).__name__,'status':getattr(getattr(e,'response',None),'status_code',None)})
+    main_planned=len([c for c in main.get('carousel',[]) if c.get('u')])
     try:
         cache=STAGE/'details_ordered'/(str(main['realSpuId'])+'.json')
         if cache.exists():urls=read(cache)
@@ -56,9 +68,10 @@ def stage_one(kw,item):
         if not image:
             p=STAGE/'data'/(row['sku']+'.json');data=read(p)['data'] if p.exists() else main
             image=next((c['u'] for c in data.get('carousel',[]) if c.get('u')),'')
-        if image:jobs.append((image_url(image),folder/'sku'/(str(i).zfill(3)+'.jpg')))
+        if image:
+            destination=folder/'sku'/(str(i).zfill(3)+'.jpg')
+            jobs.append((reuse_variant(image_url(image), destination, folder, source_notes), destination))
         else:issues.append({'step':'sku-image','sku':row['sku'],'error':'IMAGE_MISSING'})
-    images=[]
     for url,dst in jobs:
         try:
             save_jpeg(url,dst);images.append({'file':str(dst.relative_to(folder)),'sha256':hashlib.sha256(dst.read_bytes()).hexdigest()})
@@ -78,7 +91,7 @@ def stage_one(kw,item):
             if not dst.exists():shutil.copy2(cache,dst)
             videos.append({'file':str(dst.relative_to(folder)),'sha256':hashlib.sha256(dst.read_bytes()).hexdigest(),**inspect_mp4(dst.read_bytes())})
         except Exception as e:issues.append({'step':'video','index':i,'error':type(e).__name__,'status':getattr(getattr(e,'response',None),'status_code',None)})
-    result={'sku':pid,'keyword':kw,'title':main['title'],'state':'MATERIALS_READY_PRICE_PENDING' if not issues else 'MATERIALS_INCOMPLETE','variants':rows,'expectedImages':len(jobs),'savedImages':len(images),'images':images,'expectedVideos':len(video_urls),'videos':videos,'issues':issues,'priceComplete':False,'completePackage':False,'businessRequests':0,'checkedAt':stamp()}
+    result={'sku':pid,'keyword':kw,'title':main['title'],'state':'MATERIALS_READY_PRICE_PENDING' if not issues else 'MATERIALS_INCOMPLETE','variants':rows,'expectedImages':len(jobs)+main_planned,'savedImages':len(images),'images':images,'expectedVideos':len(video_urls),'videos':videos,'issues':issues,'sourceNotes':source_notes,'priceComplete':False,'completePackage':False,'businessRequests':0,'checkedAt':stamp()}
     result['mediaFingerprint']=fingerprint
     atomic_json(folder/'manifest.json',result);return result
 

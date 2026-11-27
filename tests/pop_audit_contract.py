@@ -172,7 +172,7 @@ def exercise_delivery(state, command, env):
     original = state/'.state'/('title-import-'+chunk['sourceSha256'][:16]+'.json')
     original.parent.mkdir(exist_ok=True)
     original.write_text(json.dumps({'status':'unknown','sha256':chunk['sourceSha256']}),encoding='utf-8')
-    assert action(prepare(oversized), (2,))['receiptPath']==str(original)
+    assert Path(action(prepare(oversized), (2,))['receiptPath']).samefile(original)
     plan = state/'plan'
     action(['plan-auto-maintain','--target-spu-id','1001','--include-full-score','--profile','synthetic',
             '--expected-shop-name','synthetic','--output-dir',plan])

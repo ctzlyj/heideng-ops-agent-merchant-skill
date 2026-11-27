@@ -65,7 +65,7 @@
     },
     "materials": {
       "repository": "ctzlyj/jd-material-pop-skill",
-      "commit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "commit": "5d02a6dd054c4b62bd916fc6df3015670fb656bb",
       "files": {
         "mature/materials/scripts/pop_audit_scope.py": {
           "source": "jd-material-pop/scripts/pop_audit_scope.py",
@@ -73,7 +73,7 @@
         },
         "tests/pop_audit_contract.py": {
           "source": "jd-material-pop/tests/pop_audit_contract.py",
-          "sha256": "4b8958548ad26941d38763441488959dfb426f1f9063a60ff581822ae5559a42"
+          "sha256": "292670dc06708cbfec80adea782928465c6332fd24a0d091a44b199387f510ff"
         },
         "mature/materials/scripts/pop_delivery_readback.py": {
           "source": "jd-material-pop/scripts/pop_delivery_readback.py",
@@ -203,7 +203,7 @@
     },
     "collection": {
       "repository": "ctzlyj/jd-hot-link-collector",
-      "commit": "1f5a75cf460e59b2bea9b69747d7c488b8495cfb",
+      "commit": "2b6cf1242048860412985f0967661dd2651d70c7",
       "entrypoints": [
         "mature/collection/scripts/shop_table.py"
       ],
@@ -226,13 +226,33 @@
         },
         "tests/pop_collection_contract.py": {
           "source": "tests/pop_collection_contract.py",
-          "sha256": "9039877abb8cdc38041ee4d329bdde994a15076d7b736785180f4c5885345249"
+          "sha256": "b001ca73376abd7a0e15f62b3178321cc711a38876509b20b36cfe8fd9b3cf74"
+        },
+        "mature/collection/scripts/image_variants.py": {
+          "source": "scripts/image_variants.py",
+          "sha256": "35e52c4f00df2d7b1271ff83c1bea8d356ce8653fdbb0fef1a0b8d5c441482d7"
+        },
+        "mature/collection/scripts/jpeg_cache.py": {
+          "source": "scripts/jpeg_cache.py",
+          "sha256": "cd948d595bc835618bdf31761c06ba12867ffe153801dd3ab1572356fb01b27f"
+        },
+        "mature/collection/scripts/package_live.py": {
+          "source": "scripts/package_live.py",
+          "sha256": "aef992ca0ca8000c2b0c378c15cb99908fd871de9340c0ba49781a2f344972fa"
+        },
+        "mature/collection/scripts/verify_batch.py": {
+          "source": "scripts/verify_batch.py",
+          "sha256": "a475bbf85c2a2a18ddab96b1ba2435a55088ab1871c2c99f42026f2ad6b477f6"
+        },
+        "mature/collection/scripts/batch_driver/stage_pending_materials.py": {
+          "source": "scripts/batch_driver/stage_pending_materials.py",
+          "sha256": "1df824fd0c381a6d99d523ffcb0e5723673f72d55bced83642460ed407778213"
         }
       }
     },
     "pricing": {
       "repository": "ctzlyj/jd-competitor-price-adjustment-skill",
-      "commit": "dbe4aee5f3046afda764bdd0d9404010804e8657",
+      "commit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
       "files": {
         "mature/comparison/scripts/jd_price_adjustment.py": {
           "source": "scripts/jd_price_adjustment.py",
@@ -240,7 +260,7 @@
         },
         "mature/comparison/scripts/jd_detail_evidence.py": {
           "source": "scripts/jd_detail_evidence.py",
-          "sha256": "4f9bffc0aa6c44764087c78984f3c6992e522a022b6ca01a56f30b5b77d8579e"
+          "sha256": "3dfc5baae79fd618fc8a3d317fafcf1f80c8bfa89f5d36c452827b5d03de03fc"
         },
         "mature/comparison/scripts/jingmai_api.py": {
           "source": "scripts/jingmai_api.py",
@@ -305,6 +325,55 @@
         "tests/pop_copy_batch_contract.py": {
           "source": "tests/pop_copy_batch_contract.py",
           "sha256": "c23ce4f334b75183c742ccbc9c213b255ae2e44afb51aba6ed6f5446c482f394"
+        }
+      }
+    },
+    "psd": {
+      "repository": "ctzlyj/generate-psd-label-template",
+      "commit": "83771dd47a1271bdd64a7efc0c7e52a14650dd7d",
+      "entrypoints": [
+        "mature/psd/scripts/psd_template.cjs"
+      ],
+      "files": {
+        "mature/psd/LICENSE": {
+          "source": "LICENSE",
+          "sha256": "6294fd19fc48bcfca69aba5cf90537221a6fa01fe1a365d25941396b7446604c"
+        },
+        "mature/psd/package.json": {
+          "source": "package.json",
+          "sha256": "db6b5a181b4c21a172c9ab774c83826d18e874753e0600ef4d60a13a0075f8a6"
+        },
+        "mature/psd/package-lock.json": {
+          "source": "package-lock.json",
+          "sha256": "567abbb710143fb6befb757f550171dbcb4609689d2231ab814f2a2a709e9ed6"
+        },
+        "mature/psd/scripts/psd_template.cjs": {
+          "source": "scripts/psd_template.cjs",
+          "sha256": "68782b8053a94bb083d56a41944a33fb320d5eb5e38b1bfcdf402e612bc13b7d"
+        },
+        "mature/psd/scripts/build_jd_template.mjs": {
+          "source": "scripts/build_jd_template.mjs",
+          "sha256": "8e837ceeb7a32df9c9cf0db08da85eec68504a48cefab45b819d1b27a71d2437"
+        },
+        "mature/psd/scripts/global_text_engine.mjs": {
+          "source": "scripts/global_text_engine.mjs",
+          "sha256": "34ebaaee47fc6d03bf1aec0977728cc76520088dfbd69dbb11ec970213984aa6"
+        },
+        "mature/psd/scripts/patch_ag_psd_compat.mjs": {
+          "source": "scripts/patch_ag_psd_compat.mjs",
+          "sha256": "3d22f191e085e1261dc7b3758f3f45c3a27d73dce19dc3b62b4ed38dfc36d62b"
+        },
+        "mature/psd/scripts/verify_jd_template.mjs": {
+          "source": "scripts/verify_jd_template.mjs",
+          "sha256": "077d71707970fc71769016e2ca0c4ee1873557443cca6c9ed34cbf3a369a661f"
+        },
+        "mature/psd/references/local-pop-template.md": {
+          "source": "references/local-pop-template.md",
+          "sha256": "3c718afd5d32b4df9da02dba81ed79604d15d69842bb0da62a69db61a3f70c2e"
+        },
+        "tests/pop_psd_contract.py": {
+          "source": "tests/pop_psd_contract.py",
+          "sha256": "e6617be4e9298ad425b80c04cbf71b19e466f9a55896cb121daf01daa9355ebb"
         }
       }
     }

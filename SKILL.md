@@ -42,7 +42,7 @@ metadata:
 
 macOS 连接失败时先沿原 Profile 只读核店。保留主动登录、复用授权、回调未知三种不同结果。系统执行权限、浏览器启动和官方 CLI 的 TLS 失败分别报告；公开 HTTPS 可用 `doctor-cli` 单独检查。遇到 iCloud 占位提示，给出具体文件与访达操作，沿原任务恢复。详见[连接与身份](references/experience-connection.md)。
 
-先读 [经验导航](references/experience-navigation.md)，然后只加载相关模块。跨模块任务可同时取用多个模块，不需要另装8份子产品。
+先读 [经验导航](references/experience-navigation.md)，然后只加载相关模块。跨模块任务可同时取用多个模块，按本次经营目标选择工具。
 
 | 商家问题 | 按需经验 |
 |---|---|
@@ -51,6 +51,7 @@ macOS 连接失败时先沿原 Profile 只读核店。保留主动登录、复�
 | 自家两店搬商品、核对差异、原链接修编码 | [自家店铺复制](references/owned-shop-copy.md) |
 | 上新、实拍、重制素材、矩阵 | [商品上新](references/experience-listing.md) |
 | 主图、详情图、SKU图、整店刷新 | [图文优化](references/experience-images.md) |
+| 本地制作可复用的分层 PSD 打标模板 | [图文优化](references/experience-images.md) |
 | 素材、逐SKU到手价和断点采集 | [采集](references/experience-collection.md) |
 | 同规格比价、确认后的改价 | [比价与定价](references/experience-comparison.md) |
 | 经营与广告诊断 | [商家诊断](references/experience-diagnosis.md) |

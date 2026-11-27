@@ -123,10 +123,10 @@
       "upstreamPath": "scripts/image_similarity.py"
     },
     "scripts/jd_detail_evidence.py": {
-      "upstreamCommit": "dbe4aee5f3046afda764bdd0d9404010804e8657",
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
       "upstreamPath": "scripts/jd_detail_evidence.py",
-      "upstreamSha256": "4f9bffc0aa6c44764087c78984f3c6992e522a022b6ca01a56f30b5b77d8579e",
-      "sha256": "4f9bffc0aa6c44764087c78984f3c6992e522a022b6ca01a56f30b5b77d8579e",
+      "upstreamSha256": "3dfc5baae79fd618fc8a3d317fafcf1f80c8bfa89f5d36c452827b5d03de03fc",
+      "sha256": "3dfc5baae79fd618fc8a3d317fafcf1f80c8bfa89f5d36c452827b5d03de03fc",
       "adapted": false
     },
     "scripts/jd_image_search_capture.py": {
@@ -136,14 +136,14 @@
       "upstreamPath": "scripts/jd_image_search_capture.py"
     },
     "scripts/jd_price_adjustment.py": {
-      "upstreamCommit": "dbe4aee5f3046afda764bdd0d9404010804e8657",
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
       "upstreamPath": "scripts/jd_price_adjustment.py",
       "upstreamSha256": "76463861105d10ec7f5160656f20b7e77cbf29b5efeb66779c74765401b96b31",
       "sha256": "76463861105d10ec7f5160656f20b7e77cbf29b5efeb66779c74765401b96b31",
       "adapted": false
     },
     "scripts/jingmai_api.py": {
-      "upstreamCommit": "dbe4aee5f3046afda764bdd0d9404010804e8657",
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
       "upstreamPath": "scripts/jingmai_api.py",
       "upstreamSha256": "0ebf48d2ea0a1e64f5628aab07fa5e48b0a1d25c74ac8281f95d38c0f42d161d",
       "sha256": "0ebf48d2ea0a1e64f5628aab07fa5e48b0a1d25c74ac8281f95d38c0f42d161d",
@@ -157,14 +157,14 @@
       "reason": "New merchant path/executable boundary or inferred requirements; no upstream file exists."
     },
     "scripts/same_product_market.py": {
-      "upstreamCommit": "dbe4aee5f3046afda764bdd0d9404010804e8657",
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
       "upstreamPath": "scripts/same_product_market.py",
       "upstreamSha256": "8727b35315c49c18fa6ae1e5825ada6adb7b85c74b5dd07c7783aa69745b12ec",
       "sha256": "8727b35315c49c18fa6ae1e5825ada6adb7b85c74b5dd07c7783aa69745b12ec",
       "adapted": false
     },
     "scripts/store_pricing.py": {
-      "upstreamCommit": "dbe4aee5f3046afda764bdd0d9404010804e8657",
+      "upstreamCommit": "cacd50cc31eee1327a6ee02f80f820c4e5cb4836",
       "upstreamPath": "scripts/store_pricing.py",
       "upstreamSha256": "39e1fba04807309c2291cf6e9b47acc63ffb45b5ad768b7a5acd69bd970e129b",
       "sha256": "39e1fba04807309c2291cf6e9b47acc63ffb45b5ad768b7a5acd69bd970e129b",

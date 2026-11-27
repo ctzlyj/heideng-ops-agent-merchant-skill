@@ -17,6 +17,7 @@ from PIL import Image
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from collector_guard import atomic_json, ordered_variants
 from jpeg_cache import save_cached_jpeg
+from image_variants import save_with_clean_fallback
 
 import os
 ROOT = Path(os.environ['HEIDENG_COLLECTION_ROOT']).resolve()
@@ -44,6 +45,12 @@ def get_public(url):
 
 def save_jpeg(url, destination):
     return save_cached_jpeg(url, destination, CACHE, STAGE, get_public)
+
+def save_main_jpeg(url, destination):
+    """Main images may publish a corrupt size variant; retry the same-host n12
+    standard size once and report the substitution for the package receipt."""
+    return save_with_clean_fallback(save_jpeg, url, destination)
+
 
 def detail_urls(spu):
     cache = STAGE / 'details' / f'{spu}.json'

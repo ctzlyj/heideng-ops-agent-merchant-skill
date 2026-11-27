@@ -19,6 +19,7 @@ from package_live import ROOT,STAGE,live_data,verify_table,active_variants
 from package_contract import table_matrix,error_state
 from media_guard import inspect_mp4
 from checkpoint_status import pending_checkpoint_status
+from image_variants import readback_entries
 from asset_paths import safe_name,image_url
 from media_evidence import verify_media_evidence,expected_media_entries
 
@@ -43,6 +44,7 @@ def run():
     # be absent from both the expected media set and the delivered folder.
     dead_detail=set(metadata.get('deadDetailUrls') or [])
     entries=[e for e in entries if e['url'] not in dead_detail]
+    entries=readback_entries(entries,metadata.get("sourceNotes", []))
     verified_media=verify_media_evidence(folder,STAGE,entries)
     expected=table_matrix(main,rows,prices);verify_table(folder/'商品信息.xlsx',metadata)
     wb=load_workbook(folder/'商品信息.xlsx',read_only=True,data_only=False);actual=list(wb.active.values)[1:];wb.close()

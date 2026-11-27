@@ -61,3 +61,7 @@ LTS4AI / gpt-image-2.6 与 gpt-image-2.5 是已选生图配置，沿用原 sufy 
 本地图像/规格、真实上传结果、SKU分组/槽位、审核和线上回读分别标注；重复请求不能用来消除未知状态。整店报告只覆盖实际任务集合，不用样本图片冒充全店。
 
 来源 mover 1.2.6 / 3ee08af 与 jingmai-batch-image-refresh-skill 1.4.5 / 8a2f3df。原 [SKU绑定](../mature/listing/references/sku-image-group-binding.md)、[详情](../mature/listing/references/detail-pages.md)、[刷新配置](../mature/refresh/scripts/new_job.py)、[刷新步骤](../mature/refresh/scripts/run_all.py)。refresh 本来没有完整经验Markdown，本页只整理原脚本与已有图文经验，不宣称新增业务。
+
+## 本地分层 PSD 打标模板
+
+需要可编辑的批量打标模板时，用 `run psd-template -- status` 查看本机依赖；若需准备，执行同入口的 `prepare`。根据任务提供的 800×800 PNG 和字段映射，使用 `build --source <PNG> --spec <JSON> --output-dir <目录>` 生成，再用 `verify --manifest <template.json>` 核验。商家已有权使用官方文字引擎时可传 `--official-engine <本机文件>`。

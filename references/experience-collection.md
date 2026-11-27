@@ -23,3 +23,5 @@
 ## 来源与限制
 
 jd-hot-link-collector 1.0.4 / 90ef8df；[价格SKU契约](../mature/collection/references/price-and-sku-contract.md)、[素材包](../mature/collection/references/package-contract.md)、[限速恢复](../mature/collection/references/rate-limit-and-recovery.md)、[浏览器配置](../mature/collection/references/browser-session-setup.md)。仅整理原已有路径；不能把消费者采集授权扩展成店铺发布许可。本轮没有真实采集/长批次/宿主登录实测。
+
+给定店铺表时，使用 `run --entry scripts/shop_table.py collection -- --input <工作簿> --root <目录>`。批次按每个 SKU 记录价格来源。主图下载或 JPEG 校验失败时，包装器可尝试同一京东图片主机上的标准尺寸，按实记下原图、备用地址和是否成功。交付回读应保留素材替换与价格来源记录。

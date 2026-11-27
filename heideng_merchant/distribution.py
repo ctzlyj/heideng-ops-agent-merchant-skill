@@ -14,7 +14,7 @@ def admissible_file(name):
  if name in {'SKILL.md','VERSION','README.md','NOTICE.md','registry.json','install.py','package-files.json','requirements-updates.txt','updates/trust.json','maintenance/shared-pop.json',MANIFEST}:return True
  if re.fullmatch(r'(?:heideng_merchant|scripts)/[a-zA-Z0-9_-]+\.py|references/[a-zA-Z0-9_-]+\.md',name):return True
  parts=name.split('/')
- if len(parts)<3 or parts[0]!='mature' or parts[1] not in {'connection','materials','listing','collection','comparison','diagnosis','refresh','video'}:return False
+ if len(parts)<3 or parts[0]!='mature' or parts[1] not in {'connection','materials','listing','collection','comparison','diagnosis','refresh','video','psd'}:return False
  # Path safety remains safe_join's responsibility; binary templates need their original Unicode names.
  return Path(name).name=='LICENSE' or Path(name).suffix.lower() in {'.py','.md','.json','.mjs','.js','.txt','.xlsx','.csv','.ps1','.sh','.svg','.html','.cjs'}
 

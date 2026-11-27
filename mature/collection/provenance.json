@@ -46,7 +46,7 @@
       "adapted": false
     },
     "scripts/checkpoint_status.py": {
-      "upstreamCommit": "1f5a75cf460e59b2bea9b69747d7c488b8495cfb",
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
       "upstreamPath": "scripts/checkpoint_status.py",
       "upstreamSha256": "2fe441ac96ed4e4aa5334e59321c3fbf23650d6be3bf907b221f449bd070b63c",
       "sha256": "2fe441ac96ed4e4aa5334e59321c3fbf23650d6be3bf907b221f449bd070b63c",
@@ -63,8 +63,10 @@
       "adapted": false
     },
     "scripts/jpeg_cache.py": {
-      "upstreamSha256": "9b4712885223cb8baa7a3a30b3f835ea7d5aaf6215825fe4defec535aa2ab9af",
-      "sha256": "9b4712885223cb8baa7a3a30b3f835ea7d5aaf6215825fe4defec535aa2ab9af",
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
+      "upstreamPath": "scripts/jpeg_cache.py",
+      "upstreamSha256": "cd948d595bc835618bdf31761c06ba12867ffe153801dd3ab1572356fb01b27f",
+      "sha256": "cd948d595bc835618bdf31761c06ba12867ffe153801dd3ab1572356fb01b27f",
       "adapted": false
     },
     "scripts/resume_policy.py": {
@@ -74,18 +76,22 @@
     },
     "scripts/asset_paths.py": {
       "upstreamSha256": "bb8db5a32836fe9b373a334bd0a3da608fd5be239d97926d7903265b9e90fa9e",
-      "sha256": "d5b1c8dd5f9baf20ffa6d805a39b99ac3404f4370ed9ab31b9d9602dd966d74a",
+      "sha256": "fae4c5c260d5dcb501f6dec608af4859d81fd62801fece0b5e208f2c836ab359",
       "adapted": true
     },
     "scripts/package_live.py": {
-      "upstreamSha256": "4e6f248d024811b981f5577c8465dc23b6b398f9a5f90a9e2696a38d71fafa26",
-      "sha256": "6b836c5a2ab4cd0fb542f279bf5ca2bf6351ec2d8f8e7d918c5483c4ad20e091",
-      "adapted": true
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
+      "upstreamPath": "scripts/package_live.py",
+      "upstreamSha256": "aef992ca0ca8000c2b0c378c15cb99908fd871de9340c0ba49781a2f344972fa",
+      "sha256": "aef992ca0ca8000c2b0c378c15cb99908fd871de9340c0ba49781a2f344972fa",
+      "adapted": false
     },
     "scripts/verify_batch.py": {
-      "upstreamSha256": "0908164d8c4e8c78a22a6da55b1fcb00c3271df6e2f9dee6829a7b7d997cd4ff",
-      "sha256": "6984512be43be5f5feea47ba23b25f7025c45fdaf9bffb06d37f0aa5f1ef491d",
-      "adapted": true
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
+      "upstreamPath": "scripts/verify_batch.py",
+      "upstreamSha256": "a475bbf85c2a2a18ddab96b1ba2435a55088ab1871c2c99f42026f2ad6b477f6",
+      "sha256": "a475bbf85c2a2a18ddab96b1ba2435a55088ab1871c2c99f42026f2ad6b477f6",
+      "adapted": false
     },
     "scripts/prepare_batch.py": {
       "upstreamSha256": "e055ebe7c33c0c3baa9e34ffa60954d9c3b93eb23264c1e423cd8a5a958fa256",
@@ -93,7 +99,7 @@
       "adapted": true
     },
     "scripts/deliver_batch.py": {
-      "upstreamCommit": "1f5a75cf460e59b2bea9b69747d7c488b8495cfb",
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
       "upstreamPath": "scripts/deliver_batch.py",
       "upstreamSha256": "bc0856b319e311658a30ff6d2fe90a94b9717b9490fdaf37170edf4aca64e312",
       "sha256": "bc0856b319e311658a30ff6d2fe90a94b9717b9490fdaf37170edf4aca64e312",
@@ -176,7 +182,7 @@
       "adapted": false
     },
     "scripts/batch_driver/original_price_fallback.py": {
-      "upstreamCommit": "1f5a75cf460e59b2bea9b69747d7c488b8495cfb",
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
       "upstreamPath": "scripts/batch_driver/original_price_fallback.py",
       "upstreamSha256": "e662a014d19eff7e42344b04b5240c388522a7935a43c66c733a9d27d1a00ffe",
       "sha256": "e662a014d19eff7e42344b04b5240c388522a7935a43c66c733a9d27d1a00ffe",
@@ -234,13 +240,15 @@
     },
     "scripts/batch_driver/stage_cached_assets.py": {
       "upstreamSha256": "54f3d9abb5c48d8446adc95088ae050155023849003895066651e10e9b496bfb",
-      "sha256": "533948a069866c2fa6bf4618e5b8eb7b58c914a2d0657ddd3adcdf6792a3656a",
+      "sha256": "17eb37bf5dfdd3e66051814fb0a281e66fab68f2e2704c75f85326bdabfdfd85",
       "adapted": true
     },
     "scripts/batch_driver/stage_pending_materials.py": {
-      "upstreamSha256": "2ec8ee6e6398e4ca09d246cd525eb3478005e39f633da459bb1a08a4c16ec17a",
-      "sha256": "02cf209e1c154a79b5e6d9cb183329a88527c4ac82b50938eba205769439c9d5",
-      "adapted": true
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
+      "upstreamPath": "scripts/batch_driver/stage_pending_materials.py",
+      "upstreamSha256": "1df824fd0c381a6d99d523ffcb0e5723673f72d55bced83642460ed407778213",
+      "sha256": "1df824fd0c381a6d99d523ffcb0e5723673f72d55bced83642460ed407778213",
+      "adapted": false
     },
     "scripts/batch_driver/staging_cache.py": {
       "upstreamSha256": "872879a2269ec372f61dcbfac2931e75210cec68a9b9806beaa9d540c7697c51",
@@ -335,10 +343,17 @@
       "reason": "mature business instructions; merchant installation/browser/state boundary notes substituted"
     },
     "scripts/shop_table.py": {
-      "upstreamCommit": "1f5a75cf460e59b2bea9b69747d7c488b8495cfb",
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
       "upstreamPath": "scripts/shop_table.py",
       "upstreamSha256": "1a60f31ae617526238e8c908c99d96863753728b2e1e7c65cd3ab9fdd4e7d031",
       "sha256": "1a60f31ae617526238e8c908c99d96863753728b2e1e7c65cd3ab9fdd4e7d031",
+      "adapted": false
+    },
+    "scripts/image_variants.py": {
+      "upstreamCommit": "2b6cf1242048860412985f0967661dd2651d70c7",
+      "upstreamPath": "scripts/image_variants.py",
+      "upstreamSha256": "35e52c4f00df2d7b1271ff83c1bea8d356ce8653fdbb0fef1a0b8d5c441482d7",
+      "sha256": "35e52c4f00df2d7b1271ff83c1bea8d356ce8653fdbb0fef1a0b8d5c441482d7",
       "adapted": false
     }
   },

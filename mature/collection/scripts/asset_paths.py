@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import requests
 from PIL import Image
 from collector_guard import atomic_json, ordered_variants
+from image_variants import save_with_clean_fallback
 from jpeg_cache import save_cached_jpeg
 
 def resolve_root():
@@ -63,3 +64,13 @@ def final_state(initial, detail_count, missing_count, price_complete):
 
 def save_jpeg(url, destination):
     return save_cached_jpeg(url, destination, CACHE, STAGE, get_public)
+
+
+def save_main_jpeg(url, destination):
+    """Main images may publish a corrupt size variant; retry the same-host n12
+    standard size once and report the substitution for the package receipt."""
+    return save_with_clean_fallback(save_jpeg, url, destination)
+
+
+def prior_receipts_path():
+    return os.environ.get("HEIDENG_COLLECTION_PRIOR_RECEIPTS")

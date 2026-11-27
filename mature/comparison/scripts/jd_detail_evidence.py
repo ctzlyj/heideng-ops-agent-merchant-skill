@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from jd_price_adjustment import CatalogValidationError, exact_dimensions
+from jd_price_adjustment import CatalogValidationError, canonical_spec, exact_dimensions
 
 
 class DetailEvidenceError(ValueError):
@@ -440,11 +440,13 @@ def build_exact_spec_verification(
 ) -> dict[str, Any]:
     if not isinstance(catalog, dict) or catalog.get("status") != "READY":
         raise DetailEvidenceError("Only a READY complete catalog can be verified.")
-    normalized_source = normalize_dimensions(source_spec)
+    normalized_source = canonical_spec(source_spec)
+    qualified = normalized_source.startswith("variant:")
     exact = [
         row
         for row in catalog.get("sku_records", [])
-        if row.get("normalized_spec") == normalized_source
+        if (canonical_spec(row["raw_spec"]) if qualified and row.get("raw_spec")
+            else row.get("normalized_spec")) == normalized_source
     ]
     if not exact:
         return {

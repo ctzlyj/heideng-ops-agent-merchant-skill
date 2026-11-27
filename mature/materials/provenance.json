@@ -53,7 +53,7 @@
       "adapted": true
     },
     "scripts/pop_title_batches.py": {
-      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamCommit": "5d02a6dd054c4b62bd916fc6df3015670fb656bb",
       "upstreamPath": "jd-material-pop/scripts/pop_title_batches.py",
       "upstreamSha256": "16345ca45a3085069d886409b92cc317b6917a62fce1f4f5e2bc01d85b19c3e4",
       "sha256": "16345ca45a3085069d886409b92cc317b6917a62fce1f4f5e2bc01d85b19c3e4",
@@ -121,7 +121,7 @@
       "derivedFrom": "requirements.txt; optional original pinned CPU neural cutout dependency"
     },
     "scripts/pop_audit_scope.py": {
-      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamCommit": "5d02a6dd054c4b62bd916fc6df3015670fb656bb",
       "upstreamPath": "jd-material-pop/scripts/pop_audit_scope.py",
       "upstreamSha256": "0d6ed84fd7ec6281aeaa69c5ced104d80b7f7afa517280a2ad912364f2117b57",
       "sha256": "0d6ed84fd7ec6281aeaa69c5ced104d80b7f7afa517280a2ad912364f2117b57",
@@ -133,28 +133,28 @@
       "adapted": true
     },
     "scripts/pop_delivery_readback.py": {
-      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamCommit": "5d02a6dd054c4b62bd916fc6df3015670fb656bb",
       "upstreamPath": "jd-material-pop/scripts/pop_delivery_readback.py",
       "upstreamSha256": "c10786367e5b0445105e8564874a4488be1936197a89332d4c696492ff424758",
       "sha256": "c10786367e5b0445105e8564874a4488be1936197a89332d4c696492ff424758",
       "adapted": false
     },
     "scripts/pop_scope.py": {
-      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamCommit": "5d02a6dd054c4b62bd916fc6df3015670fb656bb",
       "upstreamPath": "jd-material-pop/scripts/pop_scope.py",
       "upstreamSha256": "d5c473918e05c9ed7814bbd13b13856c1b4bbe8f31de7277eebf453f2c3afdb6",
       "sha256": "d5c473918e05c9ed7814bbd13b13856c1b4bbe8f31de7277eebf453f2c3afdb6",
       "adapted": false
     },
     "scripts/pop_title_dispatch.py": {
-      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamCommit": "5d02a6dd054c4b62bd916fc6df3015670fb656bb",
       "upstreamPath": "jd-material-pop/scripts/pop_title_dispatch.py",
       "upstreamSha256": "8212c63565af548eafbeaac09a2795aedc71ca470397d27bad78b1a02024c6a8",
       "sha256": "8212c63565af548eafbeaac09a2795aedc71ca470397d27bad78b1a02024c6a8",
       "adapted": false
     },
     "scripts/pop_title_workflow.py": {
-      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamCommit": "5d02a6dd054c4b62bd916fc6df3015670fb656bb",
       "upstreamPath": "jd-material-pop/scripts/pop_title_workflow.py",
       "upstreamSha256": "efb724f9e340ca2b411acb11bccdc5e60dad02675cbe63d4aaad990358f87572",
       "sha256": "efb724f9e340ca2b411acb11bccdc5e60dad02675cbe63d4aaad990358f87572",

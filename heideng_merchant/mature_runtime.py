@@ -17,6 +17,7 @@ ROUTES = {
     'video-handoff': ('video', 'scripts/local_handoff.py'),
     'matrix-listing': ('listing', 'scripts/matrix_listing.py'),
     'images': ('listing', 'scripts/image_patch_update.py'),
+    'psd-template': ('psd', 'scripts/psd_template.cjs'),
     'image-refresh': ('refresh', 'scripts/new_job.py'),
     'collection': ('collection', 'scripts/prepare_batch.py'),
     'comparison': ('comparison', 'scripts/same_product_market.py'),
@@ -31,7 +32,7 @@ class MatureSourceUnavailable(SafetyError):
         super().__init__('mature-source-unavailable')
 
 
-def node_for_merchant(environment):
+def node_for_merchant(environment, minimum=24):
     """A host can prepend an older bundled Node while a supported installation is on PATH."""
     seen = set()
     for directory in environment.get('PATH', '').split(os.pathsep):
@@ -47,8 +48,10 @@ def node_for_merchant(environment):
         except (OSError, subprocess.TimeoutExpired):
             continue
         match = re.fullmatch(r'v(\d+)\.\d+\.\d+\s*', probe.stdout)
-        if probe.returncode == 0 and match and int(match.group(1)) >= 24:
+        if probe.returncode == 0 and match and int(match.group(1)) >= minimum:
             return candidate
+    if minimum == 18:
+        raise SafetyError('node-18-or-newer-required-for-psd-template')
     raise SafetyError('node-24-or-newer-required-for-mature-diagnosis')
 
 def allowed_host(host):
@@ -323,7 +326,7 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
     environment["HEIDENG_MERCHANT_PACKAGE"] = str(root)
     from .official import OfficialClient
     official = OfficialClient(state)
-    if official.ready():
+    if capability != 'psd-template' and official.ready():
         environment['JDO_CLI_PATH'] = str(official.executable())
     work = state/'work'/ROUTES[capability][0]
     work.mkdir(parents=True, exist_ok=True)
@@ -345,8 +348,8 @@ def _run_with_lease(capability, arguments, *, state, entry=None, package_root=No
             command = [str(runtime_python(state)), '-I', '-B', str(root/'scripts/mature_entry.py'), str(path), *arguments]
         elif path.suffix == '.cjs' or (capability=='diagnosis' and path.suffix=='.js') or (capability=='collection' and path.suffix=='.mjs'):
             if capability=='collection':source_path('diagnosis',package_root=root)
-            node = node_for_merchant(environment)
-            if path.suffix=='.cjs' and official.ready() and arguments[:1] not in (['--help'],['help']) and '--dry-run' not in arguments:
+            node = node_for_merchant(environment, minimum=18) if capability == 'psd-template' else node_for_merchant(environment)
+            if capability=='diagnosis' and path.suffix=='.cjs' and official.ready() and arguments[:1] not in (['--help'],['help']) and '--dry-run' not in arguments:
                 checked_command([str(official.executable())])
             command=[node,str(path),*arguments]
         else:
