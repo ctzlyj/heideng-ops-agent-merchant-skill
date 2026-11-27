@@ -169,7 +169,7 @@
     },
     "video": {
       "repository": "ctzlyj/jd-main-video-batch-skill",
-      "commit": "42fea87f73db88d6ab98c46f0db1b7f992fcdcc1",
+      "commit": "c1e8c2c9684b255038fafc0d5ee89944ac409630",
       "files": {
         "mature/video/scripts/local_handoff.py": {
           "source": "scripts/local_handoff.py",
@@ -182,16 +182,14 @@
         "tests/pop_video_contract.py": {
           "source": "tests/pop_video_contract.py",
           "sha256": "0cca5cf0036d3eba69159c7fa180b4fca28190c493b5f8ed68e8cb798d684682"
-        }
-      }
-    },
-    "video-composition": {
-      "repository": "ctzlyj/heideng-ops-agent-merchant-skill",
-      "commit": "be7c13f08b2f06102af411c081fce7aa3edfd62e",
-      "files": {
+        },
         "mature/video/scripts/local_composition.py": {
-          "source": "mature/video/scripts/local_composition.py",
+          "source": "scripts/local_composition.py",
           "sha256": "79a66c462808cae98d44d57a631fafe8854aac767a5ee1475c55181476e6f142"
+        },
+        "mature/video/local-composition.json": {
+          "source": "maintenance/local-composition.json",
+          "sha256": "34333cb2fb0183a1dd736b74a152d09f323d4662c9a3c6c29d83117554186350"
         }
       }
     },
