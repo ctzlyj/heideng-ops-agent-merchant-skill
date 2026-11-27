@@ -15,8 +15,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from merchant_runtime import RuntimeConfigurationError, merchant_path, official_executable
-
+from pricing_runtime import official_executable, state_directory
 from jd_price_adjustment import (
     _select_candidate, canonical_spec, create_price_plan, normalize_size, parse_rate,
     round_money, validate_competitor_catalog,
@@ -80,7 +79,7 @@ def read_identity(profile: str, cli_path: str | None = None) -> dict[str, Any]:
         raise PolicyError("EXPLICIT_PROFILE_REQUIRED")
     try:
         executable = official_executable(cli_path)
-    except RuntimeConfigurationError as error:
+    except ValueError as error:
         raise PolicyError(str(error)) from error
     command = [executable, "invoke", "--skill-id", "jdo-seller-info", "--url", "/rest/sp-seller/v0/venderinfo",
                "--method", "GET", "--params", '{"scopeSet":"baseInfo"}', "--profile", profile,
@@ -147,8 +146,8 @@ def write_json(path: Path, value: Any) -> None:
 class PolicyStore:
     def __init__(self, root: Path | None = None):
         try:
-            self.root = merchant_path(root, "stores")
-        except RuntimeConfigurationError as error:
+            self.root = state_directory(root, "stores")
+        except ValueError as error:
             raise PolicyError(str(error)) from error
         package = Path(__file__).resolve().parents[1]
         if self.root == package or package in self.root.parents:
@@ -277,7 +276,7 @@ def evaluate(policy: dict[str, Any], source: dict[str, Any], now: datetime | Non
     validate_config(policy["config"])
     direct_table = source.get("repricing_mode") == "direct_target_table"
     required = {"shop_id", "mode", "captured_at", "preflight", "price_context", "own_skus"}
-    optional = {"activity", "strategy_override", "overrides", "repricing_mode"}
+    optional = {"activity", "strategy_override", "overrides", "repricing_mode", "batch_policy"}
     if direct_table:
         required.add("target_prices")
     else:

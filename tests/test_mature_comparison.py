@@ -303,7 +303,9 @@ class MatureBoundaryTests(unittest.TestCase):
         for name in ("same_product_market", "competitor_discovery", "image_similarity", "hot_spu_comparison"):
             self.assertFalse(manifest["files"]["scripts/"+name+".py"]["adapted"])
         for name in ("jd_price_adjustment", "jd_detail_evidence"):
-            self.assertTrue(manifest["files"]["scripts/"+name+".py"]["adapted"])
+            record = manifest["files"]["scripts/"+name+".py"]
+            self.assertFalse(record["adapted"])
+            self.assertEqual(record["upstreamCommit"], json.loads((ROOT/"maintenance/shared-pop.json").read_bytes())["groups"]["pricing"]["commit"])
 
     def test_policy_defaults_are_merchant_scoped_not_personal(self):
         m = module("store_pricing")

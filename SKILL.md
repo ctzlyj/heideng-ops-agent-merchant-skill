@@ -1,8 +1,8 @@
 ---
 name: heideng-ops-agent-merchant
-description: 京东 POP 商家在本地 Agent 宿主中用自然语言交办运营任务；提供电商经验导航、独立安装更新与成熟工具。适用于连接店铺、内容信息分、上新复刻实拍、图文优化、采集比价、经营广告诊断及已有视频交接，也支持按任务组合其他商家已授权官方能力。
+description: 京东 POP 商家在本地 Agent 宿主中用自然语言交办运营任务；提供电商经验导航、独立安装更新与成熟工具。适用于连接店铺、内容信息分、上新复刻实拍、图文优化、采集比价、经营广告诊断、本地图片拼片及已有视频交接，也支持按任务组合其他商家已授权官方能力。
 metadata:
-  version: 0.4.29
+  version: 0.4.30
 ---
 
 # 黑灯运营智能体商家版
@@ -54,7 +54,7 @@ macOS 连接失败时先沿原 Profile 只读核店。保留主动登录、复�
 | 素材、逐SKU到手价和断点采集 | [采集](references/experience-collection.md) |
 | 同规格比价、确认后的改价 | [比价与定价](references/experience-comparison.md) |
 | 经营与广告诊断 | [商家诊断](references/experience-diagnosis.md) |
-| 已有视频交接、上传、绑定 | [视频交接](references/experience-video.md) |
+| 本地图片拼片、视频交接、上传、绑定 | [视频交接](references/experience-video.md) |
 
 这些问题是导航示例，不是命令词。目录外能力先看官方/宿主实际可用工具与授权，不能因为包装器没有 choices 就拒绝。
 

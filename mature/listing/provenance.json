@@ -47,7 +47,7 @@
     },
     "scripts/photo_listing.py": {
       "upstreamSha256": "8d2a6e38c612e88d3000bd70b7d5fba2bf4ee9e55c17aa03ebe91fd3f43b39e2",
-      "sha256": "3463d311d5ae9eae47ef6e9274e07f5c6b7d043f311dbf394a6820247192519b",
+      "sha256": "51b2f69b0cbd929a4bf4f764bc964ab8d9e45ffd7ced3fa4dd54f9c41abe572e",
       "adapted": true
     },
     "scripts/photo_contract.py": {
@@ -229,6 +229,13 @@
       "upstreamPath": "references/top-sku-aggregation.md",
       "upstreamSha256": "83259fd5931f61c82f600ee722c0e867466b58b88babbcd267ac39320f95358d",
       "sha256": "83259fd5931f61c82f600ee722c0e867466b58b88babbcd267ac39320f95358d",
+      "adapted": false
+    },
+    "scripts/photo_samples.py": {
+      "upstreamCommit": "d31ed174b068d28904e9279d35bcf7012087389d",
+      "upstreamPath": "scripts/photo_samples.py",
+      "upstreamSha256": "701770f31019413e586c0888cec34775e4a9cec506af0f51f1f410866d3e8ae1",
+      "sha256": "701770f31019413e586c0888cec34775e4a9cec506af0f51f1f410866d3e8ae1",
       "adapted": false
     }
   },

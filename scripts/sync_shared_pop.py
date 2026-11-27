@@ -33,12 +33,15 @@ def mature_record(path, metadata, group, record):
     if prov_path not in metadata:
         metadata[prov_path] = json.loads(prov_path.read_bytes())
     prov = metadata[prov_path]
-    if prov['repository'] != group['repository']:
+    cross_repository = prov['repository'] != group['repository']
+    if cross_repository and group['repository'] != 'ctzlyj/heideng-ops-agent-merchant-skill':
         raise ValueError(f'{name}: component repository mismatch')
     prov['files'][rel] = {
         'upstreamCommit': group['commit'], 'upstreamPath': record['source'],
         'upstreamSha256': record['sha256'], 'sha256': record['sha256'], 'adapted': False,
     }
+    if cross_repository:
+        prov['files'][rel]['upstreamRepository'] = group['repository']
     if name in group.get('entrypoints', []) and rel not in prov['entrypoints']:
         prov['entrypoints'].append(rel)
 

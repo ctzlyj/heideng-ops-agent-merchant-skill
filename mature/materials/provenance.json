@@ -9,7 +9,7 @@
   "files": {
     "scripts/jd_material_agent.py": {
       "upstreamSha256": "80cb83c2865958934423eac3479b709c263f718171df45f3b4a7c242378ce4de",
-      "sha256": "13aca092c909f180e0b24b96a65536c9f1b711011a3fb74676f787d119f2ff30",
+      "sha256": "3846838ddb8273adbe83fac161a53e7a685f3579def3d2caeae958e03a6bf425",
       "adapted": true
     },
     "scripts/jdo_bridge_probe.py": {
@@ -29,7 +29,7 @@
     },
     "scripts/pop_browser.py": {
       "upstreamSha256": "62dea491ea45732c77cde919a296ddb98cbb3e3735135543079d9f3e30b4e719",
-      "sha256": "c119873ce2eb53a11d30192e9ab16a6d0b1f41cae2809dfe06790973b4583c89",
+      "sha256": "888754c6ce8768de3e9c07c1ae840354540d7d89f675cb87a852e0bd204e109a",
       "adapted": true
     },
     "scripts/pop_cutout.py": {
@@ -39,7 +39,7 @@
     },
     "scripts/pop_repair.py": {
       "upstreamSha256": "6788aa2756e818c62e8d785f782c66106a60414aab661bdea6babb3a7e63fda5",
-      "sha256": "61f14ed8cf5f526069518c45ac84b812f3f8d1e928c740b9bbc5348297d0ab01",
+      "sha256": "387b125ade255ecba06324ed39f238ce20aa2ef15c2f411c23ca361208fe474b",
       "adapted": true
     },
     "scripts/pop_safety.py": {
@@ -53,14 +53,15 @@
       "adapted": true
     },
     "scripts/pop_title_batches.py": {
-      "upstreamSha256": null,
-      "sha256": "b8607c8a681fc21d74e0262761f3ce28181b30f5503a27f94ec98b7684db729f",
-      "adapted": true,
-      "derivedFrom": "merchant short-title import batching using the original POP workbook template"
+      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamPath": "jd-material-pop/scripts/pop_title_batches.py",
+      "upstreamSha256": "16345ca45a3085069d886409b92cc317b6917a62fce1f4f5e2bc01d85b19c3e4",
+      "sha256": "16345ca45a3085069d886409b92cc317b6917a62fce1f4f5e2bc01d85b19c3e4",
+      "adapted": false
     },
     "scripts/pop_workflow.py": {
       "upstreamSha256": "42d028b27a38c8e92da77ef67c3cb4992e7bb6cfd2e1e252e0ee90f094fe0099",
-      "sha256": "c0fb2413acbe6b0c018a742584a96148e2bd1433fecf0b6bf75cf8cbd04e78a9",
+      "sha256": "c4b502910714c565cac0bf55ce0fde4dad99ebf1fe1b41d7595863f2efb5a47e",
       "adapted": true
     },
     "assets/商品导入短标题模板.xlsx": {
@@ -120,10 +121,43 @@
       "derivedFrom": "requirements.txt; optional original pinned CPU neural cutout dependency"
     },
     "scripts/pop_audit_scope.py": {
-      "upstreamCommit": "12b610de93f0c67ed248fb6b2b9d2baea3308d48",
+      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
       "upstreamPath": "jd-material-pop/scripts/pop_audit_scope.py",
       "upstreamSha256": "0d6ed84fd7ec6281aeaa69c5ced104d80b7f7afa517280a2ad912364f2117b57",
       "sha256": "0d6ed84fd7ec6281aeaa69c5ced104d80b7f7afa517280a2ad912364f2117b57",
+      "adapted": false
+    },
+    "scripts/pop_title_io.py": {
+      "upstreamSha256": null,
+      "sha256": "120f81f1683340cdd806fa74219e4d96a1049c2f1869d35ba851a1554d00cd91",
+      "adapted": true
+    },
+    "scripts/pop_delivery_readback.py": {
+      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamPath": "jd-material-pop/scripts/pop_delivery_readback.py",
+      "upstreamSha256": "c10786367e5b0445105e8564874a4488be1936197a89332d4c696492ff424758",
+      "sha256": "c10786367e5b0445105e8564874a4488be1936197a89332d4c696492ff424758",
+      "adapted": false
+    },
+    "scripts/pop_scope.py": {
+      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamPath": "jd-material-pop/scripts/pop_scope.py",
+      "upstreamSha256": "d5c473918e05c9ed7814bbd13b13856c1b4bbe8f31de7277eebf453f2c3afdb6",
+      "sha256": "d5c473918e05c9ed7814bbd13b13856c1b4bbe8f31de7277eebf453f2c3afdb6",
+      "adapted": false
+    },
+    "scripts/pop_title_dispatch.py": {
+      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamPath": "jd-material-pop/scripts/pop_title_dispatch.py",
+      "upstreamSha256": "8212c63565af548eafbeaac09a2795aedc71ca470397d27bad78b1a02024c6a8",
+      "sha256": "8212c63565af548eafbeaac09a2795aedc71ca470397d27bad78b1a02024c6a8",
+      "adapted": false
+    },
+    "scripts/pop_title_workflow.py": {
+      "upstreamCommit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
+      "upstreamPath": "jd-material-pop/scripts/pop_title_workflow.py",
+      "upstreamSha256": "efb724f9e340ca2b411acb11bccdc5e60dad02675cbe63d4aaad990358f87572",
+      "sha256": "efb724f9e340ca2b411acb11bccdc5e60dad02675cbe63d4aaad990358f87572",
       "adapted": false
     }
   },

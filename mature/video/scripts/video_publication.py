@@ -92,8 +92,27 @@ def verify_record(root,v):
         if not v.get(hkey) or sha256(p)!=v[hkey]:errors.append(f'{key} SHA256不一致或缺失')
     return {'ok':not errors,'errors':errors,'runId':v.get('runId')}
 
-def verify_handoff(root):
-    return verify_record(root,(read(Path(root) / 'manifest.json',{}) or {}).get('video') or {})
+def _review_hashes_match(review, video_sha, cover_sha):
+    return all(review.get(name, expected) == expected for name, expected in
+               [('videoSHA256', video_sha), ('coverSHA256', cover_sha)])
+
+
+def verify_handoff(package):
+    package = Path(package)
+    manifest = package if package.is_file() else package / 'manifest.json'
+    v = (read(manifest, {}) or {}).get('video') or {}
+    result = verify_record(manifest.parent, v)
+    qc = v.get('qc') if isinstance(v.get('qc'), dict) else {}
+    auto = qc.get('automatic') if isinstance(qc.get('automatic'), dict) else {}
+    visual = qc.get('manual') if isinstance(qc.get('manual'), dict) else {}
+    technical = ('passed' if auto.get('pass') is True else 'unavailable' if auto.get('status') == 'unavailable'
+                 else 'failed' if auto.get('pass') is False else 'unknown')
+    review = 'passed' if visual.get('pass') is True else 'failed' if visual.get('pass') is False else 'unknown'
+    if not _review_hashes_match(visual, v.get('sha256'), v.get('coverSha256')):
+        review = 'file-mismatch'
+    return {**result, 'filesVerified':result['ok'], 'technicalReview':technical, 'visualReview':review,
+            'producerMarkedBindable':v.get('bindable'), 'voiceReviewRequired':v.get('voiceReviewRequired'),
+            'platformWrites':0}
 
 def completed_run(root,run_id,video,cover):
     m=read(Path(root) / 'manifest.json',{});active=m.get('video') or {}
@@ -122,6 +141,8 @@ def publish(root,run_id,video,cover,metadata,probe_video=probe):
         if done:return done
     if not video.is_file() or not cover.is_file():raise PublicationError('候选文件缺失')
     video_hash,cover_hash=sha256(video),sha256(cover);info=media_info(video,probe_video)
+    if not _review_hashes_match(qc.get('manual') or {}, video_hash, cover_hash):
+        raise PublicationError('目视复核回执与当前候选视频或封面 SHA256 不匹配')
     try:
         with Image.open(cover) as im:cover_size=im.size;im.verify()
     except Exception as e:raise PublicationError('候选封面无效') from e

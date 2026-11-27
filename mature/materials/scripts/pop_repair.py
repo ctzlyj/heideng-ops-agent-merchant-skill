@@ -123,48 +123,7 @@ def submit_repair_request(client,request,path,agent):
     if status=='unknown':raise agent.JdoWriteUncertainError('Unknown repair result; do not replay')
     return saved
 
-def read_repair_status(client, directory, agent):
-    """Read the original bound values by SKU without reconstructing or submitting a write."""
-    from heideng_merchant.safety import read_json
-    identity = agent._shop_identity(client.seller_info())
-    scope = read_json(directory / 'repair-scope.json', {})
-    if identity != scope.get('shopIdentity'):
-        raise ValueError('原任务与当前官方店铺身份不一致')
-    receipt_paths = sorted((directory / 'shared-bindings').glob('*.json'))
-    receipt_paths += sorted(directory.glob('*/*-binding.json'))
-    rows = []
-    for path in receipt_paths:
-        saved = read_json(path, {})
-        request = saved.get('request', {})
-        sku_ids = list(map(str, request['skuIds']))
-        if not set(sku_ids).issubset(scope['originals']):
-            raise ValueError('绑定回执超出原维修范围')
-        reads = agent._query_binding_materials(client, sku_ids)
-        for sku in sku_ids:
-            single = {**request, 'skuIds':[sku]}
-            if 'preservedMaterialsBySku' in request:
-                single['preservedMaterialsBySku'] = {sku:request['preservedMaterialsBySku'].get(sku, [])}
-            status, reason = agent._evaluate_binding_request(single, reads)
-            status = {'mismatch':'unknown','failed':'rejected'}.get(status, status)
-            rows.append({'skuId':sku,'materialType':request['materialType'],'status':status,
-                         'reason':reason,'receipt':str(path)})
-    unknown_images = [str(path) for path in (directory/'shared').glob('*/*.request.json')
-                      if read_json(path, {}).get('status') in ('intent','unknown')]
-    if unknown_images or any(row['status'] == 'unknown' for row in rows):
-        status = 'unknown'
-    elif not rows:
-        status = 'no-binding-receipts'
-    elif any(row['status'] == 'rejected' for row in rows):
-        status = 'repair-incomplete'
-    elif any(row['status'] == 'pending' for row in rows):
-        status = 'repairs-submitted-awaiting-review'
-    else:
-        status = 'verified' if all(row['status'] == 'approved' for row in rows) else 'submitted'
-    result = {'status':status,'shopName':identity['shopName'],'shopIdentity':identity,
-              'rows':rows,'unknownImageReceipts':unknown_images,'writesPerformed':False,
-              'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%S%z')}
-    _save(directory/'.state/repair-readback.json', result)
-    return result
+from pop_delivery_readback import read_repair_status
 
 
 PRODUCT_TEXT_REJECTION='禁止出现文字信息'

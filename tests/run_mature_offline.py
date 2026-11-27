@@ -16,7 +16,7 @@ MODULES += ['test_sample_delivery', 'test_sample_comparison', 'test_sample_uploa
 MODULES.append('test_dual_commercial_images')
 MODULES.append('test_merchant_template_import')
 MODULES += ['test_shared_pop', 'test_shared_refresh_entry', 'test_shared_pop_audit', 'test_registered_shop']
-MODULES.append('test_shared_pop_diagnosis')
+MODULES += ['test_shared_pop_diagnosis', 'test_shared_pop_video', 'test_pop_connection']
 
 def main():
     source_only='--source-only' in sys.argv

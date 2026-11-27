@@ -18,6 +18,7 @@ from datetime import datetime,timezone
 from collector_guard import atomic_json,validate_main,ordered_variants
 from asset_paths import ROOT,STAGE,CACHE,safe_name,image_url,save_jpeg,get_public
 from workbook_writer import write_workbook
+from checkpoint_status import active_variants
 from package_contract import ordered_detail_urls,decode_detail_payload,HEADERS,table_matrix,error_state
 from media_guard import inspect_mp4
 SCRIPT=Path(__file__).parent
@@ -92,7 +93,7 @@ def plan_product(keyword,item,known_names):
     if not main:
         if error.exists():return {'pid':pid,'keyword':keyword,'state':error_state(load(error)),'reason':load(error).get('evidence',{}).get('itemOverTip') or load(error).get('reason')}
         return {'pid':pid,'keyword':keyword,'state':'MAIN_OR_PRICE_PENDING'}
-    rows=ordered_variants(pid,main['colorSize']);prices={r['sku']:live_data(r['sku']) for r in rows}
+    rows=active_variants(STAGE,ordered_variants(pid,main['colorSize']));prices={r['sku']:live_data(r['sku']) for r in rows}
     missing=[k for k,v in prices.items() if v is None]
     if missing:return {'pid':pid,'keyword':keyword,'state':'SKU_PRICES_PENDING','missingSku':missing}
     title=safe_name(main['title']);key=(keyword,title)

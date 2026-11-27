@@ -57,7 +57,7 @@
     },
     "materials": {
       "repository": "ctzlyj/jd-material-pop-skill",
-      "commit": "12b610de93f0c67ed248fb6b2b9d2baea3308d48",
+      "commit": "0ddffdda2178f6e9c390ce66ce4e2f0eb712fdf1",
       "files": {
         "mature/materials/scripts/pop_audit_scope.py": {
           "source": "jd-material-pop/scripts/pop_audit_scope.py",
@@ -65,7 +65,27 @@
         },
         "tests/pop_audit_contract.py": {
           "source": "jd-material-pop/tests/pop_audit_contract.py",
-          "sha256": "9e470af344442f4c038cb2fdafb6380dcdb971d934d08d69cf9fd084c036bafe"
+          "sha256": "4b8958548ad26941d38763441488959dfb426f1f9063a60ff581822ae5559a42"
+        },
+        "mature/materials/scripts/pop_delivery_readback.py": {
+          "source": "jd-material-pop/scripts/pop_delivery_readback.py",
+          "sha256": "c10786367e5b0445105e8564874a4488be1936197a89332d4c696492ff424758"
+        },
+        "mature/materials/scripts/pop_scope.py": {
+          "source": "jd-material-pop/scripts/pop_scope.py",
+          "sha256": "d5c473918e05c9ed7814bbd13b13856c1b4bbe8f31de7277eebf453f2c3afdb6"
+        },
+        "mature/materials/scripts/pop_title_batches.py": {
+          "source": "jd-material-pop/scripts/pop_title_batches.py",
+          "sha256": "16345ca45a3085069d886409b92cc317b6917a62fce1f4f5e2bc01d85b19c3e4"
+        },
+        "mature/materials/scripts/pop_title_dispatch.py": {
+          "source": "jd-material-pop/scripts/pop_title_dispatch.py",
+          "sha256": "8212c63565af548eafbeaac09a2795aedc71ca470397d27bad78b1a02024c6a8"
+        },
+        "mature/materials/scripts/pop_title_workflow.py": {
+          "source": "jd-material-pop/scripts/pop_title_workflow.py",
+          "sha256": "efb724f9e340ca2b411acb11bccdc5e60dad02675cbe63d4aaad990358f87572"
         }
       }
     },
@@ -105,7 +125,7 @@
     },
     "connection": {
       "repository": "ctzlyj/jingmai-cli-linker",
-      "commit": "67cdccf1a091c9680e55a1c760d826e8f40d3708",
+      "commit": "8e925139250d1899bd8331e86c681aa1519b5e9c",
       "files": {
         "mature/connection/app/profile_registry.py": {
           "source": "app/profile_registry.py",
@@ -114,6 +134,18 @@
         "tests/test_registered_shop.py": {
           "source": "tests/test_registered_shop.py",
           "sha256": "f15dc36fb4c60a53210e378e5b2c48a5ed8fa5d2183e2062dc214dcddc9ff379"
+        },
+        "mature/connection/app/pop_connection.py": {
+          "source": "app/pop_connection.py",
+          "sha256": "06faa34e0e9efc5180fcca001b472f2cfd2dd286debde548fd4ada8cb7d1980b"
+        },
+        "tests/connection_contract.py": {
+          "source": "tests/connection_contract.py",
+          "sha256": "fa3c6b14e8dd845a93635ebf9c427c4f60d3d41613ed7386a8af6ed659bdd957"
+        },
+        "tests/test_pop_connection.py": {
+          "source": "tests/test_pop_connection.py",
+          "sha256": "ab32417d305e887917570f78020f9c0a639672e3c7b7d92740f947d78aa45e0d"
         }
       }
     },
@@ -132,6 +164,107 @@
         "tests/pop_diagnosis_contract.py": {
           "source": "tests/pop_diagnosis_contract.py",
           "sha256": "1796f37d84d990911c1551931f2e0a410fe3811fb0ec70f2d3e7517619b68eaa"
+        }
+      }
+    },
+    "video": {
+      "repository": "ctzlyj/jd-main-video-batch-skill",
+      "commit": "42fea87f73db88d6ab98c46f0db1b7f992fcdcc1",
+      "files": {
+        "mature/video/scripts/local_handoff.py": {
+          "source": "scripts/local_handoff.py",
+          "sha256": "747451059fc77c57f1a7daf41917e23ab1858b0e0bcd062165008a7b25e8f1a4"
+        },
+        "mature/video/scripts/video_publication.py": {
+          "source": "scripts/video_publication.py",
+          "sha256": "13a1c7613bc02b7c63a0163ff8de9e9325d402601477e3f87229ead748338c88"
+        },
+        "tests/pop_video_contract.py": {
+          "source": "tests/pop_video_contract.py",
+          "sha256": "0cca5cf0036d3eba69159c7fa180b4fca28190c493b5f8ed68e8cb798d684682"
+        }
+      }
+    },
+    "video-composition": {
+      "repository": "ctzlyj/heideng-ops-agent-merchant-skill",
+      "commit": "be7c13f08b2f06102af411c081fce7aa3edfd62e",
+      "files": {
+        "mature/video/scripts/local_composition.py": {
+          "source": "mature/video/scripts/local_composition.py",
+          "sha256": "79a66c462808cae98d44d57a631fafe8854aac767a5ee1475c55181476e6f142"
+        }
+      }
+    },
+    "collection": {
+      "repository": "ctzlyj/jd-hot-link-collector",
+      "commit": "1f5a75cf460e59b2bea9b69747d7c488b8495cfb",
+      "entrypoints": [
+        "mature/collection/scripts/shop_table.py"
+      ],
+      "files": {
+        "mature/collection/scripts/checkpoint_status.py": {
+          "source": "scripts/checkpoint_status.py",
+          "sha256": "2fe441ac96ed4e4aa5334e59321c3fbf23650d6be3bf907b221f449bd070b63c"
+        },
+        "mature/collection/scripts/deliver_batch.py": {
+          "source": "scripts/deliver_batch.py",
+          "sha256": "bc0856b319e311658a30ff6d2fe90a94b9717b9490fdaf37170edf4aca64e312"
+        },
+        "mature/collection/scripts/shop_table.py": {
+          "source": "scripts/shop_table.py",
+          "sha256": "1a60f31ae617526238e8c908c99d96863753728b2e1e7c65cd3ab9fdd4e7d031"
+        },
+        "mature/collection/scripts/batch_driver/original_price_fallback.py": {
+          "source": "scripts/batch_driver/original_price_fallback.py",
+          "sha256": "e662a014d19eff7e42344b04b5240c388522a7935a43c66c733a9d27d1a00ffe"
+        },
+        "tests/pop_collection_contract.py": {
+          "source": "tests/pop_collection_contract.py",
+          "sha256": "9039877abb8cdc38041ee4d329bdde994a15076d7b736785180f4c5885345249"
+        }
+      }
+    },
+    "pricing": {
+      "repository": "ctzlyj/jd-competitor-price-adjustment-skill",
+      "commit": "dbe4aee5f3046afda764bdd0d9404010804e8657",
+      "files": {
+        "mature/comparison/scripts/jd_price_adjustment.py": {
+          "source": "scripts/jd_price_adjustment.py",
+          "sha256": "76463861105d10ec7f5160656f20b7e77cbf29b5efeb66779c74765401b96b31"
+        },
+        "mature/comparison/scripts/jd_detail_evidence.py": {
+          "source": "scripts/jd_detail_evidence.py",
+          "sha256": "4f9bffc0aa6c44764087c78984f3c6992e522a022b6ca01a56f30b5b77d8579e"
+        },
+        "mature/comparison/scripts/jingmai_api.py": {
+          "source": "scripts/jingmai_api.py",
+          "sha256": "0ebf48d2ea0a1e64f5628aab07fa5e48b0a1d25c74ac8281f95d38c0f42d161d"
+        },
+        "mature/comparison/scripts/store_pricing.py": {
+          "source": "scripts/store_pricing.py",
+          "sha256": "39e1fba04807309c2291cf6e9b47acc63ffb45b5ad768b7a5acd69bd970e129b"
+        },
+        "mature/comparison/scripts/same_product_market.py": {
+          "source": "scripts/same_product_market.py",
+          "sha256": "8727b35315c49c18fa6ae1e5825ada6adb7b85c74b5dd07c7783aa69745b12ec"
+        },
+        "tests/pop_price_contract.py": {
+          "source": "tests/pop_price_contract.py",
+          "sha256": "5a64984a770649f22fa87be436b7f501666b1a85b972e022072386c00224d6cb"
+        }
+      }
+    },
+    "listing-samples": {
+      "repository": "ctzlyj/jingmai-hot-product-mover-skill",
+      "commit": "d31ed174b068d28904e9279d35bcf7012087389d",
+      "files": {
+        "mature/listing/scripts/photo_samples.py": {
+          "source": "scripts/photo_samples.py",
+          "sha256": "701770f31019413e586c0888cec34775e4a9cec506af0f51f1f410866d3e8ae1"
+        },
+        "tests/pop_photo_sample_contract.py": {
+          "source": "tests/pop_photo_sample_contract.py",
+          "sha256": "342ce70f1b5d78c003d888685b2acbb8faeae456cbff3f90f4f2a829e0919247"
         }
       }
     }

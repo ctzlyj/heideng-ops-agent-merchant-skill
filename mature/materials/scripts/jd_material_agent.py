@@ -39,7 +39,7 @@ VARIANT_ID = 'merchant-pop-mature'
 SKILL_VERSION = '2026.11.207'
 MAX_SPUS_PER_BATCH = 199
 MAX_SPU_CONCURRENCY = 50
-from pop_title_batches import ARCHIVE_MAX_ROWS, import_limits
+from pop_title_batches import ARCHIVE_MAX_ROWS
 POP_SHORT_TITLE_MAX_ROWS = ARCHIVE_MAX_ROWS
 AUTO_MAINTAIN_PLAN_NAME = '自动维护计划.json'
 MANUAL_VERIFICATION_MESSAGE = '京麦素材已提交；审核中不等于通过。短标题以独立导入任务回执与平台回读为准，导出表只用于留档。'
@@ -2066,6 +2066,9 @@ def write_pop_auto_maintain_plan(prepared: PreparedSource, reference_urls: dict[
     source = Path(source_path).resolve()
     created_at = int(time.time() if now is None else now)
     payload = {'formatVersion': 1, 'skillVersion': SKILL_VERSION, 'businessMode': 'pop', 'outputDir': str(output), 'shopIdentity': _shop_identity(seller), 'targetSpuId': cell_text(target_spu_id), 'createdAt': created_at, 'taskSignature': _task_signature(prepared), 'sourceWorkbook': {'path': str(source), 'sha256': _file_sha256(source)}, 'counts': {'spus': len(prepared.jobs), 'skus': len(prepared.rows)}, 'prepared': _prepared_payload(prepared), 'referenceUrls': reference_urls, 'existingMaterials': existing_materials}
+    from pop_scope import make_scope
+    payload['coverageScope'] = make_scope(prepared, agent=sys.modules[__name__],
+        snapshot={'capturedAt':created_at,'targetSkuCount':len(prepared.rows),'sourceWorkbookSha256':_file_sha256(source)})
     payload['planHash'] = _auto_maintain_plan_hash(payload)
     plan_path = output / AUTO_MAINTAIN_PLAN_NAME
     plan_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3962,54 +3965,8 @@ def _short_title_workbook_bytes(rows):
         return output.getvalue()
 
 def inspect_short_title_workbook(path):
-    path = Path(path).resolve()
-    content = path.read_bytes()
-    template = Path(__file__).resolve().parents[1] / 'assets' / '商品导入短标题模板.xlsx'
-    with closing(load_workbook(template, read_only=True)) as workbook:
-        headers = list(workbook['Sheet1'].iter_rows(min_row=1, max_row=2, max_col=2, values_only=True))
-    invalid = []
-    identifiers = set()
-    rows = []
-    row_count = 0
-    with closing(load_workbook(BytesIO(content), read_only=True, data_only=False)) as workbook:
-        if workbook.sheetnames != ['Sheet1']:
-            raise ValueError('not the official POP short-title upload worksheet')
-        sheet = workbook['Sheet1']
-        sheet.reset_dimensions()
-        header_rows = list(sheet.iter_rows(min_row=1, max_row=2, values_only=True))
-        if ([(row+(None,None))[:2] for row in header_rows] != headers
-                or any(value is not None for row in header_rows for value in row[2:])):
-            raise ValueError('official POP short-title upload headers or instructions changed')
-        for row_number, cells in enumerate(sheet.iter_rows(min_row=3), 3):
-            row = tuple(cell.value for cell in cells)
-            if all(value is None for value in row):
-                continue
-            row_count += 1
-            sku_id = cell_text(row[0])
-            title = row[1] if len(row) > 1 else None
-            reasons = []
-            if not isinstance(row[0], str) or row[0] != sku_id or not sku_id.isascii() or not sku_id.isdigit():
-                reasons.append('SKU must be exact numeric text')
-            if sku_id in identifiers:
-                reasons.append('duplicate SKU')
-            identifiers.add(sku_id)
-            if not isinstance(title, str) or not valid_short_title(title):
-                reasons.append('short-title length must be 16-30; Han=2, all other characters=1')
-            if any(cell.data_type in ('f','e') for cell in cells[:2]):
-                reasons.append('SKU and short title must be literal text')
-            if any(value is not None for value in row[2:]):
-                reasons.append('unexpected extra columns')
-            if reasons:
-                invalid.append({'row': row_number, 'skuId': sku_id, 'shortTitle': title, 'length': weighted_length(title), 'reasons': reasons})
-            else:
-                rows.append((sku_id,title))
-    content_valid = bool(row_count) and not invalid
-    report = {'path': str(path), 'sha256': hashlib.sha256(content).hexdigest(),
-              'valid': content_valid and row_count <= POP_SHORT_TITLE_MAX_ROWS, 'contentValid': content_valid,
-              'rowCount': row_count, 'uniqueSkuCount': len(identifiers), 'rowLimit': POP_SHORT_TITLE_MAX_ROWS,
-              'invalidRows': invalid, 'lengthRule': '16-30; Han=2, all other characters=1', 'platformImportPerformed': False,
-              **import_limits(row_count,len(content),content_valid)}
-    return report,rows
+    from pop_title_batches import inspect_workbook
+    return inspect_workbook(path,sys.modules[__name__])
 
 
 def validate_short_title_workbook(path):
@@ -4157,6 +4114,14 @@ def build_parser() -> argparse.ArgumentParser:
     local_cutout.add_argument('--output', type=Path, required=True)
     local_cutout.add_argument('--model', choices=('birefnet-general-lite', 'birefnet-general'), default='birefnet-general-lite')
     local_cutout.add_argument('--alpha-matting', action='store_true')
+    coverage = sub.add_parser('coverage-summary', help='只读核对父任务、子批次的 SKU 和图位')
+    coverage.add_argument('--parent-plan', required=True, type=Path)
+    coverage.add_argument('--child-dir', action='append', default=[], type=Path)
+    coverage.add_argument('--report', type=Path)
+    coverage.add_argument('--coverage-root', type=Path)
+    batches = sub.add_parser('prepare-short-title-import', help='冻结行数、字节数及原批次回执，供正式导入续用')
+    batches.add_argument('--source', required=True, nargs='+', type=Path)
+    batches.add_argument('--output-dir', required=True, type=Path)
     audit = sub.add_parser('audit-pop-coverage')
     audit.add_argument('--detail',action='store_true',help='仅维护者需要完整技术字段时使用；普通回查返回计数与报告路径。')
     audit.add_argument('--target-spu-id', action='append', help='仅核对选中的商品。多商品可重复传入。')
@@ -4396,6 +4361,24 @@ def main(argv: list[str] | None=None) -> int:
         payload = run_deliver_short_titles(args)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 2 if payload['missingSkuIds'] else 0
+    if args.command == 'coverage-summary':
+        from pop_delivery_readback import coverage_summary
+        print(json.dumps(coverage_summary(args,sys.modules[__name__]),ensure_ascii=False))
+        return 0
+    if args.command == 'prepare-short-title-import':
+        from pop_title_batches import prepare_import_batches, PriorImportReceipt
+        from pop_title_dispatch import batch_receipt_path
+        try:
+            batches = prepare_import_batches(args.source,args.output_dir,agent=sys.modules[__name__])
+        except PriorImportReceipt as original:
+            print(json.dumps({'status':'prior-batch-reconciliation','sha256':original.sha256,
+                              'receiptPath':str(original.receipt_path),'writesPerformed':False},ensure_ascii=False))
+            return 2
+        for batch in batches:
+            batch['receiptPath'] = str(batch_receipt_path(batch['path'], batch['sha256']))
+        print(json.dumps({'batches':batches,'rowCount':sum(b['rowCount'] for b in batches),
+                          'writesPerformed':False}, ensure_ascii=False))
+        return 0
     if args.command == 'audit-pop-coverage':
         client = JdoClient(args.profile, args.output_dir / '.state' / 'jdo-runtime')
         payload = audit_pop_coverage(client, args.expected_shop_name, args.title_workbook, product_ids=args.target_spu_id)

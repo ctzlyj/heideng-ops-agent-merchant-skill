@@ -21,12 +21,13 @@ class SharedPopAuditTest(unittest.TestCase):
 if __name__ == '__main__' and sys.argv[1:2] == ['--installed']:
     state = Path(sys.argv[2])
     skills = state/'skills'
-    install = subprocess.run([sys.executable, str(ROOT/'install.py'), '--state', str(state),
-                              '--skills-dir', str(skills), '--offline', '--no-auto-update'],
-                             capture_output=True)
-    if install.returncode:
-        sys.stderr.buffer.write(install.stdout + install.stderr)
-        sys.exit(install.returncode)
     entry = skills/'heideng-ops-agent-merchant/scripts/merchant.py'
+    if not entry.exists():
+        install = subprocess.run([sys.executable, str(ROOT/'install.py'), '--state', str(state),
+                                  '--skills-dir', str(skills), '--offline', '--no-auto-update'],
+                                 capture_output=True)
+        if install.returncode:
+            sys.stderr.buffer.write(install.stdout + install.stderr)
+            sys.exit(install.returncode)
     sys.exit(subprocess.call([sys.executable, str(entry), '--state', str(state),
                               'run', 'materials', '--', *sys.argv[3:]]))

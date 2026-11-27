@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from jd_price_adjustment import CatalogValidationError, normalize_size
+from jd_price_adjustment import CatalogValidationError, exact_dimensions
 
 
 class DetailEvidenceError(ValueError):
@@ -54,8 +54,20 @@ def _money(value: Any) -> str:
 
 def normalize_dimensions(value: Any) -> str:
     try:
-        return normalize_size(str(value))
+        return exact_dimensions(str(value))
     except CatalogValidationError as exc:
+        # A display label can include a design and an explicitly separated size.
+        # Only one complete, unit-bearing tuple is evidence of dimensions.
+        matches = []
+        for field in re.split(r"[\s/]+", str(value).strip()):
+            try:
+                size = exact_dimensions(field)
+            except CatalogValidationError:
+                continue
+            if 'x' in size and not size[-1].isdigit():
+                matches.append(size)
+        if len(matches) == 1:
+            return matches[0]
         raise DetailEvidenceError(f"Cannot normalize dimensions from {value!r}.") from exc
 
 

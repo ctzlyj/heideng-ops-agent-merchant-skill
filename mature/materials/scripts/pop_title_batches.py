@@ -1,11 +1,16 @@
 """Plan POP short-title submissions from validated original workbooks."""
+from contextlib import closing
+from io import BytesIO
+from openpyxl import load_workbook
 import hashlib
 import os
 from pathlib import Path
 import tempfile
+from zipfile import BadZipFile
+from openpyxl.utils.exceptions import InvalidFileException
 
-from heideng_merchant.safety import file_sha, read_json, safe_join
-from heideng_merchant.state import FileLock
+from pop_title_io import file_sha, read_json, safe_join
+from pop_title_io import FileLock
 
 
 ARCHIVE_MAX_ROWS = 10_000
@@ -122,7 +127,12 @@ def prepare_import_batches(paths, output_dir, *, agent=None):
     batches, generated, seen_skus = [], {}, set()
     for item in paths:
         path = Path(item).resolve()
-        report, rows = agent.inspect_short_title_workbook(path)
+        if not path.is_file():
+            raise ValueError(f'短标题维护表不存在：{path}')
+        try:
+            report, rows = agent.inspect_short_title_workbook(path)
+        except (BadZipFile, InvalidFileException) as error:
+            raise ValueError('Invalid official short-title workbook') from error
         if not report['contentValid']:
             invalid = report['invalidRows']
             detail = f"第 {invalid[0]['row']} 行：{', '.join(invalid[0]['reasons'])}" if invalid else '缺少商品行'
@@ -149,3 +159,53 @@ def prepare_import_batches(paths, output_dir, *, agent=None):
     for directory,contents in generated.items():
         _save_chunks(directory,contents)
     return batches
+
+def inspect_workbook(path, agent):
+    path = Path(path).resolve()
+    content = path.read_bytes()
+    template = Path(agent.__file__).resolve().parents[1] / 'assets' / '商品导入短标题模板.xlsx'
+    with closing(load_workbook(template, read_only=True)) as workbook:
+        headers = list(workbook['Sheet1'].iter_rows(min_row=1, max_row=2, max_col=2, values_only=True))
+    invalid = []
+    identifiers = set()
+    rows = []
+    row_count = 0
+    with closing(load_workbook(BytesIO(content), read_only=True, data_only=False)) as workbook:
+        if workbook.sheetnames != ['Sheet1']:
+            raise ValueError('not the official POP short-title upload worksheet')
+        sheet = workbook['Sheet1']
+        sheet.reset_dimensions()
+        header_rows = list(sheet.iter_rows(min_row=1, max_row=2, values_only=True))
+        if ([(row+(None,None))[:2] for row in header_rows] != headers
+                or any(value is not None for row in header_rows for value in row[2:])):
+            raise ValueError('official POP short-title upload headers or instructions changed')
+        for row_number, cells in enumerate(sheet.iter_rows(min_row=3), 3):
+            row = tuple(cell.value for cell in cells)
+            if all(value is None for value in row):
+                continue
+            row_count += 1
+            sku_id = agent.cell_text(row[0])
+            title = row[1] if len(row) > 1 else None
+            reasons = []
+            if not isinstance(row[0], str) or row[0] != sku_id or not sku_id.isascii() or not sku_id.isdigit():
+                reasons.append('SKU must be exact numeric text')
+            if sku_id in identifiers:
+                reasons.append('duplicate SKU')
+            identifiers.add(sku_id)
+            if not isinstance(title, str) or not agent.valid_short_title(title):
+                reasons.append('short-title length must be 16-30; Han=2, all other characters=1')
+            if any(cell.data_type in ('f','e') for cell in cells[:2]):
+                reasons.append('SKU and short title must be literal text')
+            if any(value is not None for value in row[2:]):
+                reasons.append('unexpected extra columns')
+            if reasons:
+                invalid.append({'row': row_number, 'skuId': sku_id, 'shortTitle': title, 'length': agent.weighted_length(title), 'reasons': reasons})
+            else:
+                rows.append((sku_id,title))
+    content_valid = bool(row_count) and not invalid
+    report = {'path': str(path), 'sha256': hashlib.sha256(content).hexdigest(),
+              'valid': content_valid and row_count <= agent.POP_SHORT_TITLE_MAX_ROWS, 'contentValid': content_valid,
+              'rowCount': row_count, 'uniqueSkuCount': len(identifiers), 'rowLimit': agent.POP_SHORT_TITLE_MAX_ROWS,
+              'invalidRows': invalid, 'lengthRule': '16-30; Han=2, all other characters=1', 'platformImportPerformed': False,
+              **import_limits(row_count,len(content),content_valid)}
+    return report,rows

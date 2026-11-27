@@ -12,6 +12,7 @@ import jdo_listing_mvp as cli
 import jd_product_pipeline as pipeline
 import detail_pages as dp
 import sale_attr_templates as sat
+import photo_samples
 from jd_product_mover import HttpClient,MoverError,parse_mobile_page,parse_detail_urls
 from photo_contract import (SCHEMA_VERSION,ReconcileRequired,check_store,initial_manifest,join_detail_panels,media_entries,missing_information,package_path,review_digest,walk_components,required)
 from photo_generation import GenerationUnknown,atomic_json,generate_tasks,load,sha
@@ -268,10 +269,8 @@ def prepare_creative_plan(manifest, root, reference, design, *, preview=False, o
             if not isinstance(provided,str) or provided not in source_photos or not package_path(root,provided).is_file():
                 raise ValueError('商家指定的对照图须来自已登记的本商品素材')
             task['comparisonPhoto'] = provided
-        accepted = manifest.get('acceptedSamples', {}).get(reuse) if reuse else None
-        if accepted and (accepted['role'] != role or accepted.get('skuKey') != spec.get('skuKey')
-                         or accepted['sha256'] != task['sourceSha256'][0]):
-            raise ValueError(f'{key} 应复用本图位、本规格已接受的样张')
+        if reuse:
+            photo_samples.validate_reuse(manifest, role, spec.get('skuKey'), reuse, task['sourceSha256'][0])
         if reuse:
             task['reusePhoto'] = reuse
         else:
@@ -490,46 +489,9 @@ def recover_sample_comparison(root, image_id, detail_receipt=None):
 
 
 def accept_sample(root, image_id, evidence):
-    """Make the accepted pixels available as a free reuse input to the full plan."""
-    root = Path(root)
-    if not re.fullmatch(r'[A-Za-z0-9_-]{1,50}', image_id) or not evidence.strip():
-        raise ValueError('需要原样张编号和商家接受样张的答复依据')
-    parent = read_manifest(root)
-    sample = package_path(root, f'.samples/{image_id}')
-    manifest = read_manifest(sample)
-    plan = load(sample/'plan.json', [])
-    if (manifest.get('sampleOf') != {'packageId': parent['packageId'], 'imageId': image_id}
-            or manifest['store'] != parent['store'] or manifest['facts'] != parent['facts']
-            or len(plan) != 1 or plan[0].get('id') != image_id):
-        raise ValueError('样张与本任务的商品、规格或设计不匹配')
-    media = list(media_entries(manifest))
-    if len(media) != 1 or media[0]['id'] != image_id or not media[0].get('previewOnly'):
-        raise ValueError('样张尚未完成，先核对原回执')
-    if manifest.get('samplePlanSha256') != sha(sample/'plan.json'):
-        raise ValueError('样张设计已变化，请先交付当前版本再记录验收')
-    original = package_path(sample, media[0]['localPath'])
-    digest = sha(original)
-    if digest != media[0]['sha256']:
-        raise ValueError('样张内容与回执不一致')
-    relative = f'已接受样张/{image_id}-{digest}.jpg'
-    target = package_path(root, relative)
-    target.parent.mkdir(exist_ok=True)
-    shutil.copyfile(original, target)
-    if relative not in parent['sourcePhotos']:
-        parent['sourcePhotos'].append(relative)
-    accepted = parent.setdefault('acceptedSamples', {})
-    previous = accepted.get(relative, {})
-    accepted[relative] = {
-        'role': plan[0]['role'], 'skuKey': plan[0].get('skuKey'), 'evidence': evidence,
-        'firstImageReference': plan[0].get('firstImageReference'), 'sourceSkuId': plan[0].get('sourceSkuId'),
-        'sha256': digest,
-    }
     from heideng_merchant.sample_delivery import target_sku
-    target_at_acceptance = previous.get('targetAtAcceptance') or target_sku(root, parent, plan[0].get('skuKey'))
-    if target_at_acceptance.get('targetStatus') == 'verified':
-        accepted[relative]['targetAtAcceptance'] = target_at_acceptance
-    atomic_json(root/'manifest.json', parent)
-    return {'reusePhoto': relative, 'role': plan[0]['role'], 'skuKey': plan[0].get('skuKey')}
+    with package_lock(root, '.sample-accept.lock'):
+        return photo_samples.accept_sample(root, image_id, evidence, read_manifest, target_sku)
 
 
 def generate_plan(root, *, approval=None, redo=(), replace_unknown=()):
@@ -1055,10 +1017,10 @@ def main(argv=None):
  recovery=sub.add_parser('recover-sample-comparison',help='从目标 SKU 的原回读核对旧样张对比来源，仅补本机对比回执')
  recovery.add_argument('--package',required=True,type=Path);recovery.add_argument('--image-id',required=True)
  recovery.add_argument('--detail-receipt',type=Path)
- for name in ('make-sample','accept-sample'):
+ for name in ('make-sample','accept-sample','sample-context'):
   sample=sub.add_parser(name);sample.add_argument('--package',required=True,type=Path);sample.add_argument('--image-id',required=True)
   if name=='make-sample':sample.add_argument('--image-prompts-file',required=True,type=Path)
-  else:sample.add_argument('--evidence',required=True)
+  elif name=='accept-sample':sample.add_argument('--evidence',required=True)
  recover_images=sub.add_parser('reconcile-images',help='只读核对原生图回执、预算预占及本地产物')
  recover_images.add_argument('--package',required=True,type=Path)
  recover_images.add_argument('--units',nargs='+',help='只核对这些图号，取得对应范围的追加报价')
@@ -1087,6 +1049,7 @@ def main(argv=None):
    else:
     result=create_package(root,store,args.photos,args.title,args.reference,True)
   elif command=='record-first-view':result=record_first_view(root,args.source_sku,args.url,args.product_photo,args.screenshot)
+  elif command=='sample-context':result=photo_samples.accepted_context(root,args.image_id,read_manifest)
   elif command=='make-sample':result=make_sample(root,load(args.image_prompts_file),args.image_id)
   elif command=='recover-sample-comparison':result=recover_sample_comparison(root,args.image_id,args.detail_receipt)
   elif command=='accept-sample':result=accept_sample(root,args.image_id,args.evidence)

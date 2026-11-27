@@ -37,7 +37,7 @@ else:
     APP_DIR = Path(__file__).resolve().parent
     STATIC_DIR = APP_DIR / "static"
 
-SERVER_VERSION = "2.1.0-merchant-0.4.23"  # Reuse-receipt and browser preflight protocol.
+SERVER_VERSION = "2.1.0-merchant-pop-dispatch-1"  # Reuse-receipt and browser preflight protocol.
 CALLBACK_PORT = sl.CALLBACK_PORT
 LOGIN_TIMEOUT = 600
 DEFAULT_PORT = 8765
@@ -64,21 +64,7 @@ class CallbackPortBusy(RuntimeError):
     hint = '本机回调端口被占用，未结束其它进程；请先核对任务归属。'
 
 
-def owned_credential_slot(account, profile):
-    """Return the vault target and slot from a CLI account bound to this Profile."""
-    if not isinstance(account, str) or not account:
-        return None
-    parts = account.removeprefix('jdo-cli:').split(':')
-    if (len(parts) == 4 and parts[0] == 'token' and parts[1] == profile
-            and re.fullmatch(r'[0-9a-f]{16}', parts[2])):
-        target = 'jdo-cli:' + ':'.join(parts)
-    elif (len(parts) in (3, 4) and parts[-3] == 'token' and parts[-2] == profile
-          and account.startswith('jdo-cli:')):
-        target = account
-    else:
-        return None
-    slot = parts[-1]
-    return (target, slot) if slot == 'default' or slot.isascii() and slot.isdigit() else None
+from pop_connection import owned_credential_slot
 
 # 兼容旧名
 read_json = sl.read_json
@@ -538,48 +524,13 @@ class LoginJob:
             # may reject this option; the other account's status is never evidence.
             code, output = read(['status', '--profile', self.profile])
             status = sl.extract_json(output) if code == 0 else None
-        if isinstance(status, dict) and isinstance(status.get('profile'), dict):
-            record = status['profile']
-            inputs = status.get('credentialInputs') or {}
-            store = status.get('credentialStore') or {}
-            if (not isinstance(inputs, dict) or not isinstance(store, dict)
-                    or status.get('defaultProfile') != self.profile or record.get('exists') is not True
-                    or not isinstance(record.get('path'), str)
-                    or Path(record['path']).resolve() != (self._profiles_path / f'{self.profile}.json').resolve()):
-                return None
-            if strict_inputs:
-                account = owned_credential_slot(store.get('tokenCredentialAccount'), self.profile)
-                if (not account or account[1] != str(record.get('venderId') or 'default')
-                        or record.get('appKeyConfigured') is not True or store.get('appSecretStored') is not True
-                        or inputs.get('appSecretFromEnv') is not False or inputs.get('accessTokenFromEnv') is not False):
-                    return None
-            status = {
-                'ok': status.get('ok'), 'profile': self.profile, 'home': status.get('home'),
-                'tokenCredentialAccount': store.get('tokenCredentialAccount'),
-                'oauthTokenStored': inputs.get('oauthTokenStored'),
-                'oauthTokenMocked': inputs.get('oauthTokenMocked'),
-            }
-        elif strict_inputs:
-            # The 0.3.7 public status binds the account via this nested Profile record.
-            return None
-        if (not isinstance(status, dict) or status.get('ok') is not True or status.get('profile') != self.profile
-                or not isinstance(status.get('home'), str) or not status['home']
-                or Path(status['home']).resolve() != sl.jdo_home().resolve()
-                or status.get('oauthTokenStored') is not True or status.get('oauthTokenMocked') is not False):
-            return None
-        return status
+        from pop_connection import official_status
+        return official_status(status, self.profile, sl.jdo_home(), self._profiles_path, strict_inputs)
 
     def _is_reuse_receipt(self, data):
-        return (not self.force and data.get('command') == 'login' and data.get('ok') is True
-                and data.get('cliVersion') == '0.3.7' and data.get('profile') == self.profile
-                and type(data.get('timestamp')) is int and data['timestamp'] > 0
-                and isinstance(data.get('home'), str) and bool(data['home'])
-                and Path(data['home']).resolve() == sl.jdo_home().resolve()
-                and data.get('authorizationStatus') == 'reused_existing_credentials'
-                and data.get('authorizationStage') == 'credential_reuse'
-                and all(data.get(key) is True for key in ('alreadyAuthorized','reusedAuthorization','loginCompleted',
-                                                          'appKeyConfigured','appSecretStored','tokenStored'))
-                and data.get('tokenMocked') is False and data.get('authorizeUrlPrinted') is False)
+        from pop_connection import reuse_receipt
+        return reuse_receipt(data, self.profile, sl.jdo_home(), self.force)
+
 
     def _reuse_account(self):
         try:
@@ -836,13 +787,14 @@ class Manager:
         with self._lock:
             return self.job
 
-    def start_flow(self, profile, shop_name, expect_vender_id='', browser_config=None, resume=False, connection_timeout=None):
+    def start_flow(self, profile, shop_name, expect_vender_id='', browser_config=None, resume=False, connection_timeout=None, explicit_profile=False):
         from browser_auth import BrowserAuthJob
         with self._lock:
             if self.job and hasattr(self.job, 'requested_profile'):
                 same_identity = (bool(expect_vender_id) and self.job.expect_vender_id == expect_vender_id)
                 same_name = bool(shop_name) and sl.norm(self.job.shop_name) == sl.norm(shop_name)
                 same = (same_identity or same_name) and (not expect_vender_id or not self.job.expect_vender_id or same_identity)
+                same = same and (not explicit_profile or profile in (self.job.profile, self.job.requested_profile))
                 if same and self.job.status == 'cancelled' and resume:
                     profile = self.job.requested_profile
                 if same and (self.job.status not in ('cancelled', 'failed', 'mismatch') or (resume and self.job.status == 'failed')):
@@ -850,7 +802,8 @@ class Manager:
                         self.job.resume()
                     return self.job
             if self.job and self.job.status in ACTIVE:
-                raise RuntimeError('已有授权正在进行，请先完成或取消本任务。')
+                from pop_connection import OtherAuthorizationActive
+                raise OtherAuthorizationActive('已有授权正在进行，请先完成或取消本任务。')
             job = BrowserAuthJob(profile, shop_name, expect_vender_id, browser_config=browser_config, connection_timeout=connection_timeout)
             self.job = job
             job.start()
@@ -1014,11 +967,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {'ok': False, 'status': 'mismatch', 'errorKind': 'mismatch',
                       'message': '明确 venderId 与店名/实际店铺不一致，未连接。',
                       'expected': {'shopName': shop_name, 'venderId': vender_id}})
+        if body.get('authorizationRequestId') and resolved.get('status') != 'needs_auth':
+            from pop_connection import explicit_profile
+            result = explicit_profile(sl, resolved, profile, shop_name or vender_id)
+            return self._send_json(200, {**result, 'requestAccepted': False,
+                                         'authorizationRequestId':body['authorizationRequestId']})
         if resolved['status'] != 'needs_auth':
             return self._send_json(200, resolved)
         budget=body.get('timeoutSeconds')
         if budget is not None and (type(budget) is not int or not 1<=budget<=3600):
             raise ValueError('连接预算必须为1–3600秒整数。')
+        if body.get('authorizationRequestId'):
+            from pop_connection import admit
+            result = admit(sl.linker_home(), body, lambda: self.manager.start_flow(profile, shop_name, vender_id, body.get('browserConfig'), bool(body.get('resume')), connection_timeout=budget, explicit_profile=bool(body.get('explicitAuthorizationProfile'))))
+            return self._send_json(200, result)
         job = self.manager.start_flow(profile, shop_name, vender_id, body.get('browserConfig'), bool(body.get('resume')), connection_timeout=budget)
         self._send_json(200, {"ok": True, 'status': 'awaiting_auth', "jobId": job.id,
                               "profile": job.profile, 'stage': job.stage, 'job': job.to_dict()})

@@ -35,6 +35,10 @@ class SyntheticShop:
         kind = url.rsplit('/', 1)[-1]
         if kind == 'venderinfo':
             result = {'data': {'venderId': '99', 'shopBaseInfo': {'type': 0, 'status': 1, 'shopName': 'synthetic', 'shopId': '88'}}}
+        elif kind == '{productId}':
+            assert params['productId'] in self.products
+            result = {'data': {'productInfo': {'productId':params['productId']},
+                               'skuList':[r for r in self.skus if r['productId']==params['productId']]}}
         elif kind == 'sku-materials':
             ids = params['skuIds']
             with self.lock:
@@ -126,18 +130,88 @@ def exercise_entry(prefix):
         assert {int(row['skuId']) for row in report['rows']} == {
             pid * 10 + n for pid in (1001, 1003) for n in range(5)}
         assert report['onlineSkuCount'] == report['materialDeficitSkuCount'] == 10
-        print(json.dumps({'scope':'selected', 'targetSkuCount':10, 'writes':0}))
+        command = [x.replace('{state}', output) for x in prefix]
+        exercise_delivery(state, command, env)
+        print(json.dumps({'scope':'selected','targetSkuCount':10,'titleBatchRows':[5000,1],
+                          'priorImportReconciledOnly':True,'parentSkus':5,
+                          'repairReadback':['approved','pending','unknown'],'writes':0}))
+
+
+def exercise_delivery(state, command, env):
+    from openpyxl import load_workbook
+    def action(argv, codes=(0,)):
+        p = subprocess.run(command+list(map(str,argv)), env=env, capture_output=True,
+                           text=True, encoding='utf-8', errors='replace', timeout=120)
+        assert p.returncode in codes, (p.returncode,p.stdout[-800:],p.stderr[-800:])
+        return json.loads(p.stdout)
+    asset = Path(__file__).resolve().parents[1]
+    if (asset/'mature/materials').exists():
+        asset = asset/'mature/materials'
+    template = asset/'assets/商品导入短标题模板.xlsx'
+    def title_workbook(name, count):
+        path = state/name
+        workbook = load_workbook(template)
+        sheet = workbook['Sheet1']
+        sheet.delete_rows(3, max(1,sheet.max_row))
+        for n in range(count):
+            sheet.append([str(n+1),'家用整理收纳实用商品'])
+        workbook.save(path)
+        workbook.close()
+        return path
+    def prepare(path):
+        return ['prepare-short-title-import','--source',path,'--output-dir',state]
+    by_row = action(prepare(title_workbook('rows.xlsx',5001)))
+    assert [b['rowCount'] for b in by_row['batches']] == [5000,1]
+    assert all(b['byteCount']<=5*1024*1024 for b in by_row['batches'])
+    oversized = title_workbook('bytes.xlsx',2)
+    with ZipFile(oversized,'a') as archive:
+        archive.writestr('unused/synthetic.bin',bytes(5*1024*1024))
+    by_byte = action(prepare(oversized))
+    chunk = by_byte['batches'][0]
+    assert chunk['rowCount']==2 and chunk['byteCount']<5*1024*1024 and Path(chunk['path'])!=oversized
+    original = state/'.state'/('title-import-'+chunk['sourceSha256'][:16]+'.json')
+    original.parent.mkdir(exist_ok=True)
+    original.write_text(json.dumps({'status':'unknown','sha256':chunk['sourceSha256']}),encoding='utf-8')
+    assert action(prepare(oversized), (2,))['receiptPath']==str(original)
+    plan = state/'plan'
+    action(['plan-auto-maintain','--target-spu-id','1001','--include-full-score','--profile','synthetic',
+            '--expected-shop-name','synthetic','--output-dir',plan])
+    child = state/'child'/'.state'
+    child.mkdir(parents=True)
+    (child/'task.json').write_text(json.dumps({'jobs':{'1001':{'status':'completed'}}}))
+    coverage = action(['coverage-summary','--parent-plan',plan/'自动维护计划.json','--child-dir',child.parent])
+    assert coverage['targetSkuCount']==5 and not coverage['allApproved']
+    assert coverage['remainingSlotCount']==coverage['targetSlotCount']>0
+    assert coverage['counts']['approved']==0
+    repair=state/'repair'
+    (repair/'shared-bindings').mkdir(parents=True)
+    ids=['10010','10011','10012']
+    identity={'shopId':'88','shopName':'synthetic','venderId':'99'}
+    (repair/'repair-scope.json').write_text(json.dumps({'shopIdentity':identity,'originals':{s:[] for s in ids}}))
+    request={'skuIds':ids,'materialType':31,'body':{'skuMaterials':[
+        {'skuId':int(s),'materials':[{'materialType':31,'order':1,'imageMaterial':{
+            'skuImages':[{'index':1,'imgUrl':'jfs/new.png'}]}}]} for s in ids]}}
+    (repair/'shared-bindings'/'batch.json').write_text(json.dumps({'request':request,'status':'unknown'}))
+    result=action(['check-repair-status','--profile','synthetic-repair','--output-dir',repair],(2,))
+    checked=json.loads(Path(result['resultFile']).read_text(encoding='utf-8'))
+    assert checked['status']=='unknown' and not checked['writesPerformed']
+    assert [r['status'] for r in checked['rows']]==['approved','pending','unknown']
 
 
 def fixture_cli():
     args = sys.argv[1:]
     def arg(name):
         return args[args.index(name)+1]
-    assert args[0] == 'invoke' and arg('--method') == 'GET' and arg('--profile') == 'synthetic'
+    assert args[0] == 'invoke' and arg('--method') == 'GET' and arg('--profile') in ('synthetic','synthetic-repair')
     params = json.loads(arg('--params'))
     if arg('--url').endswith('sku-materials'):
         assert {int(s) // 10 for s in params['skuIds']} <= {1001, 1003}
-    print(json.dumps({'success':True, **SyntheticShop().get(arg('--skill-id'), arg('--url'), params)}))
+    result=SyntheticShop().get(arg('--skill-id'), arg('--url'), params)
+    if arg('--profile')=='synthetic-repair' and arg('--url').endswith('sku-materials') and 31 in params['materialTypes']:
+        result={'data':[{'skuId':s,'materials':[{'materialType':31,'order':1,
+            'status':4 if s==10010 else 3,'imageMaterial':{'skuImages':[{'index':1,'imgUrl':'jfs/new.png'}]}}]}
+            for s in params['skuIds'] if s!=10012]}
+    print(json.dumps({'success':True, **result}))
 
 
 def main():
