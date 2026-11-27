@@ -148,6 +148,7 @@ def main():
             sys.path[:0]=[str(target),str(ROOT)]
             from tests import test_shop_copy_entry as cases
             from tests.test_shop_copy_batch import BatchCopyTests
+            from tests.test_copy_materials import CopyMaterialTests
             from tests import test_shop_copy_repair
             from heideng_merchant import owned_product_copy, shop_copy_batch, shop_copy_repair
             for module in (owned_product_copy, shop_copy_batch, shop_copy_repair):
@@ -157,7 +158,7 @@ def main():
                 raise AssertionError('the two-store fixture attempted a network connection')
             with patch.object(socket.socket, 'connect', no_network):
                 loader=unittest.defaultTestLoader
-                suite=unittest.TestSuite([loader.loadTestsFromModule(cases),loader.loadTestsFromTestCase(BatchCopyTests),
+                suite=unittest.TestSuite([loader.loadTestsFromModule(cases),loader.loadTestsFromTestCase(CopyMaterialTests),loader.loadTestsFromTestCase(BatchCopyTests),
                                           loader.loadTestsFromModule(test_shop_copy_repair)])
                 result=unittest.TextTestRunner().run(suite)
             assert result.wasSuccessful()
@@ -199,7 +200,8 @@ def main():
         result['singleSkuPilot'] = run_journey(run,target,home,state)
         result['collectionExampleProducts'] = run_collection_example(run, target, home, state)
         help_text = run([target/'scripts/merchant.py','--state',state,'run','shop-copy','--','--help'])
-        assert all(action in help_text for action in ('submit-one','repair-sku-codes','batch-run','batch-resume','batch-stop'))
+        assert all(action in help_text for action in ('submit-one','repair-sku-codes','batch-run','batch-resume','batch-stop',
+                                                      'diagnose-application','batch-skip','batch-materials','history-census','copy-materials'))
         result['ownedShopCopy'] = json.loads(run([__file__,target,home,'shop-copy']))
         print(json.dumps(result))
 

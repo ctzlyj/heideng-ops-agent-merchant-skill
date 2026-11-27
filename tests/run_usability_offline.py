@@ -8,6 +8,7 @@ MODULES=['test_task_image_prompts','test_field_9mv_connection','test_field_9mv_m
 MODULES.append('test_field_commerce')
 MODULES.append('test_commerce_handoff')
 MODULES += ['test_owned_copy_decisions','test_shop_copy_batch','test_shop_copy_repair']
+MODULES += ['test_copy_materials','test_copy_field_receipts','test_refresh_selection','test_refresh_gallery_evidence','test_refresh_upload_recovery']
 
 MODULES += ['test_workbuddy_expert', 'test_expert_guidance', 'test_expert_mcp', 'test_jd_card_runtime']
 

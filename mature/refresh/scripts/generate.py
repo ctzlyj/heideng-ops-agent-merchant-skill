@@ -20,6 +20,9 @@ import _common as common
 from heideng_merchant.mature_image import MerchantImageClient
 from heideng_merchant.image_models import MODELS, model_for
 from heideng_merchant.creative_images import CreativeOrder, host_prompt
+from heideng_merchant.refresh_selection import digest, import_sample, verify_frozen
+from heideng_merchant.safety import file_sha
+from heideng_merchant.safety import atomic_json
 from heideng_merchant.state import FileLock
 LOCK = threading.RLock()
 def source_path(task, sources: Path) -> Path:
@@ -71,7 +74,8 @@ def work(key, item, client, paths):
             out = paths['generated']/(key+'.png')
             with Image.open(io.BytesIO(data)) as generated:
                 generated.save(out, format='PNG')
-            return dict(record, status='succeeded', elapsed=round(time.monotonic()-started, 1), bytes=out.stat().st_size)
+            return dict(record, status='succeeded', elapsed=round(time.monotonic()-started, 1),
+                        bytes=out.stat().st_size, outputSha256=file_sha(out))
         except Exception as error:
             paths['stop'].set()
             return dict(record, error=type(error).__name__)
@@ -83,6 +87,7 @@ def main(argv):
     parser.add_argument("product_ids", nargs="*")
     parser.add_argument("--wait-quota", type=float, default=0, help="legacy option; unknown submissions are preserved")
     parser.add_argument("--image-prompts-file", type=Path)
+    parser.add_argument("--design-brief-file", type=Path, help="为已完成盘点的本批次交付商家设计要求原文")
     parser.add_argument("--fee-approval-file", type=Path)
     parser.add_argument("--quote-only", action="store_true")
     args = parser.parse_intermixed_args(argv[1:])
@@ -97,6 +102,11 @@ def generate(run, args):
     plan = common.load_json(run / "plan-batch.json")
     if not plan:
         raise SystemExit("missing plan-batch.json; run build_plan.py first")
+    verify_frozen(job, plan, run)
+    selected = job.get("mainSelection") or {}
+    design_options = selected or job.get("imageDesign") or {}
+    if selected and set(pids) - {str(p["productId"]) for p in plan["products"]}:
+        raise ValueError("请求超出冻结的主图商品范围")
     tasks = common.plan_tasks(plan, pids)
     if not tasks:
         raise SystemExit("no planned images for the requested products")
@@ -120,28 +130,66 @@ def generate(run, args):
 
     prompt_file = args.image_prompts_file or job.get("imagePromptsFile") or run / "host-prompts.json"
     prompts = common.load_json(Path(prompt_file)) or {}
+    original_prompt = design_options.get('approvedPrompt')
+    selection_sha = plan.get('selectionSha256') or digest(plan)
+    brief_path = run / "merchant-design.json"
+    brief = common.load_json(brief_path) or {}
+    if args.design_brief_file:
+        provided = args.design_brief_file.read_bytes().decode("utf-8-sig")
+        if (not provided.strip() or args.image_prompts_file
+                or (original_prompt is not None and original_prompt != provided)
+                or (brief and (brief.get("text") != provided or brief.get("selection") != selection_sha))):
+            raise ValueError("商家设计要求与已冻结的任务或原文不符")
+        if not brief:
+            brief = {"text": provided, "selection": selection_sha, "source": str(args.design_brief_file.resolve())}
+            atomic_json(brief_path, brief)
+    if brief:
+        if brief.get("selection") != selection_sha:
+            raise ValueError("存档的商家设计要求属于其他范围")
+        original_prompt = brief["text"]
+    if design_options.get("merchantBriefFirst") and original_prompt is None:
+        raise ValueError("已按本店偏好完成免费图位准备。收到本次设计要求后用 --design-brief-file 继续原任务")
+    if original_prompt is not None and args.image_prompts_file:
+        raise ValueError("本批次已冻结商家提示词原文，不能另行覆盖")
     for key in tasks.keys() - set(pending):
         record = ledger[key]
-        supplied = prompts.get(key) if isinstance(prompts, dict) else None
-        if record.get("prompt") and supplied and record["prompt"] != supplied.strip():
+        supplied = original_prompt if original_prompt is not None else (prompts.get(key) if isinstance(prompts, dict) else None)
+        if original_prompt is None and isinstance(supplied, str):
+            supplied = supplied.strip()
+        if record.get("prompt") and supplied and record["prompt"] != supplied:
             raise ValueError("图片已有原请求回执；修改设计须作为明确的重做任务")
-    if not pending and not args.quote_only:
+    if not pending and not args.quote_only and not selected.get('approvedSample'):
+        sample_comparison(run, plan)
         print("All selected images already have terminal receipts")
         return
     designs = {}
     for key, task in tasks.items():
-        prompt = host_prompt(prompts, key)
+        prompt = original_prompt if original_prompt is not None else host_prompt(prompts, key)
         reference = source_path(task, paths['sources'])
         designs[key] = {"prompt": prompt, "sourceSha256": hashlib.sha256(reference.read_bytes()).hexdigest(),
                         "productId": task["productId"], "role": task.get("scope"), "url": task.get("currentUrl"),
                         "size":task.get("size") or paths["size"]}
         task["prompt"] = prompt
+    if selected.get('approvedSample'):
+        sample_key = Path(selected['approvedSample']['file']).stem
+        if not pids or sample_key in tasks:
+            import_sample(run, job, designs, ledger)
+            common.save_json(ledger_path, ledger)
+            pending = [key for key in pending if key not in ledger]
     context = {"kind": "image-refresh", "shop": {k: job[k] for k in ("profile", "venderId", "shopName")},
                "products": sorted({str(v["productId"]) for v in tasks.values()})}
+    if design_options or brief:
+        context['mainSelectionSha256'] = selection_sha
+        context['designSha256'] = hashlib.sha256(json.dumps(designs, sort_keys=True).encode()).hexdigest()
+    reused = {k: ledger[k]['reusedSample'] for k in tasks if (ledger.get(k) or {}).get('reusedSample')}
     order = CreativeOrder(run, context, designs, pending, args.fee_approval_file,
-                          models=job.get("imageModels") or MODELS)
+                          reused=reused, models=job.get("imageModels") or MODELS)
     if args.quote_only:
         print(json.dumps(order.quote, ensure_ascii=False))
+        return
+    if not pending:
+        sample_comparison(run, plan)
+        print("选中成图均已就绪，新增请求 0")
         return
     order.check()
     pending = [key for key in pending if key in order.selected]
@@ -219,6 +267,20 @@ def generate(run, args):
         print(json.dumps({'selectedUnits':order.selected, 'deferredUnits':order.deferred,
                           'nextAction':'本次图位已完成；全店流水线等待其余图位分批完成或复用。'}, ensure_ascii=False))
         raise SystemExit(2)
+    sample_comparison(run, plan)
+
+
+def sample_comparison(run, plan):
+    if len(plan['tasks']) == 1 and plan.get('products'):
+        key = next(iter(plan['tasks']))
+        if plan['tasks'][key].get('scope') == 'main' and (run / 'generated' / (key + '.png')).is_file():
+            import compare
+            compare.main(['compare', str(run)])
+            task = plan['tasks'][key]
+            pair = run / 'comparisons' / (str(task['productId']) + '-compare.png')
+            print(json.dumps({'stage': 'local-preview', 'comparisonFile': str(pair),
+                              'beforeFile': str(source_path(task, run / 'sources')),
+                              'afterFile': str(run / 'generated' / (key + '.png'))}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

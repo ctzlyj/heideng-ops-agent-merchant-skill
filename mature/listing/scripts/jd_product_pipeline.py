@@ -201,58 +201,64 @@ def verify_store_identity(store_config: dict[str, Any], profile: str) -> dict[st
     }
 
 
-def product_apply_rejection(product_id: int) -> dict[str, Any] | None:
+def product_apply_rejection(product_id: int, *, apply_id=None, detail=None) -> dict[str, Any] | None:
     try:
-        detail = jingmai.get(
-            "jdo-product-update",
-            "/rest/sp-product/v0/product-apply/{applyId}",
-            {"applyId": str(product_id), "scene": "pop"},
-        ).get("data") or {}
+        if detail is None:
+            detail = jingmai.get(
+                "jdo-product-update",
+                "/rest/sp-product/v0/product-apply/{applyId}",
+                {"applyId": str(apply_id or product_id), "scene": "pop"},
+            ).get("data") or {}
     except jingmai.JdoError:
         return None
     apply_info = detail.get("applyInfo") or {}
+    returned_pid = (detail.get("productInfo") or {}).get("productId")
+    if ((returned_pid is not None and str(returned_pid) != str(product_id))
+            or (apply_id and apply_info.get("applyId") is not None and str(apply_info["applyId"]) != str(apply_id))):
+        return None
     draft_status = int(apply_info.get("draftComputeStatus") or 0)
     if draft_status != 3:
         return None
     rejection = {
-        "applyId": str(apply_info.get("applyId") or product_id),
+        "applyId": str(apply_info.get("applyId") or apply_id or product_id),
         "draftComputeStatus": draft_status,
         "bossAuditStatus": int(apply_info.get("bossAuditStatus") or 0),
     }
-    try:
-        response = jingmai.get(
-            "jdo-product-update",
-            "/rest/sp-product/v0/product-applies",
-            {
-                "page": 1,
-                "pageSize": 10,
-                "sortBy": "created",
-                "sortType": "desc",
-                "productIdList": [product_id],
-                "scopeSet": [
-                    "productId", "productName", "keeperReason", "pushReason",
-                    "draftStatus", "draftComputeStatus", "keeperStatus",
-                ],
-            },
-        )
-    except jingmai.JdoError:
+    for field in ("auditReason", "keeperReason", "pushReason"):
+        if apply_info.get(field):
+            rejection[field] = apply_info[field]
+    if rejection.get("auditReason"):
         return rejection
-    row = next(
-        (
-            item for item in response.get("data") or []
-            if int(item.get("productId") or 0) == product_id
-        ),
-        None,
-    )
+    fields=["productId","productName","auditReason","keeperReason","pushReason",
+            "draftStatus","draftComputeStatus","keeperStatus"]
+    args={"page":1,"pageSize":10,"sortBy":"created","sortType":"desc","productIdList":[product_id],
+          "scopeSet":["applyId",*fields]}
+    product_only=False
+    try:
+        response=jingmai.get("jdo-product-update","/rest/sp-product/v0/product-applies",args)
+    except jingmai.JdoError as error:
+        if not hasattr(error,"platform_codes"):
+            return rejection
+        product_only=True
+        try:
+            response=jingmai.get("jdo-product-update","/rest/sp-product/v0/product-applies",{**args,"scopeSet":fields})
+        except jingmai.JdoError:
+            return rejection
+    if response.get("success") is False:
+        return rejection
+    rows = [item for item in response.get("data") or [] if isinstance(item,dict) and str(item.get("productId")) == str(product_id)]
+    matches = [item for item in rows if str(item.get("applyId")) == rejection["applyId"]] if not product_only else []
+    row = matches[0] if len(matches)==1 else None
     if row:
-        rejection.update({
-            key: row.get(key)
-            for key in (
-                "productName", "status", "keeperStatus", "pushStatus",
-                "auditReason", "pushReason",
-            )
-            if row.get(key) not in (None, "")
-        })
+        rejection['reasonScope']='original-application'
+        for key in ("productName","status","keeperStatus","pushStatus","auditReason","keeperReason","pushReason"):
+            if row.get(key) not in (None,""):
+                rejection.setdefault(key,row[key])
+    elif rows:
+        latest={k:rows[0][k] for k in ("applyId","productName","auditReason","keeperReason","pushReason")
+                if rows[0].get(k) not in (None,"")}
+        if latest:
+            rejection["latestProductReview"]={**latest,"productId":str(product_id),"originalApplicationVerified":False}
     return rejection
 
 

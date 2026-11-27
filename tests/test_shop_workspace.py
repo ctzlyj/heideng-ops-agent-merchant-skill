@@ -88,6 +88,14 @@ class ShopWorkspaceTests(unittest.TestCase):
     def run_workspace(self, profile='fixture-a',shop=None,channel=None,progress=None):
         return workspace.ensure_workspace(self.sl,profile,shop or self.shop['shopName'],channel,1,progress or (lambda event:None))
 
+    def test_window_coordinates_allow_real_left_monitor_but_detect_an_unusable_sliver(self):
+        primary=(0,0,1920,1080)
+        left=(-1920,0,0,1080)
+        old=(-1425,32,30,900)
+        self.assertFalse(self.sl._window_on_screen(old,[primary]))
+        self.assertTrue(self.sl._window_on_screen(old,[left,primary]))
+        self.assertFalse(self.sl._window_on_screen((-32000,-32000,-31400,-31000),[left,primary]))
+
     def test_wrong_profile_and_explicit_ensure_shop_never_return_another_ready_store(self):
         outcome = self.run_workspace(profile='fixture-b')
         self.assertEqual(outcome['status'],'mismatch')

@@ -1185,6 +1185,41 @@ def _write_browser_shortcut(path, command, marker):
     return 'created'
 
 
+def _window_on_screen(rect, screens):
+    left,top,right,bottom=rect
+    return any(min(right,x2)-max(left,x1)>=min(120,right-left) and
+               min(top+48,bottom,y2)-max(top,y1)>=min(24,bottom-top)
+               for x1,y1,x2,y2 in screens) if right>left and bottom>top else False
+
+
+def _foreground_args(directory):
+    result=['--start-maximized']
+    if os.name!='nt' or not directory:return result
+    try:
+        # Keep usable placements on additional monitors (negative coordinates are valid).
+        import ctypes
+        from ctypes import wintypes
+        saved=json.loads((Path(directory)/'Default'/'Preferences').read_text(encoding='utf-8'))
+        p=saved.get('browser',{}).get('window_placement',{})
+        rect=tuple(int(p[k]) for k in ('left','top','right','bottom'))
+        screens=[]
+        callback_type=ctypes.WINFUNCTYPE(wintypes.BOOL,wintypes.HANDLE,wintypes.HDC,
+                                         ctypes.POINTER(wintypes.RECT),wintypes.LPARAM)
+        def collect(_monitor,_dc,area,_data):
+            r=area.contents
+            screens.append((r.left,r.top,r.right,r.bottom))
+            return True
+        user32=ctypes.windll.user32
+        if not user32.EnumDisplayMonitors(None,None,callback_type(collect),0) or _window_on_screen(rect,screens):
+            return result
+        area=wintypes.RECT()
+        if user32.SystemParametersInfoW(48,0,ctypes.byref(area),0): # SPI_GETWORKAREA
+            result.append(f'--window-position={area.left+16},{area.top+16}')
+    except (OSError,KeyError,TypeError,ValueError,AttributeError):
+        pass
+    return result
+
+
 def ensure_desktop_shortcut(profile, identity):
     """Create or refresh the shortcut for a live-verified merchant identity."""
     from heideng_merchant.host_connection_controller import WORKSPACE_URL
@@ -1223,7 +1258,7 @@ def ensure_desktop_shortcut(profile, identity):
         marker = f'Heideng shop {key}'
         suffix = '.lnk' if os.name == 'nt' else '.command'
         command = [str(executable), f'--user-data-dir={directory}', '--profile-directory=Default',
-                   '--no-first-run', '--new-window', WORKSPACE_URL]
+                   '--no-first-run', *_foreground_args(directory), '--new-window', WORKSPACE_URL]
         with FileLock(linker_home() / 'desktop-shortcuts.lock'):
             for name in (f'黑灯-{label}', f'黑灯-{label}-{key[:8]}'):
                 path = desktop / (name + suffix)
@@ -1361,7 +1396,7 @@ def browser_command(info: dict, url: str):
     if udd:
         cmd.append("--user-data-dir=" + (udd.group(1) or udd.group(2)))
     cmd.append("--profile-directory=" + ((pd.group(1) or pd.group(2)) if pd else "Default"))
-    cmd += ["--no-first-run", "--new-window", url]
+    cmd += ["--no-first-run", *_foreground_args(udd.group(1) or udd.group(2) if udd else None), "--new-window", url]
     return cmd
 
 

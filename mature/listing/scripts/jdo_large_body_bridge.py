@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the bundled jdo-cli invoke implementation with a body read from disk."""
+"""Run the bundled jdo-cli invoke implementation with a UTF-8 request file or standard input."""
 
 from __future__ import annotations
 
@@ -16,7 +16,9 @@ def main() -> int:
         sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("--runtime", type=Path, required=True)
-    parser.add_argument("--request", type=Path, required=True)
+    transport = parser.add_mutually_exclusive_group(required=True)
+    transport.add_argument("--request", type=Path)
+    transport.add_argument("--request-stdin", action="store_true")
     args = parser.parse_args()
 
     if sys.version_info[:2] != (3, 12):
@@ -26,7 +28,7 @@ def main() -> int:
     code = marshal.loads(args.runtime.read_bytes())
     exec(code, namespace)
 
-    request = json.loads(args.request.read_text(encoding="utf-8"))
+    request = json.loads(sys.stdin.buffer.read() if args.request_stdin else args.request.read_bytes())
     profile = str(request.get("profile") or "").strip().lower()
     if not profile or profile == "default":
         raise RuntimeError("request must include an explicit non-default jdo-cli profile")

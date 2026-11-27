@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from PIL import Image, ImageOps
 
 from .safety import SafetyError, atomic_json, file_sha, read_json, safe_join
-from .sample_comparison import download_image, jd_image_url
+from .sample_comparison import download_image, jd_image_url, original_image_url
 from .state import FileLock
 
 
@@ -23,6 +23,8 @@ def verify_pilot_preview(path, identity, product_id, sku_id, old_url):
         return  # An independently supplied merchant file uses the pilot's regular checks.
     receipt = read_json(safe_join(path.parent, 'receipt.json'), {})
     recipe = {k: receipt.get(k) for k in ('version', 'target', 'source', 'layers', 'compareBox')}
+    if receipt.get('version') == 2:
+        recipe['background'] = receipt.get('background')
     if (path.name != 'preview.png' or receipt.get('status') != 'local-preview' or
             _recipe_id(recipe) != path.parent.name or receipt.get('recipeId') != path.parent.name or
             file_sha(safe_join(path.parent, path.name)) != receipt.get('previewSha256')):
@@ -77,7 +79,7 @@ def preview(plan_path, *, fetch=None):
     if bool(source.get('file')) == bool(source.get('url')):
         raise ValueError('每次样图需要指明一个本地底稿或真实图片链接')
     if source.get('url'):
-        locator = jd_image_url(source['url'])
+        locator = original_image_url(source['url'])
         gallery_url = jd_image_url(target.get('galleryUrl'))
         if locator.split('/jfs/', 1)[1] != gallery_url.split('/jfs/', 1)[1]:
             raise ValueError('图片空间链接和该规格编辑前首图的资源标识不同，请核对原素材')
@@ -90,8 +92,25 @@ def preview(plan_path, *, fetch=None):
         raise ValueError('底图内容与原回执不同，请核对历史原件')
     original = _decode(raw)
     canvas = original.copy()
-    layers = plan.get('layers')
-    if not isinstance(layers, list) or not 1 <= len(layers) <= 24:
+    background = plan.get('background')
+    background_evidence, keep = None, None
+    if background is not None:
+        if not isinstance(background, dict) or not all(isinstance(background.get(k), str) for k in ('file', 'keepMask')):
+            raise ValueError('局部换背景需要本地背景文件和同尺寸保留区蒙版')
+        backdrop = _local_bytes(root, background['file'])
+        mask_data = _local_bytes(root, background['keepMask'])
+        with Image.open(BytesIO(mask_data)) as mask:
+            if mask.size != original.size or mask.mode not in ('1', 'L') or getattr(mask, 'n_frames', 1) != 1:
+                raise ValueError('保留区蒙版需要与原图同尺寸的单帧灰度图')
+            keep = mask.convert('L')
+        if keep.getextrema() != (0, 255):
+            raise ValueError('请在蒙版中标明保留的商品/原字（白）和可更换的背景（黑）')
+        canvas = ImageOps.fit(_decode(backdrop), original.size, method=Image.Resampling.LANCZOS)
+        background_evidence = {**{k: background[k] for k in ('file', 'keepMask')},
+                               'backgroundSha256': sha256(backdrop).hexdigest(),
+                               'keepMaskSha256': sha256(mask_data).hexdigest(), 'preservedPixels': keep.histogram()[255]}
+    layers = plan.get('layers', [])
+    if not isinstance(layers, list) or len(layers) > 24 or (not layers and background is None):
         raise ValueError('请提供 1 至 24 个按叠放顺序排列的图层')
     layer_evidence = []
     for layer in layers:
@@ -114,7 +133,9 @@ def preview(plan_path, *, fetch=None):
                                'crop': layer.get('crop'), 'mirror': mirror,
                                'placedBox': [x, y, x + item.width, y + item.height]})
 
-    region = _box(plan['compareBox'], canvas.size) if 'compareBox' in plan else None
+    if keep is not None:
+        canvas = Image.composite(original, canvas, keep)
+    region = _box(plan['compareBox'], canvas.size) if 'compareBox' in plan else (0, 0, *canvas.size)
     scope = {k: target[k] for k in fields}
     if target.get('galleryUrl'):
         scope['galleryUrl'] = jd_image_url(target['galleryUrl'])
@@ -122,6 +143,8 @@ def preview(plan_path, *, fetch=None):
               'source': {'location': locator, 'sha256': source_hash, 'bytes': len(raw),
                          'pixelSize': list(original.size)}, 'layers': layer_evidence,
               'compareBox': list(region) if region else None}
+    if background_evidence is not None:
+        recipe.update(version=2, background=background_evidence)
     key = _recipe_id(recipe)
     parent = safe_join(root, 'overlay-previews')
     parent.mkdir(exist_ok=True)

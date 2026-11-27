@@ -506,7 +506,13 @@ class JdoClient:
         if errors:
             _, message = _jdo_error(payload)
             raise JdoError(message)
-        return payload.get('data') or []
+        rows=payload.get('data')
+        if not isinstance(rows,list) or any(not isinstance(row,dict) for row in rows):
+            raise JdoError('SKU 素材查询未返回有效列表')
+        # An omitted collection is useful empty evidence only for a successful identity-only row.
+        return [dict(row,materials=None) if 'materials' not in row and (
+                    payload.get('success') is not True or not set(row)<={'skuId','productId'})
+                else row for row in rows]
 
     def bind_sku_materials(self, body: dict[str, Any]) -> dict[str, Any]:
         sku_materials = list(body.get('skuMaterials') or [])
@@ -722,24 +728,34 @@ def build_material_binding_requests(job: SpuJob, state_item: dict[str, Any]) -> 
 
 READ_CONCURRENCY = 8
 
-def _query_binding_materials(client: Any, sku_ids: Iterable[str]) -> dict[str, list[dict[str, Any]]]:
+def _query_binding_materials(client: Any, sku_ids: Iterable[str], *, read_gaps=None) -> dict[str, list[dict[str, Any]]]:
     identifiers = [cell_text(value) for value in sku_ids]
     materials_by_sku = {sku_id: [] for sku_id in identifiers}
     jobs = [(group, material_types, scope_set) for group in _chunks(identifiers, 50) for material_types, scope_set in (((31, 32, 33, 36), 1), ((1002,), 2))]
 
     def read(job):
         group, material_types, scope_set = job
-        rows = client.sku_materials(group, material_types, scope_set)
-        returned = [cell_text(item.get('skuId')) for item in rows]
-        if len(returned) != len(group) or set(returned) != set(group):
-            raise ValueError('SKU material verification returned an incomplete SKU set')
-        if any(not isinstance(item.get('materials'), list) for item in rows):
-            raise ValueError('SKU 素材回查字段缺失；结果待核对')
-        return rows
+        try:
+            rows = client.sku_materials(group, material_types, scope_set)
+            returned = [cell_text(item.get('skuId')) for item in rows]
+            if len(returned)!=len(set(returned)) or not set(returned)<=set(group):
+                raise ValueError('SKU material verification returned unexpected or duplicate SKUs')
+            by_id=dict(zip(returned,rows))
+            missing=[sid for sid in group if sid not in by_id or
+                     ('materials' in by_id[sid] and not isinstance(by_id[sid]['materials'],list))]
+            if missing and read_gaps is None:
+                raise ValueError('SKU material verification returned an incomplete SKU set')
+            # A successful query can echo a SKU with no materials member when it has no bindings.
+            return [r for sid,r in by_id.items() if sid not in missing],missing,material_types
+        except (JdoError,OSError,ValueError,TypeError,KeyError):
+            if read_gaps is None:raise
+            return [],group,material_types
     # Read-only and independent per 50-SKU chunk: bounded parallel reads (8,191-SKU shop took ~26 min serially).
     workers = 1 if len(jobs) <= 2 else READ_CONCURRENCY
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for rows in pool.map(read, jobs):
+        for rows,missing,kinds in pool.map(read, jobs):
+            if read_gaps is not None:
+                for sid in missing:read_gaps.setdefault(sid,[]).extend(kinds)
             for item in rows:
                 materials_by_sku[cell_text(item.get('skuId'))].extend(item.get('materials') or [])
     return materials_by_sku
@@ -1052,7 +1068,8 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
         allowed = set(map(str, authorized_sku_ids))
         online = [item for item in online if cell_text(item.get('skuId')) in allowed]
     online_ids = [cell_text(item.get('skuId')) for item in online]
-    materials = _query_binding_materials(client, online_ids) if online_ids else {}
+    read_gaps = {}
+    materials = _query_binding_materials(client, online_ids, read_gaps=read_gaps) if online_ids else {}
     rows = []
     issues = {}
     deficits = []
@@ -1074,6 +1091,7 @@ def audit_pop_coverage(client, expected_shop_name, title_workbooks=(), *, produc
             found = [entry for entry in materials[sku_id] if int(entry.get('materialType') or 0) == kind and int(entry.get('order') or 0) == order]
             statuses = [int(entry.get('status') or 0) for entry in found]
             state, approved = material_slot_state(found)
+            if kind in read_gaps.get(sku_id,[]):state='unknown'
             slots[slot] = {'state': state, 'statuses': statuses, 'approvedValues':approved, 'auditReasons': list(dict.fromkeys(cell_text(entry.get('auditDesc')) for entry in found if entry.get('auditDesc')))}
         states = {value['state'] for value in slots.values()}
         if states & {'missing', 'rejected'}:

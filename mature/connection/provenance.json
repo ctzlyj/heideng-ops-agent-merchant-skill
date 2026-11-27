@@ -28,7 +28,7 @@
     },
     "app/shoplib.py": {
       "upstreamSha256": "3302e5f77efe076313b2d18f5bc8c41eedda3164e9835c6d1a466b704c48e1b2",
-      "sha256": "cc2edd75d85f13de169ebd1d54e2c184c91774162d619065eec3b249f45e99d5",
+      "sha256": "e8173e5659814c25f3caa871f865b36a9cdc1f0dd3ab95a9f03c328eb7cacd6a",
       "adapted": true
     },
     "app/static/index.html": {

@@ -1,5 +1,15 @@
 # 图文优化、SKU图片与整店刷新
 
+## 商家只要先看一张或继续已做好的图
+
+先辨清商家要改的图位和允许改变的元素。只换背景时，查看本店原图，核对前景结构、卖点原文和版式。需要严格保留文字与商品像素时，`preview-overlay` 支持 `background: {file,keepMask}` 的本地分层合成；生成式编辑的结果以实际样张对照验收。首样交付左原右新及对应商品规格，注明提示词来自商家还是宿主。取图沿京麦正式返回的路径和原图下载入口，保留原始字节和哈希；显示用缩略图可能带平台叠印。
+
+原建任务入口 `run image-refresh` 的 `--main-selection per-link|sku|remaining-colors` 可选每链接一张、指定 SKU 或其余颜色组。用 `--copy-batch-report` 承接实际搬家范围，`--max-images` 限定本次不同成图数，`--approved-sample` 复用已认可原样，`--approved-prompt-file` 沿用商家原话。报价按尚需新生成的图计算。颜色、款式、容量共用一张图时，分别说明不同图片数和受影响的物理图位数。
+
+同一批次问进度或继续上传时，使用 `run --entry scripts/run_all.py image-refresh -- <原目录> --progress` 查看生成、上传、后台图位和待核情况；`--reconcile-uploads` 核原上传；明确要替换现有成图时用 `--publish-existing`。平台受理、目标分组的第一张实际回读、其他图位与 SKU 保留情况、买家页面各自取证。要抽十个看时可用 `--sample 10`，用真实同一商品前后图生成汇总。
+
+商家明确说“以后改图先让我提要求”时，按店用 `image-design remember` 记录原话引用及 `merchant-first` 偏好，`image-design show` 可读取。新任务明确“沿用上次”时用 `--reuse-approved-prompt`；临时交给宿主设计时按该次要求处理。偏好和已批准样张均不授予新的生图费用。
+
 ## 适用问题与事实
 
 现有商品主图/详情风格优化、SKU代表图/规格图落位、整店刷新、驳回图修复。需要目标店铺与商品SKU集合、素材槽位/用途、真实商品外观、当前线上图片、已批准修改范围，以及是否已有合格新图。

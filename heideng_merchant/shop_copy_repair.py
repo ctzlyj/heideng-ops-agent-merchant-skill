@@ -77,7 +77,7 @@ def _mapping(frozen, detail, pid):
         problems.append('源、目标的全部规格尚未形成独立于商家编码的一一对应')
     for sid,tid in pairs.items():
         wanted = source_codes[sid]
-        if not isinstance(wanted,str) or not wanted.strip():
+        if not isinstance(wanted,str) or (wanted != '' and not wanted.strip()):
             if wanted != current[tid] or wanted is None:
                 problems.append(f'源 SKU {sid} 缺少明确的原始文本编码，保留目标现值')
             continue
@@ -244,6 +244,10 @@ def _exact_template(api, apply, pid, changes, root, folder, frozen, target):
         if field is not None and (field.get('value') or '') != (current or ''):
             raise ValueError(f'目标 SKU {sid} 的编码与原模板不符')
         if sid in changes:
+            if changes[sid]['after']=='':
+                controls=[node for node in copy._template_nodes(catalog) if node.get('componentCode')=='SkuVendorSku']
+                if any(copy._required(node) for node in controls):
+                    raise ValueError(f'目标 SKU {sid} 当前模板要求非空商家编码，源空值仍未对齐')
             if field is None:
                 if code_declared is None:
                     code_declared = _declares_sku_code(catalog)

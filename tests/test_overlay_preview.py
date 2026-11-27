@@ -37,6 +37,24 @@ class OverlayPreviewTests(unittest.TestCase):
         self.spec.write_text(json.dumps(self.plan), encoding='utf-8')
         return self.spec
 
+    def test_background_keep_mask_preserves_original_foreground_pixels_and_full_comparison(self):
+        self.plan.pop('layers')
+        self.plan.pop('compareBox')
+        mask = Image.new('L', (120, 90), 0)
+        mask.paste(255, (10, 5, 80, 60))
+        mask.save(self.root / 'keep.png')
+        Image.new('RGB', (60, 60), 'white').save(self.root / 'background.png')
+        self.plan['background'] = {'file': 'background.png', 'keepMask': 'keep.png'}
+        result = preview(self.save())
+        self.assertEqual(result['background']['preservedPixels'], 70 * 55)
+        self.assertEqual((result['platformWrites'], result['paidRequests']), (0, 0))
+        with Image.open(self.root / 'base.jpg') as source, Image.open(result['previewPath']) as actual:
+            self.assertEqual(source.convert('RGB').crop((10, 5, 80, 60)).tobytes(), actual.convert('RGB').crop((10, 5, 80, 60)).tobytes())
+            self.assertEqual(actual.convert('RGB').getpixel((0, 0)), (255, 255, 255))
+        with Image.open(result['comparisonPath']) as both:
+            self.assertEqual(both.size, (240, 90))
+        verify_pilot_preview(result['previewPath'], {'shopId': '11', 'venderId': '32'}, 600, 751, 'jfs/item.png')
+
     def test_cli_lossless_two_layers_and_old_preview_survives_revision(self):
         state = self.root / 'state'
         merchant = Path(__file__).resolve().parents[1] / 'scripts' / 'merchant.py'

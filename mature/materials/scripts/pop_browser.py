@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """POP 店铺后台浏览器任务：短标题导入、京麦批量抠图。
 
-只复用店铺自己的 Chrome 配置（不复制 Cookie、不读凭据），窗口放到屏幕外，
-不抢占用户正在使用的浏览器。Playwright 为可选依赖：缺失时给出明确安装命令。
+只复用店铺自己的浏览器配置。后台任务最小化启动，保留正常的桌面窗口位置。
 """
 import argparse
 import json
@@ -17,7 +16,6 @@ from pathlib import Path
 
 WARE_LIST_URL = 'https://wares-jdm.jd.com/ware/wareList?activeTab=OnsaleWare&businessModel=0'
 MATERIAL_URL = 'https://wares-jdm.jd.com/ware/wareList/materialCenter/materialScene?activeTab=OnsaleWare&businessModel=0'
-OFFSCREEN = '--window-position=-32000,-32000'
 
 
 def _playwright():
@@ -40,7 +38,7 @@ def _open(playwright, profile_dir: str, viewport=(1600, 950)):
     channel = browser_profile_channel(profile_dir)
     return playwright.chromium.launch_persistent_context(
         profile_dir, channel=channel, headless=False,
-        args=['--profile-directory=Default', '--no-first-run', OFFSCREEN],
+        args=['--profile-directory=Default', '--no-first-run', '--start-minimized'],
         viewport={'width': viewport[0], 'height': viewport[1]},
     )
 
@@ -300,12 +298,16 @@ def submit_title_batches(profile_dir, batches, importer, options, *, ledger_path
         try:
             receipt=importer(profile_dir,batch['path'],**options,expected_sha256=batch['sha256'])
         except Exception as error:
+            from heideng_merchant.safety import redact
             receipt={'status':'blocked-import','failureClass':type(error).__name__,
                      'reason':'Import or readback did not finish; inspect the original batch receipt before retrying'}
-            if isinstance(error,ValueError):
-                receipt['reason']=str(error)[:400]
+            if str(error).strip():
+                receipt['reason']=redact(str(error).strip().splitlines()[0])[:400]
             if not Path(batch['receiptPath']).exists():
                 receipt['dispatchState']='before-upload'
+                receipt['nextAction']='宿主恢复本店专用浏览器与原文件导入入口，再继续本批；尚无上传请求。'
+            else:
+                receipt['nextAction']='先读原批上传或创建任务的回执，核对真实导入任务；结果不明时仅回查。'
         receipt={**receipt,**batch}
         imports.append(receipt)
         done=completed_batch(receipt,batch['rowCount'])

@@ -17,7 +17,7 @@
     },
     "scripts/jdo_listing_mvp.py": {
       "upstreamSha256": "42281253267957388ed5e3cd111889898b3a4ac61952bb89c509f10d669b0a1e",
-      "sha256": "01b6526fd8198f3c54ad16c732711fc86becc13ee1fb7049ec5cfc59555ec71d",
+      "sha256": "d0740b6f916636d3e796569565fd7bb275a55f2209b952d4699eadc75f2c308c",
       "adapted": true
     },
     "scripts/jd_product_mover.py": {
@@ -27,7 +27,7 @@
     },
     "scripts/jd_product_pipeline.py": {
       "upstreamSha256": "389d5df3d1f64000fd2febeeed6fed19a32adb3c4465191b2fe9331e8fdbc372",
-      "sha256": "f22f0bc5653e0b20948e9488aed17252453df18d4be084301255ff65abda58a4",
+      "sha256": "f170112240d60d93dcd89f8774591e37781f71bc59de874b9969d4ea7d5cb200",
       "adapted": true
     },
     "scripts/source_pricing.py": {
@@ -117,8 +117,8 @@
     },
     "scripts/jdo_large_body_bridge.py": {
       "upstreamSha256": "189a1482921581ff751754d84b2a8525947d18f361a13d886dca251ce2b541d3",
-      "sha256": "189a1482921581ff751754d84b2a8525947d18f361a13d886dca251ce2b541d3",
-      "adapted": false
+      "sha256": "a2148593ba7f23e23c59b9fcb6b9ba5c00f897c449b8497340b03a433c7f9bea",
+      "adapted": true
     },
     "scripts/jdo_bridge_probe.py": {
       "upstreamSha256": "69d5349f7285e53278bff76063e55875bbe724d7193c6a2fa3808fb6a79f4748",

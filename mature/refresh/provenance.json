@@ -8,12 +8,12 @@
   "files": {
     "scripts/_common.py": {
       "upstreamSha256": "5e56a6d8a8ad628785a406f72da7968c91bf70e8a082598163b7707d32e3b8fc",
-      "sha256": "87a66093ad89c95bdfd6b39557fee3fba355f3100b6cf55dd02b8de424a2606b",
+      "sha256": "89cd9ea7aa65ee330ac375204d82a152507e946acffde4aaa4986b7f7e7ec732",
       "adapted": true
     },
     "scripts/build_plan.py": {
       "upstreamSha256": "873a04b51a9c9d01fb59504cac2b3c6052b2440d6b03d5c7769c158cc70ef16b",
-      "sha256": "137d7595b2e8e89940c148490f3ce41051e22d8dfea7809205297ec78a2b9de3",
+      "sha256": "fe21faed4509d093d0a342585b24dd4bc611ae3009fc50656d4ddc97ebee9e8c",
       "adapted": true
     },
     "scripts/cleanup.py": {
@@ -23,8 +23,8 @@
     },
     "scripts/compare.py": {
       "upstreamSha256": "2d5bb47353659ed2cf6c50a60319d495fcbbbc58effa2b102905cb931ee5d414",
-      "sha256": "2d5bb47353659ed2cf6c50a60319d495fcbbbc58effa2b102905cb931ee5d414",
-      "adapted": false
+      "sha256": "8aed7e43de56dd0cbc2233f18b1432c6fd1f8eee9c8a48c460eaa373e4e66146",
+      "adapted": true
     },
     "scripts/detail_patch_update.py": {
       "upstreamSha256": "aec05c8de6c44f2d5d3256625d3c0d27ada6284ef6f50716e27719739976803c",
@@ -33,12 +33,12 @@
     },
     "scripts/download_sources.py": {
       "upstreamSha256": "2d22f4f3ce96e91f1436987dc29277277f7d023a07f0d658236a1502291c8141",
-      "sha256": "2d22f4f3ce96e91f1436987dc29277277f7d023a07f0d658236a1502291c8141",
-      "adapted": false
+      "sha256": "3db3a5a4d81816bdf7bc3218d6b5641dd19b430d182b81e916f5a67f9a0a218a",
+      "adapted": true
     },
     "scripts/generate.py": {
       "upstreamSha256": "091eb311fcc7a3637f8a5874e224528f99c636e770ab0718b15296c0b6d72c2b",
-      "sha256": "df47c5ec9ddd684baa4e60a518ccd71f535a33d5dd13a4a86ea7959cea6cd5bd",
+      "sha256": "6741bfd76207545a476e22d49e3133da2a5aa48267134fc0985843920f8535f4",
       "adapted": true
     },
     "scripts/image_patch_update.py": {
@@ -53,7 +53,7 @@
     },
     "scripts/new_job.py": {
       "upstreamSha256": "da1fb505156febab36a939a7fca948ba0d46cd78e44148be5bbe1840d7e8d2da",
-      "sha256": "d8cecd5a657b4a6f6cc54470a1f6d3759bf000c6486973975e5d46fd38f62642",
+      "sha256": "ef8b443fc8e7d4b6850ab0b33c65e24f09a48a1718a76e878ebc24e6690e7030",
       "adapted": true
     },
     "scripts/no_window.py": {
@@ -63,7 +63,7 @@
     },
     "scripts/patch.py": {
       "upstreamSha256": "24bc66dfd8421f70e3a29e7cdcddcd44506a32d0cfaa317b6d15b4fbaadc30fb",
-      "sha256": "788c38d8a139106c5e153742da53e636564cd70d543277ba4332f9dc54bc1ca2",
+      "sha256": "7471e59e4af10a4585ec4a51ec1f90eab8e944a18db8b2781136599d32512ec9",
       "adapted": true
     },
     "scripts/patch_detail.py": {
@@ -83,12 +83,12 @@
     },
     "scripts/report.py": {
       "upstreamSha256": "35078739084619338c1e03153c04a9e8dd694db60adc658740241556c1b16cd8",
-      "sha256": "dd1a8b0efec2df46d3c0c3573238c745c8bf0c0cc41a5bc1c3569df662644863",
+      "sha256": "9ecd7bac9ea29373089a6e28cbcc87d710d51fb8b003f6f662a27cc80f1e5f7a",
       "adapted": true
     },
     "scripts/run_all.py": {
       "upstreamSha256": "78664d10697e9319f7da5f8b1309065186146e73a2003d2fd77a01bfcbb13561",
-      "sha256": "9ebcd96b239f251eb62689e85c96af13cacb401308e7ceb1ae24b3edc71ed7bd",
+      "sha256": "4269447ffd686a17f7d3c99b1ddae4f594f861931c608becc3eb388b8f3e5496",
       "adapted": true
     },
     "scripts/start_job.py": {
@@ -98,12 +98,12 @@
     },
     "scripts/upload.py": {
       "upstreamSha256": "632d1246e074065158a9af315abfedb771217a75dd6147bb6a92814db0d3e40c",
-      "sha256": "60ac48cf64bd660901a327304457231f86314d733747b476be46c6881d7a3c1f",
+      "sha256": "19a511e6d3b479e313c676568a54451d2cba3929454c8a388f5ca59b618cdbb0",
       "adapted": true
     },
     "scripts/verify.py": {
       "upstreamSha256": "6d97969ba1439af919bcb09c6b646b638102551f52f599eaa20390546a2fb92f",
-      "sha256": "efdbf2175d5bd7036b21557b303a8a48b127a8c260a3dadadb2fdaf534f4a720",
+      "sha256": "f14d92e1154d3eed667c6f7fafd32f68eba50185667170236c78520195453c00",
       "adapted": true
     },
     "requirements.txt": {

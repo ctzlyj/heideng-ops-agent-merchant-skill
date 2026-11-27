@@ -9,6 +9,20 @@ def load(name,file):
     spec=importlib.util.spec_from_file_location(name,file);module=importlib.util.module_from_spec(spec);sys.modules[name]=module;spec.loader.exec_module(module);return module
 
 class MatureMaterialsTests(unittest.TestCase):
+    def test_identity_only_material_read_is_distinct_from_an_unreported_sku(self):
+        agent=self.agent()
+        client=agent.JdoClient('fixture')
+        def query(skill,url,params):
+            if params['scopeSet']==[2]:
+                return {'success':True,'data':[{'skuId':sid,'materials':[]} for sid in params['skuIds']]}
+            return {'success':True,'data':[{'skuId':11},{'skuId':12,'errorCode':'NOT_VISIBLE'}]}
+        with patch.object(client,'_get',side_effect=query):
+            gaps={}
+            items=agent._query_binding_materials(client,['11','12','13'],read_gaps=gaps)
+            self.assertEqual(items,{'11':[],'12':[],'13':[]})
+            self.assertEqual(gaps,{'12':[31,32,33,36],'13':[31,32,33,36]})
+            with self.assertRaisesRegex(ValueError,'incomplete'):
+                agent._query_binding_materials(client,['11','12','13'])
     def setUp(self):
         self.path=list(sys.path);sys.path.insert(0,str(SOURCE/'scripts'))
         self.names=('jd_material_agent','pop_attrs','pop_browser','pop_cutout','pop_repair','pop_safety','pop_text','pop_workflow','jdo_bridge_probe')
